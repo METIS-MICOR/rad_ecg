@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "rad-ecg"
+version = "0.1.0"
+description = ""
+authors = ["Landcruiser87 <andyheroy@gmail.com>"]
+readme = "README.md"
+packages = [{include = "rad_ecg", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.8"
+numpy = "1.22.0"
+pandas = "1.4.0"
+rich = "^13.7.0"
+wfdb = "^4.1.2"
+scipy = "~1.9.3"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.3"
+ipykernel = "^6.26.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
