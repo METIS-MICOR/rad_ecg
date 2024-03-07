@@ -9,8 +9,6 @@
         <img src="https://img.shields.io/badge/Python-3.8-ff69b4.svg" /></a>
 </p>
 
-TODO - redo the title / badge calls into pure markdown
-	#Robust Amorphous Detection?
 
 ## Requirements
 
@@ -107,18 +105,5 @@ poetry show -T
 
 ## Andy Todo List
 
-### General
-
-- [x] - Finish Unit testing
-- [x] - Package
-
-### Packaging
-
 [ ] - Package and upload to pypy
 
-### Unit Tests
-
-- [x] Get method to pull scipy dataset into memory.
-- [x] STFT test
-- [x] Unit test for R peak search.
-  - Will probably need to run this through the full script in order to test it.  I may not have enough data so I'll have to run the entire sample signal through.  
