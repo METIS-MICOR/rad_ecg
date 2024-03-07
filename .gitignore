@@ -143,7 +143,6 @@ dmypy.json
 *.dat
 *.mib
 *.log
-*.csv
 *.txt
 
 
