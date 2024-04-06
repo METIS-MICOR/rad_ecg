@@ -138,7 +138,7 @@ dmypy.json
 
 .Rhistory
 .DS_Store
-/__pycache__/ #TODO - Make sure that works
+/__pycache__/
 *.hea
 *.dat
 *.mib

@@ -47,35 +47,23 @@ Once activated, install the required libraries.
 pip install -r requirements.txt
 ```
 
+# Project setup with Poetry
+
 ## How to check Poetry installation
 
-First, make sure poetry is installed on your system. Type the following into your terminal
+In your terminal, navigate to your root folder.
+
+To make sure poetry is installed on your system. Type the following into your terminal
 
 ```terminal
 poetry -V
 poetry self update
 ```
 
-if you see a `version` returned, you have Poetry installed.  The second command is to update poetry if its installed. (Always a good idea). If not, follow this [link](https://python-poetry.org/docs/) and follow installation commands for your systems requirements. If on windows, we recommend the `powershell` option for easiest installation. Using pip to install poetry will lead to problems down the road and we do not recommend that option.  It needs to be installed separately from your standard python installation to manage your many python installations.  `Note: Python 2.7 is not supported`
+If poetry is not installed, do so in order to continue
 
-### Environment storage
 
-Some prefer Poetry's default storage method of storing environments in one location on your system.  The default storage are nested under the `{cache_dir}/virtualenvs`.  See the below image for general system location of the cache.
-
-![Cache Directory](docs/images/p_cach_dir.png)
-
-If you want to store you virtual environment locally.  Set this global configuration flag below once poetry is installed.  This will now search for whatever environments you have in the root folder before trying any global versions of the environment in the cache.
-
-```terminal
-poetry config virtualenvs.in-project true
-```
-
-For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
-
-# Project setup with Poetry
-
-In your terminal, navigate to your root folder.
-To create or launch current virtual environment (.venv)
+To spawn a new poetry .venv
 
 ```terminal
 poetry shell
@@ -102,6 +90,24 @@ To view only top level library requirements
 ```terminal
 poetry show -T
 ```
+
+
+if you see a `version` returned, you have Poetry installed.  The second command is to update poetry if its installed. (Always a good idea). If not, follow this [link](https://python-poetry.org/docs/) and follow installation commands for your systems requirements. If on windows, we recommend the `powershell` option for easiest installation. Using pip to install poetry will lead to problems down the road and we do not recommend that option.  It needs to be installed separately from your standard python installation to manage your many python installations.  `Note: Python 2.7 is not supported`
+
+### Environment storage
+
+Some prefer Poetry's default storage method of storing environments in one location on your system.  The default storage are nested under the `{cache_dir}/virtualenvs`.  See the below image for general system location of the cache.
+
+![Cache Directory](docs/images/p_cach_dir.png)
+
+If you want to store you virtual environment locally.  Set this global configuration flag below once poetry is installed.  This will now search for whatever environments you have in the root folder before trying any global versions of the environment in the cache.
+
+```terminal
+poetry config virtualenvs.in-project true
+```
+
+For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
+
 
 ## Andy Todo List
 
