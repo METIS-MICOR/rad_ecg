@@ -315,7 +315,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
         section_counter (int):Tracking what section we're in
     Returns:
         (tuple): Tuple of the HR stats for that section.
-    """		
+    """
     #First look and see if there's any peaks that are invalid (ie = 0). 
     #(Ignore the last peak as it's most likely invalid)
     global ecg_data, fs

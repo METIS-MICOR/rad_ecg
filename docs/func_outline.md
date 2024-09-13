@@ -1,7 +1,5 @@
-Functions Outline
+Main Functions Outline
 ------------
-Since I'm going to keep this function based for now, I need some way to track what all the functions are doing to optimize my refactor efforts and focus.  These are all the main functions. They do not include subfunctions within. 
-
 
 |# | Function | scope | Description |
 |:--- |:-------------|:-------------:|:-------------:|
