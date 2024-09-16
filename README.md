@@ -110,17 +110,17 @@ For general instruction as to poetry's functionality and commands, please see re
 
 Before running the extraction script, adjust/amend the config.json in the root of this folder to your runtime requirements. 
 
-- Do you want to plot the fourier transforms when a signal is lost?
-  - "plot_fft":false,   
-- Do you want to plot errors as they occur in extraction
+1. Do you want to plot the fourier transforms when a signal is lost?
+  - "plot_fft":false
+2. Do you want to plot errors as they occur in extraction
   - "plot_errors":false
-- In Hz.  What sampling frequency was used with the data
+3. What sampling frequency was used with the data (Hz)
   - "samp_freq:170
-- Do you want to display the terminal dashboard during extraction  
-  - "live_term":false,
-- Is this porcine data?  
-  - "porcine":false,
-- Provide data path
+4. Do you want to display the terminal dashboard during extraction  
+  - "live_term":false
+5. Is this porcine data?  
+  - "porcine":false
+6. Provide data path
   - "data_path"  :"/src/pathtoyourdata/onyourmachine"
 
 To run the extraction program, run the command
@@ -131,7 +131,7 @@ poetry run python peak_detect_v3.py
 ## Andy Todo List
 
 [ ] - Add overall progbar with standard log output
-[ ] - Add JSON runtime config 
+[x] - Add JSON runtime config 
 [ ] - Adjust logger logic to run off global calls
 [ ] - Update README
 [ ] - Package and upload to pypy

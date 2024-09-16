@@ -7,12 +7,25 @@ from os.path import exists
 
 #FUNCTION Custom init
 def init(source:str, logger:logging):
+    """Custom init
+
+    Args:
+        source (str): Where the init was called from (test/main)
+        logger (logging): For all things logging
+
+    Returns:
+        tuple (ecg_data, wave, fs): Returns the data containers to run software. 
+            - ecg_data = dict of various measures
+            - wave = EKG to analyze in question
+            - fs = Sampling Frequency of the wave
+            - configs = global configuration settings
+    """    
     #Load config variables
     global configs
     configs = load_config()
     ecg_data, wave, fs = load_structures(source, logger)
     
-    return ecg_data, wave, fs
+    return ecg_data, wave, fs, configs
 
 #FUNCTION Load Config
 def load_config()->json:
@@ -38,9 +51,10 @@ def load_signal_data(head_file:str):
 
 #FUNCTION Choose CAM
 def choose_cam(logger:logging):
-    #TODO - Need update this loader
+
+    #TODO - Need to update this loader
     head_files = utils.get_records('inputdata')
-    
+
     #Inquire which file you'd like to run
     logger.critical("Which CAM would you like to import?")
     for idx, head in enumerate(head_files):
