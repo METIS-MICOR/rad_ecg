@@ -1,10 +1,9 @@
 {"settings":
-    {
-    "plot_fft"   :false,   
-    "plot_errors":false,   
-    "live_term"  :false,   
-    "porcine"    :false,
-    "samp_freq"  :170,   
-    "data_path"  :"/src/pathtoyourdata/onyourmachine" 
+    {"plot_fft"   : false,   
+    "plot_errors" : false,   
+    "live_term"   : false,   
+    "porcine"     : false,
+    "samp_freq"   : 170,   
+    "data_path"   : "/src/pathtoyourdata/onyourmachine" 
     }
 }

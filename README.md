@@ -132,5 +132,6 @@ poetry run python peak_detect_v3.py
 
 [ ] - Add overall progbar with standard log output
 [ ] - Add JSON runtime config 
+[ ] - Adjust logger logic to run off global calls
 [ ] - Update README
 [ ] - Package and upload to pypy

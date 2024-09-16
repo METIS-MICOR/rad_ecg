@@ -1,7 +1,7 @@
 #NOTE Custom Imports
-from rad_ecg.scripts import utils
-from rad_ecg.scripts import support
-from rad_ecg.scripts import setup_globals
+import utils        #from rad_ecg.scripts # 
+import support      #from rad_ecg.scripts # 
+import setup_globals#from rad_ecg.scripts # 
 
 #NOTE Main library imports
 import scipy.signal as ss
@@ -1470,12 +1470,17 @@ def main():
             #2. Query the user.
                 #This might be cleaner from a user perspective.  
                 #Ask a series of above questions to get to the point we need. 
+
+        #Solution
+            #Config JSON file.  Ships natively with python.  Easy to load and unload at runtime. 
+            #Should be easy enough to adjust if the README is detailed enough. 
                 
     #Load data through the copied repo structure. 
     ecg_data, wave, fs = setup_globals.init(__name__, logger)
     
     #TODO - Add overall prog to log output in terminal
-
+    #TODO - Nest logger functions and declare as global
+    
     #Run peak search extraction
     ecg_data = main_peak_search(
         False, #plot fft?

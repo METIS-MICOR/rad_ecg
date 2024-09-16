@@ -1,12 +1,29 @@
-from rad_ecg.scripts import utils
+import utils#from rad_ecg.scripts 
 import numpy as np
 import wfdb
 import logging
+import json
+from os.path import exists
 
 #FUNCTION Custom init
 def init(source:str, logger:logging):
+    #Load config variables
+    global configs
+    configs = load_config()
     ecg_data, wave, fs = load_structures(source, logger)
+    
     return ecg_data, wave, fs
+
+#FUNCTION Load Config
+def load_config()->json:
+    """Load global variable configs
+
+    Returns:
+        config_data: Loads configuation data
+    """
+    with open("config.json", "r") as f:
+        config_data = json.loads(f.read())
+    return config_data
 
 #FUNCTION Load Signal Data
 def load_signal_data(head_file:str):
@@ -21,7 +38,9 @@ def load_signal_data(head_file:str):
 
 #FUNCTION Choose CAM
 def choose_cam(logger:logging):
+    #TODO - Need update this loader
     head_files = utils.get_records('inputdata')
+    
     #Inquire which file you'd like to run
     logger.critical("Which CAM would you like to import?")
     for idx, head in enumerate(head_files):
@@ -70,15 +89,7 @@ def load_structures(source:str, logger:logging):
         windowsi = 9
 
     elif source == "__main__":
-        #IDEA Could put file picking function here. 
-        #Maybe ask a prompt of, which would you like to do?
-            #1. Load data into package folder. 
-                #a. through local file storage
-                #b. through GCP bucket storage
-
-            #2. Analyze pig data. 
-            #3. 
-            
+        #Load             
         head_files, header_chosen = choose_cam(logger)
         record = load_signal_data(head_files[header_chosen])
 
@@ -90,24 +101,27 @@ def load_structures(source:str, logger:logging):
 
         #Size of timing segment window
         windowsi = 10
+    else:
+        logger.CRITICAL("New runtime environment detected outside of normal operating params.\nPlease rerun with appropriate configuration")
+        exit()
 
-    #Divide waveform into even segments 
+    #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
     wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
 
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
         ('wave_section', 'i4'),
-        ('start_point', 'i4'),
-        ('end_point', 'i4'),
-        ('valid', 'i4'),
-        ('fail_reason', str, 16),
-        ('Avg_HR', 'f4'), 
-        ('SDNN', 'f4'),
-        ('min_HR_diff', 'f4'), 
-        ('max_HR_diff', 'f4'), 
-        ('RMSSD', 'f4'),
-        ('NN50', 'f4'),
-        ('PNN50', 'f4')
+        ('start_point' , 'i4'),
+        ('end_point'   , 'i4'),
+        ('valid'       , 'i4'),
+        ('fail_reason' , str, 16),
+        ('Avg_HR'      , 'f4'), 
+        ('SDNN'        , 'f4') ,
+        ('min_HR_diff' , 'f4'), 
+        ('max_HR_diff' , 'f4'), 
+        ('RMSSD'       , 'f4'),
+        ('NN50'        , 'f4'),
+        ('PNN50'       , 'f4')
     ]
 
     #Base data container keys
