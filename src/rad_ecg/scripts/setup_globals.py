@@ -70,6 +70,15 @@ def load_structures(source:str, logger:logging):
         windowsi = 9
 
     elif source == "__main__":
+        #IDEA Could put file picking function here. 
+        #Maybe ask a prompt of, which would you like to do?
+            #1. Load data into package folder. 
+                #a. through local file storage
+                #b. through GCP bucket storage
+
+            #2. Analyze pig data. 
+            #3. 
+            
         head_files, header_chosen = choose_cam(logger)
         record = load_signal_data(head_files[header_chosen])
 
@@ -82,9 +91,8 @@ def load_structures(source:str, logger:logging):
         #Size of timing segment window
         windowsi = 10
 
-    #TODO - Need an input here to change the width of the sections
     #Divide waveform into even segments 
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:50_000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
 
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [

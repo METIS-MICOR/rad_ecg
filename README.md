@@ -108,8 +108,29 @@ poetry config virtualenvs.in-project true
 
 For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
 
+Before running the extraction script, adjust/amend the config.json in the root of this folder to your runtime requirements. 
 
+- Do you want to plot the fourier transforms when a signal is lost?
+  - "plot_fft":false,   
+- Do you want to plot errors as they occur in extraction
+  - "plot_errors":false
+- In Hz.  What sampling frequency was used with the data
+  - "samp_freq:170
+- Do you want to display the terminal dashboard during extraction  
+  - "live_term":false,
+- Is this porcine data?  
+  - "porcine":false,
+- Provide data path
+  - "data_path"  :"/src/pathtoyourdata/onyourmachine"
+
+To run the extraction program, run the command
+
+```terminal
+poetry run python peak_detect_v3.py
+```
 ## Andy Todo List
 
+[ ] - Add overall progbar with standard log output
+[ ] - Add JSON runtime config 
+[ ] - Update README
 [ ] - Package and upload to pypy
-

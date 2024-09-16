@@ -1,4 +1,98 @@
+import datetime
+import numpy as np
+import time
+import json
+from os.path import exists
+import logging
+from pathlib import Path
+#Progress bar fun
+from rich.progress import (
+    Progress,
+    BarColumn,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn
+)
+from rich.logging import RichHandler
+from rich.align import Align
+from rich.layout import Layout
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.console import Console
 
+################################# Logger functions ####################################
+
+def get_file_handler(log_dir:Path)->logging.FileHandler:
+    """Assigns the saved file logger format and location to be saved
+
+    Args:
+        log_dir (Path): Path to where you want the log saved
+
+    Returns:
+        filehandler(handler): This will handle the logger's format and file management
+    """	
+    log_format = f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
+    current_date = time.strftime("%m_%d_%Y")
+    log_file = log_dir / f"{current_date}.log"
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter(log_format, "%m-%d-%Y %H:%M:%S"))
+    return file_handler
+
+def get_rich_handler(console:Console):
+    """Assigns the rich format that prints out to your terminal
+
+    Args:
+        console (Console): Reference to your terminal
+
+    Returns:
+        rh(RichHandler): This will format your terminal output
+    """
+    rich_format = f"%(message)s"
+    rh = RichHandler(console=console)
+    rh.setFormatter(logging.Formatter(rich_format))
+    return rh
+
+def get_logger(log_dir:Path, console:Console)->logging.Logger:
+    """Loads logger instance.  When given a path and access to the terminal output.  The logger will save a log of all records, as well as print it out to your terminal. Propogate set to False assigns all captured log messages to both handlers.
+
+    Args:
+        log_dir (Path): Path you want the logs saved
+        console (Console): Reference to your terminal
+
+    Returns:
+        logger: Returns custom logger object.  Info level reporting with a file handler and rich handler to properly terminal print
+    """	
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(get_file_handler(log_dir))
+    logger.addHandler(get_rich_handler(console))
+    logger.propagate = False
+    return logger
+
+#CLASS Numpy encoder
+class NumpyArrayEncoder(json.JSONEncoder):
+    """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.
+    Source Code found here.  https://pynative.com/python-serialize-numpy-ndarray-into-json/
+    Args:
+        json (object): Json serialized format
+    """	
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, str):
+            return str(obj)
+        elif isinstance(obj, datetime.datetime):
+            return datetime.datetime.strftime(obj, "%m-%d-%Y_%H-%M-%S")
+        else:
+            return super(NumpyArrayEncoder, self).default(obj)
+        
+################################# Email Funcs ####################################
 def send_run_email(run_time:str):
     """Function for sending an email.  Inputs the model runtime into the
     docstrings via decorator for easy formatting of the HTML body of an email.

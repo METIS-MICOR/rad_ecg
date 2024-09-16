@@ -13,6 +13,7 @@ from matplotlib.patches import Rectangle, Arrow
 from matplotlib.colors import rgb2hex
 import time
 import os
+import sys
 import logging
 # from pathlib import Path
 from collections import deque, Counter
@@ -1454,12 +1455,34 @@ def save_results(ecg_data:dict):
 
 #NOTE START PROGRAM
 def main():
+    #BUG - Data loading. 
+        #I might need to redo the data loader on a global scale somehow.  
+        #As of now we're wanting to support data submitted from these 4 methods. 
+            #1. Git Clone. To be able to run as a standalone in src/data
+            #2. Package install.  Installs as package and sources from src/data folder. 
+            #3. GCP Loading.  Could grab from bucket and input into data folder. 
+            #4. Porcine.  Need a different data loader for this and another pre-processing step that flips the 
+                #signal vertically.  The R peak's are extremely low in these recordings so we'll have to use the 
+                #Q peak as reference first.  
+        #Options
+            #1. Use command line arguments
+                #Easy way to isolate actions. 
+            #2. Query the user.
+                #This might be cleaner from a user perspective.  
+                #Ask a series of above questions to get to the point we need. 
+                
+    #Load data through the copied repo structure. 
     ecg_data, wave, fs = setup_globals.init(__name__, logger)
+    
+    #TODO - Add overall prog to log output in terminal
+
+    #Run peak search extraction
     ecg_data = main_peak_search(
         False, #plot fft?
         True,  #plot errors?
         (ecg_data, wave, fs)
     )
+    #Save logs, results, send update email
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     send_email(log_path)
     save_results(ecg_data)
