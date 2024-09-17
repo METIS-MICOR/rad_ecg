@@ -6,6 +6,6 @@
     "samp_freq"   : 170,   
     "data_path"   : "./src/rad_ecg/data/inputdata",
     "gcp_bucket"  : true,
-    "bucket_name" : "micor_ecg_bucket"
+    "bucket_name" : ""
     }
 }
