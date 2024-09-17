@@ -5,6 +5,7 @@ import logging
 import json
 import os
 from os.path import exists
+from google.cloud import storage
 
 #FUNCTION Custom init
 def init(source:str, logger:logging):
@@ -35,7 +36,7 @@ def load_config()->json:
     Returns:
         config_data: Loads configuation data
     """
-    with open("config.json", "r") as f:
+    with open("./src/rad_ecg/data/config.json", "r") as f:
         config_data = json.loads(f.read())
     return config_data
 
@@ -49,11 +50,41 @@ def load_signal_data(head_file:str):
         channels=[0]
     )
     return record
-#FUNCTION Pull Bucket
-def pull_bucket():
-    #Sooooooo. I'm not sure how to build this quite yet.  Being that you'd need authorization to pull from a bucket and I'm not sure how to do that without
-    #a direct credentials JSON of a service account directly in your root.  
-    pass
+
+
+################################ Downloading Funcs ############################################
+#FUNCTION download individual ecg from gcs
+def download_individual_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
+    """Download individual ECG record into memory from GCS
+
+    Args:
+        bucket_name (str): GCS bucket target
+        save_path (str): full save path on VM
+        logger (logging): To log things of course
+
+    Returns:
+        filenames (list): List of the header files found within the target data directory
+    """
+
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+
+    # Download all related files for the record
+    blobs = list(bucket.list_blobs())
+    file_names = []
+    for blob in blobs:
+        dest_f_name = os.path.join(save_path, blob.name.split('/')[-1])
+        if dest_f_name.endswith("hea"):
+            file_names.append(blob.name)
+        if os.path.exists(dest_f_name):
+            logger.info(f"{blob.name} already saved in {dest_f_name}")
+            continue
+        else:
+            logger.info(f"Downloading {blob.name} to {dest_f_name}")
+            blob.download_to_filename(dest_f_name)
+            logger.info("ECG download complete.")
+
+    return file_names
 
 #FUNCTION Choose CAM
 def choose_cam(logger:logging)->list:
@@ -75,10 +106,13 @@ def choose_cam(logger:logging)->list:
     config_dir = configs["settings"]["data_path"]
     gcp = configs["settings"]["gcp_bucket"]
 
+    #If data is in the local inputdata folder
     if not empty_inputdir:
         head_files = get_records('inputdata')
-    elif config_dir & gcp:
-        head_files = pull_bucket(data_path)
+    #If there is a config directory target and gcp bucket is true
+    elif len(config_dir)>0 & (gcp):
+        head_files = download_individual_ecg_from_gcs(configs["settings"]["bucket_name"], data_path, logger)
+    # If the config directory target is valid
     elif config_dir:
         head_files = get_records(config_dir)
     else:
@@ -87,10 +121,10 @@ def choose_cam(logger:logging)->list:
         
     #Inquire which file you'd like to run
     #TODO - Update this for rich inputs using the ecg_dataset folder
-    logger.critical("Which CAM would you like to import?")
+    logger.warning("Please select the index of the CAM you would like to import. ie - 1, 2, 3, etc")
     for idx, head in enumerate(head_files):
         name = head.split(".")[0].split("\\")[-1]
-        logger.critical(f'file {idx}:\t{name}')
+        logger.warning(f'file {idx}:\t{name}')
     header_chosen = input("Please choose a file number ")
     if not header_chosen.isnumeric():
         logger.critical(f'Incorrect file entered, program terminating')
@@ -102,7 +136,7 @@ def choose_cam(logger:logging)->list:
     else:
         header_chosen = int(header_chosen)
         name = head_files[header_chosen].split(".")[0].split("\\")[-1]
-        logger.critical(f'CAM {name} chosen')
+        logger.warning(f'CAM {name} chosen')
 
     return head_files, header_chosen
 
