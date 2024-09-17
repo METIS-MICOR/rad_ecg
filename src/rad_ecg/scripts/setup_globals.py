@@ -3,6 +3,7 @@ import numpy as np
 import wfdb
 import logging
 import json
+import os
 from os.path import exists
 
 #FUNCTION Custom init
@@ -48,14 +49,44 @@ def load_signal_data(head_file:str):
         channels=[0]
     )
     return record
+#FUNCTION Pull Bucket
+def pull_bucket():
+    #Sooooooo. I'm not sure how to build this quite yet.  Being that you'd need authorization to pull from a bucket and I'm not sure how to do that without
+    #a direct credentials JSON of a service account directly in your root.  
+    pass
 
 #FUNCTION Choose CAM
-def choose_cam(logger:logging):
+def choose_cam(logger:logging)->list:
+    """Choosing your cam to evaluate.  Logic is as follows.  If the inputdata directory on the install / or git clone is empty.  
+    Check the configs path setting.  If that value is None, exit program as no data can be found.
 
-    #TODO - Need to update this loader
-    head_files = utils.get_records('inputdata')
+    Args:
+        logger (logging): Logger
 
+    Raises:
+        ValueError: If neither directory has any header files, exit the program. 
+
+    Returns:
+        head_files (list): Returns a list 
+    """
+    #Check if the inputdata or config data_path is empty
+    data_path = "./src/rad_ecg/data/inputdata"
+    empty_inputdir = not os.listdir(data_path)
+    config_dir = configs["settings"]["data_path"]
+    gcp = configs["settings"]["gcp_bucket"]
+
+    if not empty_inputdir:
+        head_files = get_records('inputdata')
+    elif config_dir & gcp:
+        head_files = pull_bucket(data_path)
+    elif config_dir:
+        head_files = get_records(config_dir)
+    else:
+        logger.critical("No data found in inputdata dir or configs data_path")
+        exit()
+        
     #Inquire which file you'd like to run
+    #TODO - Update this for rich inputs using the ecg_dataset folder
     logger.critical("Which CAM would you like to import?")
     for idx, head in enumerate(head_files):
         name = head.split(".")[0].split("\\")[-1]
@@ -74,6 +105,54 @@ def choose_cam(logger:logging):
         logger.critical(f'CAM {name} chosen')
 
     return head_files, header_chosen
+
+#FUNCTION Load Header Files
+def get_records(folder:str)->list:
+    """Pulls the file info out of the data directory for file paths
+
+    Args:
+        p (str): [path to root data directory]
+
+    Returns:
+        dat_files (list): [List of dat names]
+        mib_files (list): [List of mib names]
+        head_files (list): [List of header names]
+    """
+
+    # There are 3 files for each record
+    #.dat = ECG data
+    #.hea = header file (file info)
+    #.mib = annotation file (beat annotations)
+    
+    #Get base directory
+    # p = os.path.normpath(os.getcwd() + os.sep + os.pardir)
+
+    bucket = configs["settings"]["bucket_name"]
+    if bucket:
+        #TODO - Write pull from GCP somehow?ehhh
+        folder = "inputdata"
+        
+    elif folder != "inputdata":
+        base_dir = folder
+    else:
+        p = os.getcwd()
+        base_dir = os.path.join(p, "src" , "rad_ecg", "data", folder)
+    
+    dat_files, mib_files, head_files = [], [], []
+    for subject in os.scandir(base_dir):
+        if subject.is_dir():
+            for file_idx in os.scandir(subject.path):
+                if file_idx.name.endswith('.dat') and file_idx.is_file():
+                    dat_files.append(file_idx.path)
+
+                elif file_idx.name.endswith('.mib') and file_idx.is_file():
+                    mib_files.append(file_idx.path)
+
+                elif file_idx.name.endswith('.hea') and file_idx.is_file():
+                    head_files.append(file_idx.path)
+    
+    #leaving these here in case needed later #dat_files, mib_files
+    return head_files
 
 #FUNCTION Load Chart Data
 def load_chartdata(logger:logging):

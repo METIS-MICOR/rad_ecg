@@ -4,6 +4,8 @@
     "live_term"   : false,   
     "porcine"     : false,
     "samp_freq"   : 170,   
-    "data_path"   : "/src/pathtoyourdata/onyourmachine" 
+    "data_path"   : "/src/pathtoyourdata/onyourmachine",
+    "gcp_bucket"  : true,
+    "bucket_name" : ""
     }
 }

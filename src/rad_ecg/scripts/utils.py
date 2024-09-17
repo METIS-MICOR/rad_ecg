@@ -1,13 +1,6 @@
-import scipy.signal as ss
-from scipy.fft import rfft, rfftfreq, irfft
-from collections import defaultdict, deque
 import numpy as np
-import pandas as pd
-import os
 import logging
 import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle, Arrow
-import rich
 from rich.logging import RichHandler
 from rich.console import Console
 
@@ -105,46 +98,6 @@ def load_logger(name:str):
     return logger
 
 
-#FUNCTION Load Header Files
-def get_records(folder:str)->list:
-    """Pulls the file info out of the data directory for file paths
-
-    Args:
-        p (str): [path to root data directory]
-
-    Returns:
-        dat_files (list): [List of dat names]
-        mib_files (list): [List of mib names]
-        head_files (list): [List of header names]
-    """
-
-    # There are 3 files for each record
-    #.dat = ECG data
-    #.hea = header file (file info)
-    #.mib = annotation file (beat annotations)
-    
-    #Get base directory
-    # p = os.path.normpath(os.getcwd() + os.sep + os.pardir)
-    p = os.getcwd()
-    
-    if p.endswith("scripts"):
-        p = p[:-8]
-
-    base_dir = os.path.join(p, "src" , "rad_ecg", "data", folder)
-    dat_files, mib_files, head_files = [], [], []
-    for subject in os.scandir(base_dir):
-        if subject.is_dir():
-            for file_idx in os.scandir(subject.path):
-                if file_idx.name.endswith('.dat') and file_idx.is_file():
-                    dat_files.append(file_idx.path)
-
-                elif file_idx.name.endswith('.mib') and file_idx.is_file():
-                    mib_files.append(file_idx.path)
-
-                elif file_idx.name.endswith('.hea') and file_idx.is_file():
-                    head_files.append(file_idx.path)
-    #leaving these here in case needed later #dat_files, mib_files, 
-    return head_files
 
 #FUNCTION Section Finder
 def section_finder(start_p:int, wave:np.array, fs:float):
