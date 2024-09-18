@@ -7,6 +7,7 @@ import os
 from os.path import exists
 from google.cloud import storage
 
+################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
 def init(source:str, logger:logging):
     """Custom init
@@ -51,11 +52,22 @@ def load_signal_data(head_file:str):
     )
     return record
 
+################################# GCS Client Funcs ############################################
+
+def authenticate_with_gcs(credentials_path:str):
+    """Set up Google Cloud authentication
+
+    Args:
+        credentials_path (_type_): _description_
+    """ 
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
 
 ################################ Downloading Funcs ############################################
 #FUNCTION download individual ecg from gcs
-def download_individual_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
-    """Download individual ECG record into memory from GCS
+def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
+    """Download function for GCS.  It will download all files within a bucket to the inputdata
+    folder for ingestion.  Note: Downloading through this method is slower, sometimes its easier
+    to copy the data over to the inputdata directory.
 
     Args:
         bucket_name (str): GCS bucket target
@@ -110,8 +122,8 @@ def choose_cam(logger:logging)->list:
     if not empty_inputdir:
         head_files = get_records('inputdata')
     #If there is a config directory target and gcp bucket is true
-    elif len(config_dir)>0 & (gcp):
-        head_files = download_individual_ecg_from_gcs(configs["settings"]["bucket_name"], data_path, logger)
+    elif gcp:
+        head_files = download_ecg_from_gcs(configs["settings"]["bucket_name"], data_path, logger)
     # If the config directory target is valid
     elif config_dir:
         head_files = get_records(config_dir)
@@ -124,8 +136,8 @@ def choose_cam(logger:logging)->list:
     logger.warning("Please select the index of the CAM you would like to import. ie - 1, 2, 3, etc")
     for idx, head in enumerate(head_files):
         name = head.split(".")[0].split("\\")[-1]
-        logger.warning(f'file {idx}:\t{name}')
-    header_chosen = input("Please choose a file number ")
+        logger.warning(f'idx{idx}\tName:{name}')
+    header_chosen = input("Please choose a CAM by index selection")
     if not header_chosen.isnumeric():
         logger.critical(f'Incorrect file entered, program terminating')
         exit()
@@ -161,12 +173,8 @@ def get_records(folder:str)->list:
     #Get base directory
     # p = os.path.normpath(os.getcwd() + os.sep + os.pardir)
 
-    bucket = configs["settings"]["bucket_name"]
-    if bucket:
-        #TODO - Write pull from GCP somehow?ehhh
-        folder = "inputdata"
-        
-    elif folder != "inputdata":
+    #First check that the path isn't the standard inputdata directory
+    if folder != "inputdata":
         base_dir = folder
     else:
         p = os.getcwd()
