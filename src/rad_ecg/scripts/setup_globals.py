@@ -36,7 +36,7 @@ def load_config()->json:
     Returns:
         config_data: Loads configuation data
     """
-    with open("./src/rad_ecg/data/config.json", "r") as f:
+    with open("./src/rad_ecg/config.json", "r") as f:
         config_data = json.loads(f.read())
     return config_data
 
