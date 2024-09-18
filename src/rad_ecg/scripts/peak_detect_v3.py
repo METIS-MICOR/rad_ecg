@@ -25,7 +25,7 @@ current_date = strftime("%m-%d-%Y_%H-%M-%S")
 FORMAT = "%(asctime)s|%(levelname)s|%(funcName)s|%(lineno)d|%(message)s" #[%(name)s]
 FORMAT_RICH = "%(funcName)s|%(lineno)d|%(message)s"
 console = Console(color_system="truecolor")
-rh = RichHandler(level = logging.CRITICAL, console=console)
+rh = RichHandler(level = logging.WARNING, console=console)
 rh.setFormatter(logging.Formatter(FORMAT_RICH))
 
 #Set up basic config for logger
@@ -1457,20 +1457,20 @@ def save_results(ecg_data:dict):
 def main():
 
     #Load data 
-    ecg_data, wave, fs = setup_globals.init(__name__, logger)
+    ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
     
     #TODO - Add overall prog to log output in terminal
     #TODO - Nest logger functions and declare as global
-    
+
     #Run peak search extraction
     ecg_data = main_peak_search(
-        False, #plot fft?
-        True,  #plot errors?
+        configs["settings"]["plot_fft"],
+        configs["settings"]["plot_errors"],
         (ecg_data, wave, fs)
     )
     #Save logs, results, send update email
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
-    send_email(log_path)
+    # send_email(log_path)
     save_results(ecg_data)
     logger.info("Woo hoo!\nECG Analysis Complete")
 

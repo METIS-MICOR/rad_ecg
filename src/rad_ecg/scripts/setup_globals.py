@@ -135,8 +135,8 @@ def choose_cam(logger:logging)->list:
     #TODO - Update this for rich inputs using the ecg_dataset folder
     logger.warning("Please select the index of the CAM you would like to import. ie - 1, 2, 3, etc")
     for idx, head in enumerate(head_files):
-        name = head.split(".")[0].split("\\")[-1]
-        logger.warning(f'idx{idx}\tName:{name}')
+        name = head.split(".")[2].split("/")[-1]
+        logger.warning(f'idx: {idx}\tName: {name}')
     header_chosen = input("Please choose a CAM by index selection")
     if not header_chosen.isnumeric():
         logger.critical(f'Incorrect file entered, program terminating')
@@ -147,7 +147,7 @@ def choose_cam(logger:logging)->list:
 
     else:
         header_chosen = int(header_chosen)
-        name = head_files[header_chosen].split(".")[0].split("\\")[-1]
+        name = head.split(".")[2].split("/")[-1]
         logger.warning(f'CAM {name} chosen')
 
     return head_files, header_chosen
