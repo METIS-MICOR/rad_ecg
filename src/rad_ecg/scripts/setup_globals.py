@@ -83,17 +83,37 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
 
     # Download all related files for the record
     blobs = list(bucket.list_blobs())
+    gcp_folders = {}
     file_names = []
+    
+    #Make a dict of the folders and their contents
     for blob in blobs:
+        folder = os.path.dirname(blob.name)
+        if folder not in gcp_folders:
+            gcp_folders[folder] = []
+        gcp_folders[folder].append(blob)
+    
+    #Process each folder
+    for folder, files in gcp_folders.items():
+        if "results" in folder:
+            logger.info("Skipping results folder")
+            continue
+        if not files:
+            logger.info(f"Skipping empty folder {folder}")
+            continue
+        logger.info(f"Processing folder {folder}")
+
+    for blob in files:
         dest_f_name = os.path.join(save_path, blob.name.split('/')[-1])
-        if dest_f_name.endswith("hea"):
-            file_names.append(blob.name)
+
         if os.path.exists(dest_f_name):
             logger.info(f"{blob.name} already saved in {dest_f_name}")
             continue
+
         else:
             logger.info(f"Downloading {blob.name} to {dest_f_name}")
             blob.download_to_filename(dest_f_name)
+            files_names.append(blob.name)
             logger.info("ECG download complete.")
 
     return file_names
