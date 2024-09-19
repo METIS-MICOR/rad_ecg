@@ -8,10 +8,9 @@ from matplotlib.patches import Rectangle, Arrow
 from matplotlib.widgets import Slider, Button, RadioButtons, TextBox
 from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
-from rad_ecg.scripts import utils
-from rad_ecg.scripts import setup_globals
+import utils # from rad_ecg.scripts
+import setup_globals# from rad_ecg.scripts 
 
-logger = utils.load_logger(__name__)
 
 def load_graph_objects(run:str):
 
@@ -233,8 +232,8 @@ def load_graph_objects(run:str):
         ('PNN50', 'f4')
     ]
 
-    fpath = f"./src/rad_ecg/data/output/{run}"  
-    lfpath = f"./src/rad_ecg/data/logs/{run}"
+    fpath = f"./src/rad_ecg/data/output/results_{run}"  
+    lfpath = f"./src/rad_ecg/data/logs/results_{run}"
 
     global ecg_data
     ecg_data = {
@@ -342,20 +341,22 @@ def load_graph_objects(run:str):
     
 def summarize_run():
     RMSSD = ecg_data['section_info'][['wave_section', 'RMSSD']]
-    print(sorted(RMSSD, key= lambda x:x[1], reverse=True)[:20])
+    logger.info(f"{sorted(RMSSD, key= lambda x:x[1], reverse=True)[:20]}")
 
 
 def main():
-    run = "01-07-2024_09-51-07"  	#CAM name
+    run = "09-18-2024_22-09-38"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
+    global logger
+    logger = utils.load_logger(__name__)
 
     global wave, fs
     wave, fs = setup_globals.load_chartdata(logger)
     load_graph_objects(run)
+    summarize_run()
 
     #TODO - Brainstorm summary formats
-    # summarize_run(run)
     #IDEA - FFT switch. 
         #Would be cool if you could switch from the slider to the FFT version of a section. 
     

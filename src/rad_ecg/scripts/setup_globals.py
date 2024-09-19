@@ -135,7 +135,7 @@ def choose_cam(logger:logging)->list:
     #TODO - Update this for rich inputs using the ecg_dataset folder
     logger.warning("Please select the index of the CAM you would like to import. ie - 1, 2, 3, etc")
     for idx, head in enumerate(head_files):
-        name = head.split(".")[2].split("/")[-1]
+        name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'idx: {idx}\tName: {name}')
     header_chosen = input("Please choose a CAM by index selection")
     if not header_chosen.isnumeric():
@@ -147,7 +147,7 @@ def choose_cam(logger:logging)->list:
 
     else:
         header_chosen = int(header_chosen)
-        name = head.split(".")[2].split("/")[-1]
+        name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'CAM {name} chosen')
 
     return head_files, header_chosen
@@ -198,6 +198,8 @@ def get_records(folder:str)->list:
 
 #FUNCTION Load Chart Data
 def load_chartdata(logger:logging):
+    global configs
+    configs = load_config()
     head_files, header_chosen = choose_cam(logger)
     record = load_signal_data(head_files[header_chosen])
 

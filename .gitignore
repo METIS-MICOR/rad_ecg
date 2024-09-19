@@ -129,7 +129,8 @@ dmypy.json
 .pyre/
 
 #Project specific folders
-/data
+/src/rad_ecg/data/inputdata
+/src/rad_ecg/data/output
 /src/rad_ecg/secret
 /.pytest_cache
 /.venv
