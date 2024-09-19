@@ -91,7 +91,8 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
         folder = os.path.dirname(blob.name)
         if folder not in gcp_folders:
             gcp_folders[folder] = []
-        gcp_folders[folder].append(blob)
+        if not blob.name.endswith("/"):
+            gcp_folders[folder].append(blob)
     
     #Process each folder
     for folder, files in gcp_folders.items():
@@ -102,19 +103,28 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
             logger.info(f"Skipping empty folder {folder}")
             continue
         logger.info(f"Processing folder {folder}")
+        for blob in files:
+            
+            dest_f_name = os.path.join(save_path, blob.name)
 
-    for blob in files:
-        dest_f_name = os.path.join(save_path, blob.name.split('/')[-1])
+            if os.path.exists(save_path + "/" + folder):
+                logger.info(f"{blob.name} dest folder already created in")
+                
+            else:
+                newdir = os.path.join(save_path, folder)
+                os.mkdir(newdir)
+                logger.info(f"folder created: {newdir} ")
 
-        if os.path.exists(dest_f_name):
-            logger.info(f"{blob.name} already saved in {dest_f_name}")
-            continue
+            if os.path.exists(dest_f_name):
+                logger.info(f"{blob.name} dest folder already created in")
+                continue
 
-        else:
-            logger.info(f"Downloading {blob.name} to {dest_f_name}")
-            blob.download_to_filename(dest_f_name)
-            files_names.append(blob.name)
-            logger.info("ECG download complete.")
+            else:
+                logger.info(f"Downloading {blob.name} to {dest_f_name}")
+                blob.download_to_filename(dest_f_name)
+                if blob.name.endswith(".hea"):
+                    file_names.append(blob.name)
+                logger.info("ECG download complete.")
 
     return file_names
 
@@ -167,7 +177,10 @@ def choose_cam(logger:logging)->list:
 
     else:
         header_chosen = int(header_chosen)
-        name = head.split(".")[-2].split("\\")[-1]
+        if gcp:
+            name = head.split(".")[-2].split("/")[-1]
+        else:
+            name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'CAM {name} chosen')
 
     return head_files, header_chosen

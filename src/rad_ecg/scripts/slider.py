@@ -232,8 +232,8 @@ def load_graph_objects(run:str):
         ('PNN50', 'f4')
     ]
 
-    fpath = f"./src/rad_ecg/data/output/results_{run}"  
-    lfpath = f"./src/rad_ecg/data/logs/results_{run}"
+    fpath = f"./src/rad_ecg/data/output/{run}"  
+    lfpath = f"./src/rad_ecg/data/logs/{run}"
 
     global ecg_data
     ecg_data = {
@@ -345,7 +345,7 @@ def summarize_run():
 
 
 def main():
-    run = "09-18-2024_22-09-38"  	#CAM name
+    run = "09-19-2024_20-28-06"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
     global logger
@@ -354,7 +354,7 @@ def main():
     global wave, fs
     wave, fs = setup_globals.load_chartdata(logger)
     load_graph_objects(run)
-    summarize_run()
+    # summarize_run()
 
     #TODO - Brainstorm summary formats
     #IDEA - FFT switch. 
