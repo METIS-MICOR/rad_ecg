@@ -44,8 +44,9 @@ def load_config()->json:
 #FUNCTION Load Signal Data
 def load_signal_data(head_file:str):
     #Load signal data 
+    head_file = head_file[:head_file.index(".hea")]
     record = wfdb.rdrecord(
-        head_file.strip('.hea'),
+        head_file,
         sampfrom=0,
         sampto=None,
         channels=[0]
@@ -184,6 +185,7 @@ def choose_cam(logger:logging)->list:
 
     else:
         header_chosen = int(header_chosen)
+        head = head_files[header_chosen]
         if gcp:
             name = head.split(".")[-2].split("/")[-1]
         else:
@@ -283,7 +285,7 @@ def load_structures(source:str, logger:logging):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[50:-1000]
 
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [

@@ -1461,7 +1461,11 @@ def main():
     
     #TODO - Add overall prog to log output in terminal
     #TODO - Nest logger functions and declare as global
-
+    #IDEA?  - What if you have a function similar to slider
+        #To inspect the ECG before its run.  Would be ideal if 
+        #it ran in the cloud for plotting but i'm not sure 
+        #how that renders locally
+        
     #Run peak search extraction
     ecg_data = main_peak_search(
         configs["settings"]["plot_fft"],
@@ -1472,12 +1476,12 @@ def main():
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
 
-    if configs["settings"].get("gcp_bucket"):
-        #TODO - Need function to automate 
-            #data push back to bucket
-        pass
-    else:
-        save_results(ecg_data)
+    # if configs["settings"].get("gcp_bucket"):
+    #     #TODO - Need function to automate 
+    #         #data push back to bucket
+    #     pass
+    # else:
+    save_results(ecg_data)
 
     logger.info("Woo hoo!\nECG Analysis Complete")
 
