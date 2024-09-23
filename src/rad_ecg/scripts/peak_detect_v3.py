@@ -1471,7 +1471,14 @@ def main():
     #Save logs, results, send update email
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
-    save_results(ecg_data)
+
+    if configs["settings"].get("gcp_bucket"):
+        #TODO - Need function to automate 
+            #data push back to bucket
+        pass
+    else:
+        save_results(ecg_data)
+
     logger.info("Woo hoo!\nECG Analysis Complete")
 
 if __name__ == "__main__":

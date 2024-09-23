@@ -111,7 +111,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
             
             #Check to see if a folder exists. Create if not
             if os.path.exists(save_path + "/" + folder):
-                logger.info(f"{blob.name} dest folder already created in")
+                logger.info(f"{blob.name} dest folder already created")
             else:
                 newdir = os.path.join(save_path, folder)
                 os.mkdir(newdir)
@@ -119,14 +119,16 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
 
             #Check to see if file exists. Download if not
             if os.path.exists(dest_f_name):
-                logger.info(f"{blob.name} dest folder already created in")
-                continue
+                logger.info(f"{blob.name} file exists already")
+                
             else:
                 logger.info(f"Downloading {blob.name} to {dest_f_name}")
                 blob.download_to_filename(dest_f_name)
-                if blob.name.endswith(".hea"):
-                    file_names.append(blob.name)
                 logger.info("ECG download complete.")
+            
+            if blob.name.endswith(".hea"):
+                file_names.append(dest_f_name)
+            
 
     return file_names
 
@@ -167,7 +169,10 @@ def choose_cam(logger:logging)->list:
     #TODO - Update this for rich inputs using the ecg_dataset folder
     logger.warning("Please select the index of the CAM you would like to import.\nie: 1, 2, 3...")
     for idx, head in enumerate(head_files):
-        name = head.split(".")[-2].split("\\")[-1]
+        if gcp:
+            name = head.split(".")[-2].split("/")[-1]
+        else:
+            name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'idx: {idx}\tName: {name}')
     header_chosen = input("Please choose a CAM")
     if not header_chosen.isnumeric():
