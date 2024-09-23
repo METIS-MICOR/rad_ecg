@@ -1,4 +1,4 @@
-import utils#from rad_ecg.scripts 
+import utils #from rad_ecg.scripts 
 import numpy as np
 import wfdb
 import logging
@@ -66,7 +66,7 @@ def authenticate_with_gcs(credentials_path:str):
 #FUNCTION download individual ecg from gcs
 def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     """Download function for GCS.  It will download all files within a bucket to the inputdata
-    folder for ingestion.  Note: Downloading through this method is slower, sometimes its easier
+    folder for ingestion.  Note: Downloading via this method is slower, sometimes its easier
     to copy the data over to the inputdata directory.
 
     Args:
@@ -102,23 +102,25 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
         if not files:
             logger.info(f"Skipping empty folder {folder}")
             continue
-        logger.info(f"Processing folder {folder}")
-        for blob in files:
-            
-            dest_f_name = os.path.join(save_path, blob.name)
 
+        logger.info(f"Processing folder {folder}")
+        #Process each file
+        for blob in files:
+            #Generate filename save path
+            dest_f_name = os.path.join(save_path, blob.name)
+            
+            #Check to see if a folder exists. Create if not
             if os.path.exists(save_path + "/" + folder):
                 logger.info(f"{blob.name} dest folder already created in")
-                
             else:
                 newdir = os.path.join(save_path, folder)
                 os.mkdir(newdir)
                 logger.info(f"folder created: {newdir} ")
 
+            #Check to see if file exists. Download if not
             if os.path.exists(dest_f_name):
                 logger.info(f"{blob.name} dest folder already created in")
                 continue
-
             else:
                 logger.info(f"Downloading {blob.name} to {dest_f_name}")
                 blob.download_to_filename(dest_f_name)
@@ -148,8 +150,8 @@ def choose_cam(logger:logging)->list:
     config_dir = configs["settings"]["data_path"]
     gcp = configs["settings"]["gcp_bucket"]
 
-    #If data is in the local inputdata folder
-    if not empty_inputdir:
+    #If data is in the local inputdata folder with no call to GCP
+    if not empty_inputdir and not gcp:
         head_files = get_records('inputdata')
     #If there is a config directory target and gcp bucket is true
     elif gcp:
@@ -163,11 +165,11 @@ def choose_cam(logger:logging)->list:
         
     #Inquire which file you'd like to run
     #TODO - Update this for rich inputs using the ecg_dataset folder
-    logger.warning("Please select the index of the CAM you would like to import. ie - 1, 2, 3, etc")
+    logger.warning("Please select the index of the CAM you would like to import.\nie: 1, 2, 3...")
     for idx, head in enumerate(head_files):
         name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'idx: {idx}\tName: {name}')
-    header_chosen = input("Please choose a CAM by index selection")
+    header_chosen = input("Please choose a CAM")
     if not header_chosen.isnumeric():
         logger.critical(f'Incorrect file entered, program terminating')
         exit()

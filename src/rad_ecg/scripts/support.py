@@ -33,14 +33,15 @@ def get_file_handler(log_dir:Path)->logging.FileHandler:
     Returns:
         filehandler(handler): This will handle the logger's format and file management
     """	
-    log_format = f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
+    log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-3d|%(funcName)-14s|%(message)s|" 
+                 #f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
     current_date = time.strftime("%m_%d_%Y")
     log_file = log_dir / f"{current_date}.log"
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(logging.Formatter(log_format, "%m-%d-%Y %H:%M:%S"))
     return file_handler
 
-def get_rich_handler(console:Console):
+def get_rich_handler(console:Console)-> RichHandler:
     """Assigns the rich format that prints out to your terminal
 
     Args:
@@ -49,7 +50,7 @@ def get_rich_handler(console:Console):
     Returns:
         rh(RichHandler): This will format your terminal output
     """
-    rich_format = f"%(message)s"
+    rich_format = "|%(funcName)-14s|%(message)s"
     rh = RichHandler(console=console)
     rh.setFormatter(logging.Formatter(rich_format))
     return rh
