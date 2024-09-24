@@ -1468,15 +1468,15 @@ def main():
         
     #Run peak search extraction
     ecg_data = main_peak_search(
-        configs["settings"]["plot_fft"],
-        configs["settings"]["plot_errors"],
+        configs["plot_fft"],
+        configs["plot_errors"],
         (ecg_data, wave, fs)
     )
     #Save logs, results, send update email
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
 
-    # if configs["settings"].get("gcp_bucket"):
+    # if configs.get("gcp_bucket"):
     #     #TODO - Write a function
     #         #to automate data push back to bucket
     #     pass

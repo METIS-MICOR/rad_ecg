@@ -1,5 +1,5 @@
-{"settings":
-    {"plot_fft"   : false,   
+{
+    "plot_fft"   : false,   
     "plot_errors" : false,   
     "live_term"   : false,   
     "porcine"     : false,
@@ -8,5 +8,4 @@
     "save_path"   : "",
     "gcp_bucket"  : false,
     "bucket_name" : ""
-    }
 }

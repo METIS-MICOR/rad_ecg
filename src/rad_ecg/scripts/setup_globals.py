@@ -150,15 +150,15 @@ def choose_cam(logger:logging)->list:
     #Check if the inputdata or config data_path is empty
     data_path = "./src/rad_ecg/data/inputdata"
     empty_inputdir = not os.listdir(data_path)
-    config_dir = configs["settings"]["data_path"]
-    gcp = configs["settings"]["gcp_bucket"]
+    config_dir = configs["data_path"]
+    gcp = configs["gcp_bucket"]
 
     #If data is in the local inputdata folder with no call to GCP
     if not empty_inputdir and not gcp:
         head_files = get_records('inputdata')
     #If there is a config directory target and gcp bucket is true
     elif gcp:
-        head_files = download_ecg_from_gcs(configs["settings"]["bucket_name"], data_path, logger)
+        head_files = download_ecg_from_gcs(configs["bucket_name"], data_path, logger)
     # If the config directory target is valid
     elif config_dir:
         head_files = get_records(config_dir)
