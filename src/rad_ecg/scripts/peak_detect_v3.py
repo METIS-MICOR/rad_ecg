@@ -1477,8 +1477,8 @@ def main():
     # send_email(log_path)
 
     # if configs["settings"].get("gcp_bucket"):
-    #     #TODO - Need function to automate 
-    #         #data push back to bucket
+    #     #TODO - Write a function
+    #         #to automate data push back to bucket
     #     pass
     # else:
     save_results(ecg_data)

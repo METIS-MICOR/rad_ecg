@@ -44,9 +44,9 @@ def load_config()->json:
 #FUNCTION Load Signal Data
 def load_signal_data(head_file:str):
     #Load signal data 
-    head_file = head_file[:head_file.index(".hea")]
+    head_f = head_file[:head_file.index(".hea")]
     record = wfdb.rdrecord(
-        head_file,
+        head_f,
         sampfrom=0,
         sampto=None,
         channels=[0]
@@ -251,7 +251,7 @@ def load_chartdata(logger:logging):
     #Frequency
     fs = record.fs
 
-    return wave, fs
+    return wave, fs, head_files[header_chosen]
 
 
 #FUNCTION Load Structures

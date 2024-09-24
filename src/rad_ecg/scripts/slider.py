@@ -12,7 +12,7 @@ import utils # from rad_ecg.scripts
 import setup_globals# from rad_ecg.scripts 
 
 
-def load_graph_objects(run:str):
+def load_graph_objects(run:str, cam:str):
 
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
@@ -231,8 +231,8 @@ def load_graph_objects(run:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
-
-    fpath = f"./src/rad_ecg/data/output/{run}"  
+    cam_n = cam.split("//")[-2]
+    fpath = f"./src/rad_ecg/data/output/{cam}/{run}"  
     lfpath = f"./src/rad_ecg/data/logs/{run}"
 
     global ecg_data
@@ -345,15 +345,15 @@ def summarize_run():
 
 
 def main():
-    run = "09-19-2024_20-28-06"  	#CAM name
+    run = "09-19-2024_21-46-35"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
     global logger
     logger = utils.load_logger(__name__)
 
     global wave, fs
-    wave, fs = setup_globals.load_chartdata(logger)
-    load_graph_objects(run)
+    wave, fs, cam = setup_globals.load_chartdata(logger)
+    load_graph_objects(run, cam)
     # summarize_run()
 
     #TODO - Brainstorm summary formats

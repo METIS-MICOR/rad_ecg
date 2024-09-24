@@ -5,7 +5,8 @@
     "porcine"     : false,
     "samp_freq"   : 170,   
     "data_path"   : "./src/rad_ecg/data/inputdata",
-    "gcp_bucket"  : true,
+    "save_path"   : "",
+    "gcp_bucket"  : false,
     "bucket_name" : ""
     }
 }
