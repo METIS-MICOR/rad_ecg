@@ -1425,7 +1425,7 @@ def send_email(log_path:str):
         logger.warning(f"{peak_search_runtime}")
 
 #FUNCTION save results
-def save_results(ecg_data:dict):
+def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
     #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
     #have to feed the types back to the save routine when you save it.
     #(╯°□°）╯︵ ┻━┻
@@ -1434,7 +1434,12 @@ def save_results(ecg_data:dict):
     logger.info("Savings CSV's")
     #Eventually need a folder existence check here.  If it doesn't, create it. 
     for x in ["peaks", "interior_peaks", "section_info"]:
-        file_path = f"./src/rad_ecg/data/output/{current_date}_{x}.csv"
+        if tobucket:
+            savpaths = "/".join(configs["save_path"], configs["bucket"], current_date, x)
+        else:
+            savpaths = "/".join(configs["save_path"], current_date, x)
+        file_path = f"{savpaths}.csv"
+
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
         else:
@@ -1460,11 +1465,7 @@ def main():
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
     
     #TODO - Add overall prog to log output in terminal
-    #TODO - Nest logger functions and declare as global
-    #IDEA?  - What if you have a function similar to slider
-        #To inspect the ECG before its run.  Would be ideal if 
-        #it ran in the cloud for plotting but i'm not sure 
-        #how that renders locally
+    #TODO - Nest logger functions and declare as global. maybe
         
     #Run peak search extraction
     ecg_data = main_peak_search(
@@ -1475,16 +1476,21 @@ def main():
     #Save logs, results, send update email
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
-
-    # if configs.get("gcp_bucket"):
-    #     #TODO - Write a function
-    #         #to automate data push back to bucket
-    #     pass
-    # else:
-    save_results(ecg_data)
+    test_bucket = configs.get("gcp_bucket")
+    test_bucket_n = configs.get("bucket_name")
+    
+    if test_bucket & test_bucket_n:
+        save_results(ecg_data, configs, True)
+    else:
+        save_results(ecg_data, configs)
 
     logger.info("Woo hoo!\nECG Analysis Complete")
 
 if __name__ == "__main__":
     main()
-    
+
+
+#IDEA?  - What if you have a function similar to slider
+    #To inspect the ECG before its run.  Would be ideal if 
+    #it ran in the cloud for plotting but i'm not sure 
+    #how that renders locally

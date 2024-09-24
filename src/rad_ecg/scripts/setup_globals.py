@@ -167,7 +167,6 @@ def choose_cam(logger:logging)->list:
         exit()
         
     #Inquire which file you'd like to run
-    #TODO - Update this for rich inputs using the ecg_dataset folder
     logger.warning("Please select the index of the CAM you would like to import.\nie: 1, 2, 3...")
     for idx, head in enumerate(head_files):
         if gcp:
@@ -270,7 +269,8 @@ def load_structures(source:str, logger:logging):
     elif source == "__main__":
         #Load             
         head_files, header_chosen = choose_cam(logger)
-        record = load_signal_data(head_files[header_chosen])
+        configs["cam"] = head_files[header_chosen]
+        record = load_signal_data(configs["cam"])
 
         #ECG data
         wave = record.p_signal

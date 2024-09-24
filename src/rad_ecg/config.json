@@ -3,9 +3,10 @@
     "plot_errors" : false,   
     "live_term"   : false,   
     "porcine"     : false,
-    "samp_freq"   : 170,   
+    "samp_freq"   : "",   
     "data_path"   : "./src/rad_ecg/data/inputdata",
-    "save_path"   : "",
+    "save_path"   : "./src/rad_ecg/data/output",
     "gcp_bucket"  : false,
-    "bucket_name" : ""
+    "bucket_name" : "micor_ecg_bucket",
+    "cam"         : ""
 }
