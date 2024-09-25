@@ -89,7 +89,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     
     #Make a dict of the folders and their contents
     for blob in blobs:
-        folder = os.path.dirname(blob.name)
+        folder = os.path.dirname(blob.name + "/unprocessed")
         if folder not in gcp_folders:
             gcp_folders[folder] = []
         if not blob.name.endswith("/"):

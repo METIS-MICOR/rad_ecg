@@ -27,6 +27,7 @@ FORMAT_RICH = "%(funcName)s|%(lineno)d|%(message)s"
 console = Console(color_system="truecolor")
 rh = RichHandler(level = logging.WARNING, console=console)
 rh.setFormatter(logging.Formatter(FORMAT_RICH))
+log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
 
 #Set up basic config for logger
 logging.basicConfig(
@@ -35,7 +36,7 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[
         rh,
-        logging.FileHandler(f"./src/rad_ecg/data/logs/{current_date}.log", mode="w")
+        logging.FileHandler(log_path, mode="w")
     ]
 )
 
@@ -1435,9 +1436,9 @@ def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
     #Eventually need a folder existence check here.  If it doesn't, create it. 
     for x in ["peaks", "interior_peaks", "section_info"]:
         if tobucket:
-            file_path = "/".join(configs["save_path"], configs["bucket"], current_date, x, ".csv")
+            file_path = "/".join(configs["save_path"], configs["bucket"], current_date, x) + ".csv"
         else:
-            file_path = "/".join(configs["save_path"], current_date, x, ".csv")
+            file_path = "/".join(configs["save_path"], current_date, x) + ".csv"
 
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
@@ -1465,13 +1466,12 @@ def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
 
 #NOTE START PROGRAM
 def main():
+    #TODO - Add overall prog to log output in terminal
+    #TODO - Nest logger functions and declare as global. maybe
 
     #Load data 
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
     
-    #TODO - Add overall prog to log output in terminal
-    #TODO - Nest logger functions and declare as global. maybe
-        
     #Run peak search extraction
     ecg_data = main_peak_search(
         configs["plot_fft"],
@@ -1479,13 +1479,11 @@ def main():
         (ecg_data, wave, fs)
     )
     #Save logs, results, send update email
-    #?Maybe put log path in configs?
-    log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
-    test_bucket = configs.get("gcp_bucket")
-    test_bucket_n = configs.get("bucket_name")
+    use_bucket = configs.get("gcp_bucket")
+    has_bucket_name = configs.get("bucket_name")
     
-    if test_bucket & test_bucket_n:
+    if use_bucket & has_bucket_name :
         save_results(ecg_data, configs, True)
     else:
         save_results(ecg_data, configs)
