@@ -13,7 +13,6 @@ import setup_globals# from rad_ecg.scripts
 
 
 def load_graph_objects(run:str, cam:str):
-
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
     
@@ -231,8 +230,8 @@ def load_graph_objects(run:str, cam:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
-    cam_n = cam.split("//")[-2]
-    fpath = f"./src/rad_ecg/data/output/{cam}/{run}"  
+    cam_n = cam.split("\\")[-2]
+    fpath = f"./src/rad_ecg/data/output/{cam_n}/{run}"  
     lfpath = f"./src/rad_ecg/data/logs/{run}"
 
     global ecg_data

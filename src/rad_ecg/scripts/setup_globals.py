@@ -89,7 +89,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     
     #Make a dict of the folders and their contents
     for blob in blobs:
-        folder = os.path.dirname(blob.name + "/unprocessed")
+        folder = os.path.dirname(blob.name)
         if folder not in gcp_folders:
             gcp_folders[folder] = []
         if not blob.name.endswith("/"):
@@ -97,9 +97,14 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     
     #Process each folder
     for folder, files in gcp_folders.items():
+        # if its a results folder, skip it
         if "results" in folder:
             logger.info("Skipping results folder")
             continue
+        # If its the unprocessed root folder skip
+        if folder == "unprocessed":
+            continue
+        #If there aren't any files in the folder, 
         if not files:
             logger.info(f"Skipping empty folder {folder}")
             continue
@@ -109,14 +114,15 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
         for blob in files:
             #Generate filename save path
             dest_f_name = os.path.join(save_path, blob.name)
-            
+            cam_name = folder[folder.index("/")+1:]            
             #Check to see if a folder exists. Create if not
             if os.path.exists(save_path + "/" + folder):
                 logger.info(f"{blob.name} dest folder already created")
             else:
-                newdir = os.path.join(save_path, folder)
-                os.mkdir(newdir)
-                logger.info(f"folder created: {newdir} ")
+                if not os.path.exists(bucket + "/processed/" + cam_name):
+                    newdir  = os.path.join(save_path, )
+                    os.mkdir(newdir)
+                    logger.info(f"folder created: {newdir} ")
 
             #Check to see if file exists. Download if not
             if os.path.exists(dest_f_name):
