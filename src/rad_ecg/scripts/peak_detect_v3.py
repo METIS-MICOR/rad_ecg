@@ -1474,6 +1474,7 @@ def main():
         (ecg_data, wave, fs)
     )
     #Save logs, results, send update email
+    #?Maybe put log path in configs?
     log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
     # send_email(log_path)
     test_bucket = configs.get("gcp_bucket")

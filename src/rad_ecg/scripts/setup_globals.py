@@ -271,7 +271,7 @@ def load_structures(source:str, logger:logging):
         head_files, header_chosen = choose_cam(logger)
         configs["cam"] = head_files[header_chosen]
         record = load_signal_data(configs["cam"])
-
+        
         #ECG data
         wave = record.p_signal
         
@@ -285,7 +285,7 @@ def load_structures(source:str, logger:logging):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[50:-1000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
 
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
