@@ -72,6 +72,17 @@ def get_logger(log_dir:Path, console:Console)->logging.Logger:
     logger.propagate = False
     return logger
 
+################################# Saving Funcs ####################################
+def save_configs(configs:dict, spath:str):
+    """This function saves the configs dictionary to a JSON file. 
+
+    Args:
+        jsond (dict): Main dictionary container
+    """    
+    out_json = json.dumps(configs, indent=2, cls=NumpyArrayEncoder)
+    with open("./src/rad_ecg/config.json", "w") as out_f:
+        out_f.write(out_json)
+
 #CLASS Numpy encoder
 class NumpyArrayEncoder(json.JSONEncoder):
     """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.

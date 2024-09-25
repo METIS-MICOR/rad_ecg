@@ -1435,10 +1435,9 @@ def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
     #Eventually need a folder existence check here.  If it doesn't, create it. 
     for x in ["peaks", "interior_peaks", "section_info"]:
         if tobucket:
-            savpaths = "/".join(configs["save_path"], configs["bucket"], current_date, x)
+            file_path = "/".join(configs["save_path"], configs["bucket"], current_date, x, ".csv")
         else:
-            savpaths = "/".join(configs["save_path"], current_date, x)
-        file_path = f"{savpaths}.csv"
+            file_path = "/".join(configs["save_path"], current_date, x, ".csv")
 
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
@@ -1452,7 +1451,13 @@ def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
             delimiter=',',
         )
         logger.warning(f"Saved {x} to {file_path}")
+    #Update last run in configs.
+    configs['last_run'] = current_date
     
+    #Save configs
+    support.save_configs(configs)
+    logger.info("Configs updated and saved")
+
     # logger.warning(f'Size of rolling median as {ecg_data["rolling_med"].dtype} {sys.getsizeof(ecg_data["rolling_med"])*.000_001:.2f} MB')
     logger.critical(f"Wave section counts{np.unique(ecg_data['section_info']['valid'], return_counts=True)}")
     fail_counts = Counter(ecg_data['section_info']['fail_reason'])
