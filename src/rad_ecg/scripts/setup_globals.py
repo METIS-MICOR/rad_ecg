@@ -86,7 +86,8 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     blobs = list(bucket.list_blobs())
     gcp_folders = {}
     file_names = []
-    
+    unprocessed = []
+
     #Make a dict of the folders and their contents
     for blob in blobs:
         folder = os.path.dirname(blob.name)
@@ -94,7 +95,25 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
             gcp_folders[folder] = []
         if not blob.name.endswith("/"):
             gcp_folders[folder].append(blob)
+        if blob.name.startswith("unprocessed"):
+            unprocessed.append(blob.name)
     
+    #Generate list of all unprocessed cams
+    unprocessed = list(set([name.split("/")[1] for name in unprocessed]))
+    unprocessed = sorted([x for x in unprocessed if len(x) > 1])
+    logger.warning("please select a cam to download")
+    for idx, file in enumerate(unprocessed):
+        logger.warning(f"{idx} : {file}")
+    selection = input("Please select the index of desired CAM")
+    file_selected = unprocessed[int(selection)]
+    keys = list(gcp_folders.keys())
+    for key in keys:
+        if file_selected not in key:
+            gcp_folders.pop(key)
+
+    #Add if secondary confirm if the cam has already been processed.  
+
+
     #Process each folder
     for folder, files in gcp_folders.items():
         # if its a results folder, skip it
@@ -112,25 +131,30 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
         logger.info(f"Processing folder {folder}")
         #Process each file
         for blob in files:
+            #Grab the name
+            cam_name = blob.name[blob.name.rindex("/")+1:]       
+            cam_f = cam_name.split(".")[0]
             #Generate filename save path
-            dest_f_name = os.path.join(save_path, blob.name)
-            cam_name = folder[folder.index("/")+1:]            
+            dest_f_name = os.path.join(save_path, cam_f) + "/" + cam_name
+                 
             #Check to see if a folder exists. Create if not
-            if os.path.exists(save_path + "/" + folder):
-                logger.info(f"{blob.name} dest folder already created")
+            if os.path.exists(save_path + cam_f):
+                logger.info(f"{cam_name} dest folder already exists")
             else:
-                if not os.path.exists(bucket + "/processed/" + cam_name):
-                    newdir  = os.path.join(save_path, )
+                if not os.path.exists(save_path + cam_f):
+                    newdir  = "/".join([save_path, cam_f]) + "/"
                     os.mkdir(newdir)
                     logger.info(f"folder created: {newdir} ")
-
+                else:
+                    logger.info("Save path exists")
             #Check to see if file exists. Download if not
-            if os.path.exists(dest_f_name):
-                logger.info(f"{blob.name} file exists already")
+            source_f = "/".join([configs["data_path"], cam_f, cam_name])
+            if os.path.exists(source_f):
+                logger.info(f"file {source_f} exists already")
                 
             else:
-                logger.info(f"Downloading {blob.name} to {dest_f_name}")
-                blob.download_to_filename(dest_f_name)
+                logger.info(f"Downloading {blob.name}\nto {dest_f_name}")
+                blob.download_to_filename(source_f)
                 logger.info("ECG download complete.")
             
             if blob.name.endswith(".hea"):
@@ -164,7 +188,7 @@ def choose_cam(logger:logging)->list:
         head_files = get_records('inputdata')
     #If there is a config directory target and gcp bucket is true
     elif gcp:
-        head_files = download_ecg_from_gcs(configs["bucket_name"], data_path, logger)
+        head_files = download_ecg_from_gcs(configs["bucket_name"], configs["save_path"], logger)
     # If the config directory target is valid
     elif config_dir:
         head_files = get_records(config_dir)
