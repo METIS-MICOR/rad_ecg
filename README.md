@@ -146,6 +146,8 @@ poetry run python peak_detect_v3.py
 ## Andy Todo List
 
 - [ ] Add overall progbar with standard log output
+- [ ] Add instructions on README for GCP usage
+- [ ] Add instructions for complete package installation
 - [x] Adjust logger logic to run off global calls
 - [x] Update README
 - [x] Add JSON runtime config 

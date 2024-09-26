@@ -39,7 +39,8 @@
     |    ├── LICENSE                    <- MIT
     |    ├── poetry.lock                <- Locked file of libarary dependancy versions
     |    ├── pyproject.toml             <- Houses all project information / main libraries
-    |    └── README.md                  <- The top-level README for developers using this project.
+    |    ├── README.md                  <- The top-level README for developers using this project.
+    |    └── requirements.txt           <- Base requirements.txt file for non-poetry environment use
 
 Link to example
 https://raw.githubusercontent.com/shaygeller/Normalization_vs_Standardization/master/README.md
