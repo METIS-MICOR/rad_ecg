@@ -144,7 +144,6 @@ dmypy.json
 *.dat
 *.mib
 *.log
-*.txt
 
 
 
