@@ -111,6 +111,8 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
         if file_selected not in key:
             gcp_folders.pop(key)
     
+    input_path = save_path.replace("output" , "inputdata")
+
     #TODO Add if secondary confirm if the cam has already been processed.  
     #Process each folder
     for folder, files in gcp_folders.items():
@@ -132,31 +134,37 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
             #Grab the name
             cam_name = blob.name[blob.name.rindex("/")+1:]       
             cam_f = cam_name.split(".")[0]
+
             #Generate filename save path
-            dest_f_name = os.path.join(save_path, cam_f) + "/" + cam_name
-                 
-            #Check to see if a folder exists. Create if not
-            if os.path.exists(save_path + cam_f):
-                logger.info(f"{cam_name} dest folder already exists")
+            input_file_p = "/".join([input_path, cam_f, cam_name])
+            input_fold = os.path.join(input_path + "/" + cam_f + "/")
+            output_fold = os.path.join(save_path + "/" + cam_f + "/")
+
+            #Check if input folder exists.  Create if not
+            if os.path.exists(input_fold):
+                logger.info(f"{cam_name} Input folder already exists")
             else:
-                if not os.path.exists(save_path + cam_f):
-                    newdir  = "/".join([save_path, cam_f]) + "/"
-                    os.mkdir(newdir)
-                    logger.info(f"folder created: {newdir} ")
-                else:
-                    logger.info("Save path exists")
-            #Check to see if file exists. Download if not
-            source_f = "/".join([configs["data_path"], cam_f, cam_name])
-            if os.path.exists(source_f):
-                logger.info(f"file {source_f} exists already")
-                
+                os.mkdir(input_fold)
+                logger.info(f"folder created @ {input_fold} ")
+
+            #Check to see if output folder exists. Create if not
+            if os.path.exists(output_fold):
+                logger.info(f"{cam_name} input folder already exists")
             else:
-                logger.info(f"Downloading {blob.name}\nto {dest_f_name}")
-                blob.download_to_filename(source_f)
+                os.mkdir(output_fold)
+                logger.info(f"folder created @ {output_fold} ")
+
+            #Check to see if input file exists. Download if not
+            # source_f = "/".join([configs["data_path"], cam_f, cam_name])
+            if os.path.exists(input_file_p):
+                logger.info(f"file {input_file_p} exists already")
+            else:
+                logger.info(f"Downloading {blob.name} to\n{input_file_p}")
+                blob.download_to_filename(input_file_p)
                 logger.info("ECG download complete.")
             
             if blob.name.endswith(".hea"):
-                file_names.append(dest_f_name)
+                file_names.append(input_file_p)
             
 
     return file_names
@@ -202,7 +210,11 @@ def choose_cam(logger:logging)->list:
         else:
             name = head.split(".")[-2].split("\\")[-1]
         logger.warning(f'idx: {idx}\tName: {name}')
-    header_chosen = input("Please choose a CAM")
+    if not gcp:
+        header_chosen = input("Please choose a CAM")
+    else:
+        header_chosen = "0"
+
     if not header_chosen.isnumeric():
         logger.critical(f'Incorrect file entered, program terminating')
         exit()
