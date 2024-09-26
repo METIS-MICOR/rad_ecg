@@ -126,7 +126,7 @@ poetry config virtualenvs.in-project true
 
 For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
 
-Before running the extraction script, adjust/amend the config.json in the root of this folder to your runtime requirements. 
+Before running the `peak_detect_v3.py` script, adjust the `config.json` in the root of the package to your runtime requirements.
 
 |Field|Selection|Description|
 |:----|:----|-----|
