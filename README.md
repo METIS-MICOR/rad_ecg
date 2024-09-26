@@ -68,19 +68,20 @@ pip install -r requirements.txt
 
 In your terminal, navigate to your root folder.
 
-To make sure poetry is installed on your system. Type the following into your terminal
-
-```terminal
-poetry -V
-poetry self update
-```
-
 If poetry is not installed, do so in order to continue
 This will install version 1.7.0.  Adjust to your preference
 
 ```terminal
 curl -sSL https://install.python-poetry.org | python3 - --version 1.7.0
 ```
+
+To check if poetry is installed on your system. Type the following into your terminal
+
+```terminal
+poetry -V
+```
+
+if you see a `version` returned, you have Poetry installed.  The second command is to update poetry if its installed. (Always a good idea). If not, follow this [link](https://python-poetry.org/docs/) and follow installation commands for your systems requirements. If on windows, we recommend the `powershell` option for easiest installation. Using pip to install poetry will lead to problems down the road and we do not recommend that option.  It needs to be installed separately from your standard python installation to manage your many python installations.  `Note: Python 2.7 is not supported`
 
 To spawn a new poetry .venv
 
@@ -110,8 +111,6 @@ To view only top level library requirements
 poetry show -T
 ```
 
-
-if you see a `version` returned, you have Poetry installed.  The second command is to update poetry if its installed. (Always a good idea). If not, follow this [link](https://python-poetry.org/docs/) and follow installation commands for your systems requirements. If on windows, we recommend the `powershell` option for easiest installation. Using pip to install poetry will lead to problems down the road and we do not recommend that option.  It needs to be installed separately from your standard python installation to manage your many python installations.  `Note: Python 2.7 is not supported`
 
 ### Environment storage
 
