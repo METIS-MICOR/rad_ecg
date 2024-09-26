@@ -76,7 +76,11 @@ poetry self update
 ```
 
 If poetry is not installed, do so in order to continue
+This will install version 1.7.0.  Adjust to your preference
 
+```terminal
+curl -sSL https://install.python-poetry.org | python3 - --version 1.7.0
+```
 
 To spawn a new poetry .venv
 
@@ -141,8 +145,12 @@ Before running the extraction script, adjust/amend the config.json in the root o
 To run the extraction program, run the command
 
 ```terminal
-poetry run python peak_detect_v3.py
+poetry run python src/rad_ecg/scripts/peak_detect_v3.py
 ```
+## Note
+
+This repo is under active development, so if something is malfunctioning.  Please open an issue and I'd be happy to address it. 
+
 ## Andy Todo List
 
 - [ ] Add overall progbar with standard log output
