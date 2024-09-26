@@ -21,6 +21,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.console import Console
+import subprocess
+from collections import Counter
 
 ################################# Logger functions ####################################
 
@@ -33,7 +35,7 @@ def get_file_handler(log_dir:Path)->logging.FileHandler:
     Returns:
         filehandler(handler): This will handle the logger's format and file management
     """	
-    log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-3d|%(funcName)-14s|%(message)s|" 
+    log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-3d|%(funcName)-23s|%(message)s|" 
                  #f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
     current_date = time.strftime("%m_%d_%Y")
     log_file = log_dir / f"{current_date}.log"
@@ -50,7 +52,7 @@ def get_rich_handler(console:Console)-> RichHandler:
     Returns:
         rh(RichHandler): This will format your terminal output
     """
-    rich_format = "|%(funcName)-14s|%(message)s"
+    rich_format = "|%(funcName)-23s|%(message)s"
     rh = RichHandler(console=console)
     rh.setFormatter(logging.Formatter(rich_format))
     return rh
@@ -73,6 +75,76 @@ def get_logger(log_dir:Path, console:Console)->logging.Logger:
     return logger
 
 ################################# Saving Funcs ####################################
+
+#FUNCTION save results
+def save_results(ecg_data:dict, configs:dict, logger:logging, current_date:datetime, tobucket:bool=False):
+    #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
+    #have to feed the types back to the save routine when you save it.
+    #(╯°□°）╯︵ ┻━┻
+
+    #Export the CSV files
+    logger.info("Savings CSV's")
+    #Eventually need a folder existence check here.  If it doesn't, create it. 
+    cam = configs["cam"].split(".")[-2].split("/")[-1]
+    for x in ["peaks", "interior_peaks", "section_info"]:
+        file_path = "/".join([configs["save_path"], cam, current_date]) + "_" + x + ".csv"
+        if x == "section_info":
+            save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
+        else:
+            save_format = '%i, '*ecg_data[x].shape[1]
+
+        np.savetxt(
+            fname = file_path,
+            X = ecg_data[x], 
+            fmt = save_format,
+            delimiter=',',
+        )
+        logger.warning(f"Saved {x} to {file_path}")
+        
+        if tobucket:
+            gcp_path  = file_path[file_path.index(f"{current_date}"):]
+            bucket_name = configs["bucket_name"]
+            destination_gcp = f'gs://{bucket_name}/results/{cam}/{gcp_path}'
+            gsutil_command = ['gsutil', 'cp', file_path, destination_gcp]
+            try:
+                subprocess.run(gsutil_command, check=True)
+                logger.warning(f"{cam} successfully saved to {bucket_name} on GCP")
+            #Trapping FNF error specifically
+            except FileNotFoundError as e:
+                logger.warning(f"FileNotFound:\n{e}")
+                raise e
+            except Exception as e:
+                logger.warning(f"Exception:\n{e}\nType:{type(e)}")
+                raise e
+
+    #Save configs
+    save_configs(configs, "./src/rad_ecg/config.json")
+    logger.info("Configs updated and saved")
+
+    # logger.warning(f'Size of rolling median as {ecg_data["rolling_med"].dtype} {sys.getsizeof(ecg_data["rolling_med"])*.000_001:.2f} MB')
+    logger.critical(f"Wave section counts{np.unique(ecg_data['section_info']['valid'], return_counts=True)}")
+    fail_counts = Counter(ecg_data['section_info']['fail_reason'])
+    logger.critical(f"Fail reasons found:{list(fail_counts.items())}")
+    if tobucket:
+        transfer_logfile(logger, configs, cam, current_date)
+
+def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:datetime):
+    local_path  = configs["log_path"]
+    bucket_name = configs["bucket_name"]
+    destination_gcp = f'gs://{bucket_name}/results/{cam}/{current_date}.log'
+    gsutil_command = ['gsutil', 'cp', local_path, destination_gcp]
+    try:
+        subprocess.run(gsutil_command, check=True)
+        logger.warning(f"logfile successfully saved to {bucket_name} on GCP")
+    #Trapping FNF error specifically
+    except FileNotFoundError as e:
+        logger.warning(f"FileNotFound:\n{e}")
+        raise e
+    except Exception as e:
+        logger.warning(f"Exception:\n{e}\nType:{type(e)}")
+        raise e
+
+
 def save_configs(configs:dict, spath:str):
     """This function saves the configs dictionary to a JSON file. 
 
@@ -80,7 +152,7 @@ def save_configs(configs:dict, spath:str):
         jsond (dict): Main dictionary container
     """    
     out_json = json.dumps(configs, indent=2, cls=NumpyArrayEncoder)
-    with open("./src/rad_ecg/config.json", "w") as out_f:
+    with open(spath, "w") as out_f:
         out_f.write(out_json)
 
 #CLASS Numpy encoder

@@ -16,14 +16,14 @@ import os
 import sys
 import logging
 # from pathlib import Path
-from collections import deque, Counter
+from collections import deque
 from rich.logging import RichHandler
 from rich.console import Console
 from time import strftime
 
 current_date = strftime("%m-%d-%Y_%H-%M-%S")
-FORMAT = "%(asctime)s|%(levelname)s|%(funcName)s|%(lineno)d|%(message)s" #[%(name)s]
-FORMAT_RICH = "%(funcName)s|%(lineno)d|%(message)s"
+FORMAT = "%(asctime)s|%(levelname)-8s|%(lineno)-3d|%(funcName)-23s|%(message)s|" 
+FORMAT_RICH = "|%(funcName)-23s|%(message)s"
 console = Console(color_system="truecolor")
 rh = RichHandler(level = logging.WARNING, console=console)
 rh.setFormatter(logging.Formatter(FORMAT_RICH))
@@ -1425,45 +1425,6 @@ def send_email(log_path:str):
         logger.warning("Runtime email sent")
         logger.warning(f"{peak_search_runtime}")
 
-#FUNCTION save results
-def save_results(ecg_data:dict, configs:dict, tobucket:bool=False):
-    #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
-    #have to feed the types back to the save routine when you save it.
-    #(╯°□°）╯︵ ┻━┻
-
-    #Export the CSV files
-    logger.info("Savings CSV's")
-    #Eventually need a folder existence check here.  If it doesn't, create it. 
-    for x in ["peaks", "interior_peaks", "section_info"]:
-        if tobucket:
-            file_path = "/".join(configs["save_path"], configs["bucket"], current_date, x) + ".csv"
-        else:
-            file_path = "/".join(configs["save_path"], current_date, x) + ".csv"
-
-        if x == "section_info":
-            save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
-        else:
-            save_format = '%i, '*ecg_data[x].shape[1]
-
-        np.savetxt(
-            fname = file_path,
-            X = ecg_data[x], 
-            fmt = save_format,
-            delimiter=',',
-        )
-        logger.warning(f"Saved {x} to {file_path}")
-    #Update last run in configs.
-    configs['last_run'] = current_date
-    
-    #Save configs
-    support.save_configs(configs)
-    logger.info("Configs updated and saved")
-
-    # logger.warning(f'Size of rolling median as {ecg_data["rolling_med"].dtype} {sys.getsizeof(ecg_data["rolling_med"])*.000_001:.2f} MB')
-    logger.critical(f"Wave section counts{np.unique(ecg_data['section_info']['valid'], return_counts=True)}")
-    fail_counts = Counter(ecg_data['section_info']['fail_reason'])
-    logger.critical(f"Fail reasons found:{list(fail_counts.items())}")
-
 #NOTE START PROGRAM
 def main():
     #TODO - Add overall prog to log output in terminal
@@ -1481,12 +1442,12 @@ def main():
     #Save logs, results, send update email
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
-    has_bucket_name = configs.get("bucket_name")
-    
+    has_bucket_name = len(configs.get("bucket_name")) > 0
+    configs["log_path"] = log_path
     if use_bucket & has_bucket_name :
-        save_results(ecg_data, configs, True)
+        support.save_results(ecg_data, configs, logger, current_date, True)
     else:
-        save_results(ecg_data, configs)
+        support.save_results(ecg_data, configs, logger, current_date)
 
     logger.info("Woo hoo!\nECG Analysis Complete")
 
