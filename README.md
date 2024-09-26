@@ -128,18 +128,19 @@ For general instruction as to poetry's functionality and commands, please see re
 
 Before running the extraction script, adjust/amend the config.json in the root of this folder to your runtime requirements. 
 
-1. Do you want to plot the fourier transforms when a signal is lost?
-  - "plot_fft":false
-2. Do you want to plot errors as they occur in extraction
-  - "plot_errors":false
-3. What sampling frequency was used with the data (Hz)
-  - "samp_freq:170
-4. Do you want to display the terminal dashboard during extraction  
-  - "live_term":false
-5. Is this porcine data?  
-  - "porcine":false
-6. Provide data path
-  - "data_path"  :"/src/pathtoyourdata/onyourmachine"
+|Field|Selection|Description|
+|:----|:----|-----|
+|"plot_fft"| false | Do you want to plot the fourier transforms when a signal is lost?|
+|"plot_errors" | false | Do you want to plot errors as they occur in extraction|
+|"live_term"|false|Do you want to display the terminal dashboard during extraction|
+|"porcine"|false| Is this porcine data?  |
+|"samp_freq|170| What sampling frequency was used with the data (Hz)|
+|"data_path" |"/src/rad_ecg/data/inputdata/"|Path of where to find your data|
+|"save_path" |"/src/rad_ecg/data/output/"|Path of where export the results|
+|"gcp_bucket" |false|Whether or not to look in a GCP bucket|
+|"bucket_name" |bucketname|Name of the GCP Bucket|
+|"cam" |""|Name of CAM Analyzed.  (generated post analysis)|
+|"last_run" |datetime|Name of CAM Analyzed.  (generated post analysis)|
 
 To run the extraction program, run the command
 
