@@ -6,19 +6,34 @@
 
 <p align="center">
       <a href="https://www.python.org/">
-        <img src="https://img.shields.io/badge/Python-3.8-ff69b4.svg" /></a>
+        <img src="https://img.shields.io/badge/Python-3.11-8bf230.svg" /></a>
+      <a href="https://numpy.org/doc/">
+        <img src="https://img.shields.io/badge/Numpy-1.25-8bf230.svg" /></a>
+      <a href="https://pandas.pydata.org/docs/index.html">
+        <img src="https://img.shields.io/badge/Pandas-1.5.0-8bf230.svg" /></a>
+      <a href="https://rich.readthedocs.io/en/stable/">
+        <img src="https://img.shields.io/badge/Rich-13.8.0-8bf230.svg" /></a>
+      <a href="https://wfdb.readthedocs.io/en/latest/">              
+        <img src="https://img.shields.io/badge/wfdb-4.1.2-8bf230.svg" /></a>
+      <a href="https://docs.scipy.org/doc/scipy/">            
+        <img src="https://img.shields.io/badge/Scipy-1.14.0-8bf230.svg" /></a>
+      <a href="https://matplotlib.org/stable/index.html">            
+        <img src="https://img.shields.io/badge/Matplotlib-3.9.0-8bf230.svg" /></a>
+      <a href="https://cloud.google.com/storage/docs">            
+        <img src="https://img.shields.io/badge/GCS-2.18.0-8bf230.svg" /></a>
 </p>
 
 
 ## Requirements
 
-- python >= 3.8
-- poetry >=1.70
-- scipy >= 1.9.3
-- numpy >= 1.22.0
-- pandas >= 1.4.0
-- matplotlib >= 3.73
-- rich >= 13.7.0
+- python = "^3.11"
+- numpy = "^1.25.0"
+- pandas = "^1.5.0"
+- rich = "^13.8.0"
+- wfdb = "^4.1.2"
+- scipy = "^1.14.0"
+- matplotlib = "^3.9.0"
+- google-cloud-storage = "^2.18.2"
 
 # Project setup *without* Poetry
 

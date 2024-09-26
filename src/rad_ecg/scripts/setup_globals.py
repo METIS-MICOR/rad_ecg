@@ -110,10 +110,8 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     for key in keys:
         if file_selected not in key:
             gcp_folders.pop(key)
-
-    #Add if secondary confirm if the cam has already been processed.  
-
-
+    
+    #TODO Add if secondary confirm if the cam has already been processed.  
     #Process each folder
     for folder, files in gcp_folders.items():
         # if its a results folder, skip it
