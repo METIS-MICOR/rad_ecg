@@ -145,8 +145,7 @@ poetry run python peak_detect_v3.py
 ```
 ## Andy Todo List
 
-[ ] - Add overall progbar with standard log output
-[x] - Add JSON runtime config 
-[ ] - Adjust logger logic to run off global calls
-[ ] - Update README
-[ ] - Package and upload to pypy
+- [ ] Add overall progbar with standard log output
+- [x] Adjust logger logic to run off global calls
+- [x] Update README
+- [x] Add JSON runtime config 
