@@ -35,34 +35,23 @@
 - matplotlib = "^3.9.0"
 - google-cloud-storage = "^2.18.2"
 
-# Project setup *without* Poetry
+# Cloning the repo
 
 Launch VSCode if that is IDE of choice.
 `CTRL + ~` will open a new terminal
-Navigate to the directory where the repo has been cloned
+Navigate in your terminal to where you want the repo cloned and follow the below commmands to generate the necessary file directory structure.
 
 ```terminal
 git clone https://github.com/METIS-MICOR/rad_ecg.git
 cd rad_ecg
-python -m venv .venv
-
-#activate the environment in your terminal 
-#On Windows
-.venv\Scripts\activate.bat
-
-#On Mac
-source .venv/bin/activate
+mkdir src/rad_ecg/data/inputdata src/rad_ecg/data/logs src/rad_ecg/data/output src/rad_ecg/secret
 ```
 
-Before next step, ensure you see the environment name to the left of your command prompt.  If you see it and the path file to your current directory, then the environment is activated.  If you don't activate it, and start installing things.  You'll install all the `requirements.txt` libraries into your base python environment. Which will lead to dependency problems down the road.  I promise.
-
-Once activated, install the required libraries.
-
-```terminal
-pip install -r requirements.txt
-```
 
 # Project setup with Poetry
+
+
+
 
 ## How to check Poetry installation
 
@@ -82,6 +71,20 @@ poetry -V
 ```
 
 if you see a `version` returned, you have Poetry installed.  The second command is to update poetry if its installed. (Always a good idea). If not, follow this [link](https://python-poetry.org/docs/) and follow installation commands for your systems requirements. If on windows, we recommend the `powershell` option for easiest installation. Using pip to install poetry will lead to problems down the road and we do not recommend that option.  It needs to be installed separately from your standard python installation to manage your many python installations.  `Note: Python 2.7 is not supported`
+
+## Environment storage
+
+Some prefer Poetry's default storage method of storing environments in one location on your system.  The default storage are nested under the `{cache_dir}/virtualenvs`.  See the below image for general system location of the cache.
+
+![Cache Directory](docs/images/p_cach_dir.png)
+
+If you want to store you virtual environment locally.  Set this global configuration flag below once poetry is installed.  This will now search for whatever environments you have in the root folder before trying any global versions of the environment in the cache.
+
+```terminal
+poetry config virtualenvs.in-project true
+```
+
+For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
 
 To spawn a new poetry .venv
 
@@ -110,21 +113,30 @@ To view only top level library requirements
 ```terminal
 poetry show -T
 ```
+# Project setup *without* Poetry
 
-
-### Environment storage
-
-Some prefer Poetry's default storage method of storing environments in one location on your system.  The default storage are nested under the `{cache_dir}/virtualenvs`.  See the below image for general system location of the cache.
-
-![Cache Directory](docs/images/p_cach_dir.png)
-
-If you want to store you virtual environment locally.  Set this global configuration flag below once poetry is installed.  This will now search for whatever environments you have in the root folder before trying any global versions of the environment in the cache.
+First you would make your virtual environment and then activate it.
 
 ```terminal
-poetry config virtualenvs.in-project true
+python -m venv .venv
+
+#activate the environment in your terminal 
+#On Windows
+.venv\Scripts\activate.bat
+
+#On Mac
+source .venv/bin/activate
 ```
 
-For general instruction as to poetry's functionality and commands, please see read through poetry's [cli documentation](https://python-poetry.org/docs/cli/)
+Before next step, ensure you see the environment name to the left of your command prompt.  If you see it and the path file to your current directory, then the environment is activated.  If you don't activate it, and start installing things.  You'll install all the `requirements.txt` libraries into your base python environment. Which will lead to dependency problems down the road.  I promise.
+
+Once activated, install the required libraries.
+
+```terminal
+pip install -r requirements.txt
+```
+
+## Runtime Notes
 
 Before running the `peak_detect_v3.py` script, adjust the `config.json` in the root of the package to your runtime requirements.
 
@@ -140,14 +152,15 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 |"gcp_bucket" |false|Whether or not to look in a GCP bucket|
 |"bucket_name" |bucketname|Name of the GCP Bucket|
 |"cam" |""|Name of CAM Analyzed.  (generated post analysis)|
-|"last_run" |datetime|Name of CAM Analyzed.  (generated post analysis)|
+|"last_run" |datetime|Time of last script run  (generated post analysis)|
 
 To run the extraction program, run the command
 
 ```terminal
 poetry run python src/rad_ecg/scripts/peak_detect_v3.py
 ```
-## Note
+
+## Note to users
 
 This repo is under active development, so if something is malfunctioning.  Please open an issue and I'd be happy to address it. 
 
