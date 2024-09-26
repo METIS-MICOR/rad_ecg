@@ -113,6 +113,15 @@ To view only top level library requirements
 ```terminal
 poetry show -T
 ```
+
+## Runtime Notes
+
+To run the extraction program, run the command
+
+```terminal
+poetry run python src/rad_ecg/scripts/peak_detect_v3.py
+```
+
 # Project setup *without* Poetry
 
 First you would make your virtual environment and then activate it.
@@ -130,13 +139,12 @@ source .venv/bin/activate
 
 Before next step, ensure you see the environment name to the left of your command prompt.  If you see it and the path file to your current directory, then the environment is activated.  If you don't activate it, and start installing things.  You'll install all the `requirements.txt` libraries into your base python environment. Which will lead to dependency problems down the road.  I promise.
 
-Once activated, install the required libraries.
+Once activated, install the required libraries and run the script.
 
 ```terminal
 pip install -r requirements.txt
+python src/rad_ecg/scripts/peak_detect_v3.py
 ```
-
-## Runtime Notes
 
 Before running the `peak_detect_v3.py` script, adjust the `config.json` in the root of the package to your runtime requirements.
 
@@ -153,12 +161,6 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 |"bucket_name" |bucketname|Name of the GCP Bucket|
 |"cam" |""|Name of CAM Analyzed.  (generated post analysis)|
 |"last_run" |datetime|Time of last script run  (generated post analysis)|
-
-To run the extraction program, run the command
-
-```terminal
-poetry run python src/rad_ecg/scripts/peak_detect_v3.py
-```
 
 ## Note to users
 
