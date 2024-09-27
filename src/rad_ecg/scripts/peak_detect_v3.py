@@ -22,7 +22,7 @@ from rich.console import Console
 from time import strftime
 
 current_date = strftime("%m-%d-%Y_%H-%M-%S")
-FORMAT = "%(asctime)s|%(levelname)-8s|%(lineno)-3d|%(funcName)-23s|%(message)s|" 
+FORMAT = "%(asctime)s|%(levelname)-8s|%(lineno)-4d|%(funcName)-23s|%(message)s|" 
 FORMAT_RICH = "|%(funcName)-23s|%(message)s"
 console = Console(color_system="truecolor")
 rh = RichHandler(level = logging.WARNING, console=console)

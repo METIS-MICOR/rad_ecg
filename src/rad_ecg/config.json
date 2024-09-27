@@ -1,13 +1,14 @@
 {
-    "plot_fft"   : false,   
-    "plot_errors" : false,   
-    "live_term"   : false,   
-    "porcine"     : false,
-    "samp_freq"   : "",   
-    "data_path"   : "./src/rad_ecg/data/inputdata",
-    "save_path"   : "./src/rad_ecg/data/output",
-    "gcp_bucket"  : false,
-    "bucket_name" : "",
-    "cam"         : "", 
-	"last_run"    : ""
-}
+    "plot_fft"   : false,
+    "plot_errors": false,
+    "live_term"  : false,
+    "porcine"    : false,
+    "samp_freq"  : "",
+    "data_path"  : "./src/rad_ecg/data/inputdata",
+    "save_path"  : "./src/rad_ecg/data/output",
+    "gcp_bucket" : false,
+    "bucket_name": "",
+    "cam"        : "",
+    "last_run"   : "09-27-2024_15-15-56",
+    "log_path"   : ""
+  }
