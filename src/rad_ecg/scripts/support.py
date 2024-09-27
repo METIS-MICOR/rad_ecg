@@ -86,6 +86,7 @@ def save_results(ecg_data:dict, configs:dict, logger:logging, current_date:datet
     logger.info("Savings CSV's")
     #Eventually need a folder existence check here.  If it doesn't, create it. 
     cam = configs["cam"].split(".")[-2].split("/")[-1]
+    configs["last_run"] = current_date
     for x in ["peaks", "interior_peaks", "section_info"]:
         file_path = "/".join([configs["save_path"], cam, current_date]) + "_" + x + ".csv"
         if x == "section_info":
