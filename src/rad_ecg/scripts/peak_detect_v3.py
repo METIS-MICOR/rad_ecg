@@ -441,6 +441,11 @@ def peak_validation_check(
 
     # Test to see if IQR is lower than IQR_low_thresh This is to prevent hitting
     # a vanishing gradient for IQR.  
+    #BUG - IQR Threshold malfunctioning
+        #9-28-24: While watching a run I noticed the lowcount thresholds are getting caught in the global minima's again. 
+        #I need some other way to set the threshold width of a normal recent QRS.  Will investigate other methods on Monday but
+        #wanted to make a note of the behavior I saw. (Counts were in the 500's so its getting stuck until it loses a signal)
+    
     if IQR == IQR_low_thresh:
         low_counts += 1
         if low_counts > 6:
@@ -1459,3 +1464,4 @@ if __name__ == "__main__":
     #To inspect the ECG before its run.  Would be ideal if 
     #it ran in the cloud for plotting but i'm not sure 
     #how that renders locally
+    

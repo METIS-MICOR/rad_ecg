@@ -230,7 +230,7 @@ def load_graph_objects(run:str, cam:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
-    cam_n = cam.split("/")[-2]
+    cam_n = cam.split("\\")[-2]
     fpath = f"./src/rad_ecg/data/output/{cam_n}/{run}"  
     lfpath = f"./src/rad_ecg/data/logs/{run}"
 
@@ -344,7 +344,7 @@ def summarize_run():
 
 
 def main():
-    run = "09-27-2024_15-15-56"  	#CAM name
+    run = "09-27-2024_20-56-36"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
     global logger
@@ -358,6 +358,9 @@ def main():
     #TODO - Brainstorm summary formats
     #IDEA - FFT switch. 
         #Would be cool if you could switch from the slider to the FFT version of a section. 
-    
+    #IDEA Larger section clustering of smaller groups.  Or motif shifts
+        #Could run it in the slider.py file.
+    #IDEA Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
+        #Like stumpy search function
 if __name__ == "__main__":
     main()
