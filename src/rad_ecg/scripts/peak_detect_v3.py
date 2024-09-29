@@ -1160,7 +1160,8 @@ def main_peak_search(
     stft_loop_on = False
     stft_count = 0
     #Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
-    stack_range = [x for x in range(0, 50_000_000, 500_000)]
+    #Round down to the nearest 100k
+    stack_range = [x for x in range(0, np.round(np.floor(wave.shape[0]), -5), 500_000)]
     #Stacking test for peak addition	
     
     @log_time
