@@ -7,7 +7,7 @@
     "data_path"  : "./src/rad_ecg/data/inputdata",
     "save_path"  : "./src/rad_ecg/data/output",
     "gcp_bucket" : false,
-    "bucket_name": "micor_ecg_bucket",
+    "bucket_name": "",
     "cam"        : "",
     "last_run"   : "09-27-2024_15-15-56",
     "log_path"   : ""
