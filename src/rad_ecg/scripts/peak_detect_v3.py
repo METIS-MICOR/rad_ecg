@@ -449,11 +449,11 @@ def peak_validation_check(
     if IQR == IQR_low_thresh:
         low_counts += 1
         if low_counts > 6:
-            IQR = 2*IQR
-            logger.warning(f'Bumped up IQR 100% to {IQR:.4f} for section {cur_sect} low_count at {low_counts}')
+            IQR = 3*IQR
+            logger.warning(f'Bumped up IQR 3x to {IQR:.4f} for section {cur_sect} low_count at {low_counts}')
         elif low_counts > 3: 
             IQR = IQR + .50*IQR
-            logger.info(f'Bumped up IQR 50% to {IQR:.4f} for section {cur_sect} low_count at {low_counts}')
+            logger.info(f'Bumped up IQR 0.5x to {IQR:.4f} for section {cur_sect} low_count at {low_counts}')
 
     elif IQR <= IQR_low_thresh:	
         IQR_low_thresh = IQR
@@ -1161,7 +1161,7 @@ def main_peak_search(
     stft_count = 0
     #Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
     #Round down to the nearest 100k
-    stack_range = [x for x in range(0, np.round(np.floor(wave.shape[0]), -5), 500_000)]
+    stack_range = [x for x in range(0, int(np.round(np.floor(ecg_data["section_info"].shape[0]), -2)), 5_000)]
     #Stacking test for peak addition	
     
     @log_time
