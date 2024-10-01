@@ -344,7 +344,7 @@ def summarize_run():
 
 
 def main():
-    run = "09-29-2024_23-11-11"  	#CAM name
+    run = "09-30-2024_16-19-02"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
     global logger

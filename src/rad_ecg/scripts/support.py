@@ -126,6 +126,7 @@ def save_results(ecg_data:dict, configs:dict, logger:logging, current_date:datet
     logger.critical(f"Wave section counts{np.unique(ecg_data['section_info']['valid'], return_counts=True)}")
     fail_counts = Counter(ecg_data['section_info']['fail_reason'])
     logger.critical(f"Fail reasons found:{list(fail_counts.items())}")
+    logger.critical(f"Runtime configuration {list(configs.items())}")
     if tobucket:
         transfer_logfile(logger, configs, cam, current_date)
 

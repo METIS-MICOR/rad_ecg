@@ -348,7 +348,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             NN50 = np.where(RR_diffs_time > 50)[0].shape[0]
             PNN50 = np.round((NN50 / RR_diffs.shape[0]) * 100, 2)
         except Exception as e:
-            logger.warning(f'Unable to find NN50 {e}')
+            logger.warning(f'Unable to find NN50/PNN50 {e}')
             NN50 = np.nan
             PNN50 = np.nan
 
@@ -892,7 +892,7 @@ def extract_PQRST(
             continue
 
         #MEAS Q peak
-        logger.info("adding Q peak")
+        # logger.info("adding Q peak")
         temp_arr[temp_counter + 1, 1] = np_inflections[-1] + peak0
 
         #MEAS S peak
@@ -960,8 +960,6 @@ def extract_PQRST(
         else: 
             samp_min = min(np_inflections) + peak0
             logger.info(f"Samp min farther out than expected between {peak0:_d}:{peak1:_d}")
-            #TODO - Think about keeping the old method (samp min) for a
-            # reference point for the T peak.  
         
         samp_min_dict[peak0] = samp_min
 
@@ -981,7 +979,7 @@ def extract_PQRST(
             peak_T_find = ss.find_peaks(RR_first_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
-            logger.info("adding T peak")
+            # logger.info("adding T peak")
 
         except Exception as e:
             logger.warning(f"T peak find error for {peak0}. Error message {e}")
@@ -994,7 +992,7 @@ def extract_PQRST(
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
             #Adds the P peak to the next R peaks data.  (as its the P of the next peaks PQRST)
             temp_arr[temp_counter+1, 0] = peak0 + (samp_min - peak0) + top_P[0]
-            logger.info("adding P peak")
+            # logger.info("adding P peak")
 
         except Exception as e:
             logger.warning(f"P peak find error at {peak1}", )
@@ -1056,7 +1054,7 @@ def extract_PQRST(
             shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
             Q_onset = slope_start + shoulder[0] + 1
             temp_arr[temp_counter, 12] = Q_onset
-            logger.info(f'Adding Q onset')
+            # logger.info(f'Adding Q onset')
         except Exception as e:
             logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
@@ -1071,7 +1069,7 @@ def extract_PQRST(
             first_group = groups[0]
             T_onset = slope_start + first_group[-1]
             temp_arr[temp_counter, 13] = T_onset
-            logger.info('Adding T onset')
+            # logger.info('Adding T onset')
 
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -1089,7 +1087,7 @@ def extract_PQRST(
             lil_grads = np.gradient(np.gradient(lil_wave))
             P_onset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 11] = P_onset
-            logger.info(f'Adding P onset')
+            # logger.info(f'Adding P onset')
         except Exception as e:
             logger.warning(f'P Onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         
@@ -1107,9 +1105,11 @@ def extract_PQRST(
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
+            #TODO - Update Toffset calculation to Tangent method. 
+            #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
             T_offset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 14] = T_offset
-            logger.info(f'Adding T offset')
+            # logger.info(f'Adding T offset')
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         

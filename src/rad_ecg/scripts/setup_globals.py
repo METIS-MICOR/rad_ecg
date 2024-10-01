@@ -312,7 +312,8 @@ def load_structures(source:str, logger:logging):
         
         #Frequency
         fs = record.fs
-
+        configs["samp_freq"] = fs
+        
         #Size of timing segment window
         windowsi = 10
     else:
@@ -320,8 +321,8 @@ def load_structures(source:str, logger:logging):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
-
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[5:-1000]
+    #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
         ('wave_section', 'i4'),
