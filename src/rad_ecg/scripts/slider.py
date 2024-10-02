@@ -344,7 +344,7 @@ def summarize_run():
 
 
 def main():
-    run = "09-30-2024_16-19-02"  	#CAM name
+    run = "10-01-2024_22-28-48"  	#CAM name
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
     global logger
@@ -355,6 +355,11 @@ def main():
     load_graph_objects(run, cam)
     # summarize_run()
 
+if __name__ == "__main__":
+    main()
+
+
+
     #TODO - Brainstorm summary formats
     #IDEA - FFT switch. 
         #Would be cool if you could switch from the slider to the FFT version of a section. 
@@ -362,5 +367,5 @@ def main():
         #Could run it in the slider.py file.
     #IDEA Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
-if __name__ == "__main__":
-    main()
+
+        

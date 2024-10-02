@@ -980,7 +980,8 @@ def extract_PQRST(
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
             # logger.info("adding T peak")
-
+            #BUG - not sure why the detrend isn't here anymore
+            
         except Exception as e:
             logger.warning(f"T peak find error for {peak0}. Error message {e}")
             temp_arr[temp_counter, 4] = 0
@@ -1105,8 +1106,13 @@ def extract_PQRST(
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-            #TODO - Update Toffset calculation to Tangent method. 
-            #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+            #TODO - Update TOffset heirarchy.
+                #If the acceleration method fails.  
+                #Add in another check to look at the slope after
+                #the T peak.  Draw a line down to the isoelectric line (0)
+                #Use that marker as your time marker for QT. 
+                #https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+
             T_offset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 14] = T_offset
             # logger.info(f'Adding T offset')
