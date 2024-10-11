@@ -981,6 +981,37 @@ def extract_PQRST(
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
             # logger.info("adding T peak")
             #BUG - not sure why the detrend isn't here anymore
+            #BUG - Onset and offset updates
+                #TODO - Fix T peak, T onset, T offset
+                #Tonset
+                #It would seem the T onsets are getting triggered too early.  
+                #Going to switch to utilizing rolling median to look for
+                #flatline secitons that will allow for a better shoulder
+                #assignment of hte onset to the peak. Could use the tangent
+                #method on both onset and offset.
+
+                #TOffset
+                #On the T offset side.  it looks to be estimating the greastest 
+                #rate of acceleration change a little early.  So we need to combine a few 
+                #methods to agree on location of the T offset.  There are two standardized 
+                #ways to extract T offset. 
+
+                #1.Threshold method / Acceleration change. 
+                    # Finds the greatest rate of change to isolate the elbow of a curve
+                    # How neurokit and others do it. 
+                    # signal needs to be smooth. 
+                    # 
+                #2.Tangent method
+                    #Tried true method, but sometimes underestimates offset 
+                    #by 10ms or so.  (Mark notes)
+                    #
+                #Solution:
+                    # A combination logic of both methods. 
+                    # We calculate both, 
+                    # Establish a threshold for closeness.
+                    # If under, both agree and validated. 
+                    # if over, take the tangent method as that is board recommended.
+
             
         except Exception as e:
             logger.warning(f"T peak find error for {peak0}. Error message {e}")
@@ -1438,10 +1469,10 @@ def send_email(log_path:str):
         logger.warning(f"{peak_search_runtime}")
 
 #NOTE START PROGRAM
-def main():
-    #TODO - Add overall prog to log output in terminal
-    #TODO - Nest logger functions and declare as global. maybe
+#TODO - Add overall prog to log output in terminal
+#TODO - Nest logger functions and declare as global. maybe
 
+def main():
     #Load data 
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
     

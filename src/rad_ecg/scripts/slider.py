@@ -230,7 +230,7 @@ def load_graph_objects(run:str, cam:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
-    cam_n = cam.split("\\")[-2]
+    cam_n = cam.split(".")[0].split("\\")[-1]
     fpath = f"./src/rad_ecg/data/output/{cam_n}/{run}"  
     lfpath = f"./src/rad_ecg/data/logs/{run}"
 
@@ -330,7 +330,7 @@ def load_graph_objects(run:str, cam:str):
     ax_ecg.legend(handles=legend_elements, loc='upper left')
 
     # quick log loading for checking
-    log = utils.load_log_results(lfpath)
+    # log = utils.load_log_results(lfpath)
 
     #IDEA - Have that sections logs loaded up to when you
     # navigate to it.  That would save some serious time.
@@ -344,9 +344,11 @@ def summarize_run():
 
 
 def main():
-    run = "10-01-2024_22-28-48"  	#CAM name
+    # run = "09-27-2024_20-56-36"  	#CAM name  E3SJA-BNC61
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
+
+    run = "10-03-2024_17-49-57"     #CAM Name RD74P-0WT71
     global logger
     logger = utils.load_logger(__name__)
 

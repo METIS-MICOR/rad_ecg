@@ -205,7 +205,10 @@ def choose_cam(logger:logging)->list:
     #Inquire which file you'd like to run
     logger.warning("Please select the index of the CAM you would like to import.\nie: 1, 2, 3...")
     for idx, head in enumerate(head_files):
-        name = head.split(".")[-2].split("/")[-1]
+        if gcp:
+            name = head.split(".")[-2].split("//")[-1]
+        else:
+            name = head.split(".")[0].split("\\")[-1]
         logger.warning(f'idx: {idx}\tName: {name}')
     if not gcp:
         header_chosen = input("Please choose a CAM")
