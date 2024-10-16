@@ -29,7 +29,7 @@ rh = RichHandler(level = logging.WARNING, console=console)
 rh.setFormatter(logging.Formatter(FORMAT_RICH))
 log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
 
-#Set up basic config for logger
+# Set up basic config for logger
 logging.basicConfig(
     level=logging.INFO, 
     format=FORMAT,
@@ -42,7 +42,7 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__) 
 
-#FUNCTION log time
+# FUNCTION log time
 def log_time(fn):
     """Decorator timing function.  Accepts any function and returns a logging
     statement with the amount of time it took to run.
