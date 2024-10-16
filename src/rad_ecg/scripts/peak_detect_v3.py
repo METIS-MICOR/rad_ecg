@@ -1,9 +1,9 @@
-#NOTE Custom Imports
+# NOTE Custom Imports
 import utils        #from rad_ecg.scripts # 
 import support      #from rad_ecg.scripts # 
 import setup_globals#from rad_ecg.scripts # 
 
-#NOTE Main library imports
+# NOTE Main library imports
 import scipy.signal as ss
 from scipy.fft import rfft, rfftfreq, irfft
 from scipy.interpolate import interp1d
@@ -15,7 +15,7 @@ import time
 import os
 import sys
 import logging
-# from pathlib import Path
+#from pathlib import Path
 from collections import deque
 from rich.logging import RichHandler
 from rich.console import Console
