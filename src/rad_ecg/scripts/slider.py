@@ -348,7 +348,9 @@ def main():
     # 								# rolls |  seps   | heights |  FFT  | Total
     # 								# 174   |  180    |  173    |   2   |  529
 
-    run = "10-03-2024_17-49-57"     #CAM Name RD74P-0WT71
+    # run = "10-16-2024_18-27-19"     #CAM Name HTM1Y-VF305
+    run = "10-16-2024_21-01-08"     #CAM Name HX3JZ-4VNR4
+    
     global logger
     logger = utils.load_logger(__name__)
 
