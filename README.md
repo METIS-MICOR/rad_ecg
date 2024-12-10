@@ -166,7 +166,7 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 
 This repo is under active development, so if something is malfunctioning.  Please open an issue and I'd be happy to address it. 
 
-## Andy Todo List
+## Todo List
 
 - [ ] Add overall progbar with standard log output
 - [x] Add instructions on README for GCP usage
