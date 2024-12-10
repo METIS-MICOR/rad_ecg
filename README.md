@@ -169,8 +169,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 ## Andy Todo List
 
 - [ ] Add overall progbar with standard log output
-- [ ] Add instructions on README for GCP usage
+- [x] Add instructions on README for GCP usage
+- [ ] slider.py ->  Add Stumpy wave search for anomaly detection
+- [ ] Apply inverse logic for analyzing porcine data
 - [ ] Add instructions for complete package installation
-- [x] Adjust logger logic to run off global calls
-- [x] Update README
-- [x] Add JSON runtime config 

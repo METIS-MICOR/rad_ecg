@@ -344,12 +344,7 @@ def summarize_run():
 
 
 def main():
-    # run = "09-27-2024_20-56-36"  	#CAM name  E3SJA-BNC61
-    # 								# rolls |  seps   | heights |  FFT  | Total
-    # 								# 174   |  180    |  173    |   2   |  529
-
-    # run = "10-16-2024_18-27-19"     #CAM Name HTM1Y-VF305
-    run = "10-16-2024_21-01-08"     #CAM Name HX3JZ-4VNR4
+    run = "09-27-2024_20-56-36"  	#E3SJA-BNC61
     
     global logger
     logger = utils.load_logger(__name__)
@@ -362,9 +357,9 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-
     #TODO - Brainstorm summary formats
+    #TODO - Add stumpy signal abnormality search to CAMS
+
     #IDEA - FFT switch. 
         #Would be cool if you could switch from the slider to the FFT version of a section. 
     #IDEA Larger section clustering of smaller groups.  Or motif shifts
