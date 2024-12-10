@@ -168,8 +168,14 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 
 ## Todo List
 
+### Short term
+
 - [ ] Add overall progbar with standard log output
-- [x] Add instructions on README for GCP usage
 - [ ] slider.py ->  Add Stumpy wave search for anomaly detection
+  - [ ] Incorporate FFT analysis for slider.py to any point in an ECG.
+  - [ ] Re-examine distribution threshold of QRS window.
+
+
+### Long Term
 - [ ] Apply inverse logic for analyzing porcine data
 - [ ] Add instructions for complete package installation

@@ -362,9 +362,9 @@ if __name__ == "__main__":
 
     #IDEA - FFT switch. 
         #Would be cool if you could switch from the slider to the FFT version of a section. 
-    #IDEA Larger section clustering of smaller groups.  Or motif shifts
+    #IDEA - Larger section clustering of smaller groups.  Or motif shifts
         #Could run it in the slider.py file.
-    #IDEA Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
+    #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
 
         
