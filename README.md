@@ -171,7 +171,8 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 ### Short term
 
 - [ ] Add overall progbar with standard log output
-- [ ] slider.py ->  Add Stumpy wave search for anomaly detection
+- [ ] slider.py
+  - [ ] Add stumpy wave search for anomaly detection
   - [ ] Incorporate FFT analysis for slider.py to any point in an ECG.
   - [ ] Re-examine distribution threshold of QRS window.
 
@@ -179,3 +180,5 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 ### Long Term
 - [ ] Apply inverse logic for analyzing porcine data
 - [ ] Add instructions for complete package installation
+- [ ] Anomaly Detection
+- [ ] Arrthymia Detection
