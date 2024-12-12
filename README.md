@@ -169,7 +169,9 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 ## Todo List
 
 ### Short term
-
+- [ ] Extension for S&P
+  - Build the ability to submit a template avg to extract relevant metrics.  
+  - Build in new py file
 - [ ] Add overall progbar with standard log output
 - [ ] slider.py
   - [ ] Add stumpy wave search for anomaly detection
