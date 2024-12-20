@@ -281,7 +281,7 @@ def load_chartdata(logger:logging):
     configs = load_config()
     head_files, header_chosen = choose_cam(logger)
     record = load_signal_data(head_files[header_chosen])
-
+    
     #ECG data
     wave = record.p_signal
     

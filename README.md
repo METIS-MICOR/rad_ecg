@@ -172,10 +172,14 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 - [ ] Extension for S&P
   - Build the ability to submit a template avg to extract relevant metrics.  
   - Build in new py file
+- [ ] Review T onset extraction
+- [ ] Add J point discovery (Means I'll need a base container as well)
+  - Use same logic as Q onset.
+- [ ] Change base container to dataclass
 - [ ] Add overall progbar with standard log output
 - [ ] slider.py
   - [ ] Add stumpy wave search for anomaly detection
-  - [ ] Incorporate FFT analysis for slider.py to any point in an ECG.
+  - [ ] Incorporate FFT analysis for slider.py at any point in an ECG.
   - [ ] Re-examine distribution threshold of QRS window.
 
 
