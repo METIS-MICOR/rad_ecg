@@ -344,8 +344,8 @@ def summarize_run():
 
 
 def main():
-    run = "09-27-2024_20-56-36"  	#E3SJA-BNC61
-    # run = "11-22-2024_19-57-20"     #4PKHM-A3D55
+    run = "09-27-2024_20-56-36"  	
+    # run = "11-22-2024_19-57-20"    
     
     global logger
     logger = utils.load_logger(__name__)
@@ -362,6 +362,7 @@ if __name__ == "__main__":
 
     #IDEA - Larger section clustering of smaller groups.  Or motif shifts
         #Could run it in the slider.py file.
+
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
 
