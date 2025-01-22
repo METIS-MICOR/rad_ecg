@@ -169,22 +169,29 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 ## Todo List
 
 ### Short term
-- [ ] Extension for S&P
-  - Build the ability to submit a template avg to extract relevant metrics.  
-  - Build in new py file
-- [ ] Review T onset extraction
-- [ ] Add J point discovery (Means I'll need a base container as well)
-  - Use same logic as Q onset.
-- [ ] Change base container to dataclass
-- [ ] Add overall progbar with standard log output
-- [ ] slider.py
+- peak_detect_v3.py
+  - [ ] Extension for S&P
+    - Build the ability to submit a template avg to extract relevant metrics.  
+    - Build in new py file
+  - [x] Review T onset extraction
+  - [ ] Add J point discovery (Means I'll need a base container change as well)
+    - Use same logic as Q onset.
+  - [x] Change base container to dataclass. Might not do this actually.  Class objects aren't as lean as dictionary's
+  - [ ] Add overall progbar with standard log output
+  - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
+
+- slider.py
   - [ ] Add stumpy wave search for anomaly detection
   - [ ] Incorporate FFT analysis for slider.py at any point in an ECG.
   - [ ] Re-examine distribution threshold of QRS window.
-
+  - [ ] Split out configs for slider.py.  Cumbersome switching files so have it only look for local CAMS and display the file tree (like hem shock tui)
 
 ### Long Term
-- [ ] Apply inverse logic for analyzing porcine data
-- [ ] Add instructions for complete package installation
-- [ ] Anomaly Detection
-- [ ] Arrthymia Detection
+- peak_detect.py
+  - [ ] Apply inverse logic for analyzing porcine data
+  - [ ] Anomaly Detection
+  - [ ] Arrthymia Detection
+  - [ ] Batch Processing - Some or all
+
+- package
+  - [ ] Add instructions for complete package installation

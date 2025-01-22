@@ -980,9 +980,8 @@ def extract_PQRST(
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
             # logger.info("adding T peak")
-            #BUG - not sure why the detrend isn't here anymore
             #BUG - Onset and offset updates
-                #TODO - Fix T peak, T onset, T offset
+                #TODO - Fix T onset, T offset
                 #Tonset
                 #It would seem the T onsets are getting triggered too early.  
                 #Going to switch to utilizing rolling median to look for
@@ -1018,7 +1017,7 @@ def extract_PQRST(
             temp_arr[temp_counter, 4] = 0
 
         # MEAS P Peak 
-        try:
+        try:    
             RR_second_half = SQ_med_reduced[(SQ_med_reduced.shape[0]//2):]
             peak_P_find = ss.find_peaks(RR_second_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
@@ -1076,7 +1075,7 @@ def extract_PQRST(
         # Get the width of the QRS for later. 
         srch_width = (S_peak - Q_peak)
 
-        # MEAS Q_onset
+        # MEAS Q onset
         slope_start = Q_peak - int((Q_peak - P_peak)*.70)
         slope_end = Q_peak + 1
 
@@ -1128,9 +1127,9 @@ def extract_PQRST(
             # Add PR interval in ms
             temp_arr[temp_counter, 7] = int(1000*((Q_onset - P_onset)/fs))
         
-        # MEAS ST Segment
         # ST segments are suppressed in this case as the higher heart rate obliterates them. 
 
+        # MEAS T Offset
         slope_start = T_peak 
         slope_end = T_peak + int(srch_width*1.25)
 
@@ -1150,6 +1149,11 @@ def extract_PQRST(
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         
+        # MEAS ST Segment
+        if T_onset and T_offset:
+            # Add ST interval.  
+            temp_arr[temp_counter, 9] = int(1000*((T_offset - Q_onset)/fs))
+
         # MEAS QT Interval
         if Q_onset and T_offset:
             # Add QT interval.  
