@@ -1,47 +1,26 @@
-# NOTE Custom Imports
+#################################  Custom Imports ####################################
 import utils        #from rad_ecg.scripts # 
 import support      #from rad_ecg.scripts # 
 import setup_globals#from rad_ecg.scripts # 
+from support import log_time, logger
 
-# NOTE Main library imports
-import scipy.signal as ss
-from scipy.fft import rfft, rfftfreq, irfft
-from scipy.interpolate import interp1d
+#################################  Main libraries ####################################
+import time
+import os
+import logging
 import numpy as np
+import scipy.signal as ss
+from scipy.interpolate import interp1d
+from scipy.fft import rfft, rfftfreq, irfft
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from matplotlib.colors import rgb2hex
-import time
-import os
-import sys
-import logging
-#from pathlib import Path
 from collections import deque
-from rich.logging import RichHandler
-from rich.console import Console
 from time import strftime
+import datetime
 
-current_date = strftime("%m-%d-%Y_%H-%M-%S")
-FORMAT = "%(asctime)s|%(levelname)-8s|%(lineno)-4d|%(funcName)-23s|%(message)s|" 
-FORMAT_RICH = "|%(funcName)-23s|%(message)s"
-console = Console(color_system="truecolor")
-rh = RichHandler(level = logging.WARNING, console=console)
-rh.setFormatter(logging.Formatter(FORMAT_RICH))
-log_path = f"./src/rad_ecg/data/logs/{current_date}.log"
 
-# Set up basic config for logger
-logging.basicConfig(
-    level=logging.INFO, 
-    format=FORMAT,
-    datefmt="[%X]",
-    handlers=[
-        rh,
-        logging.FileHandler(log_path, mode="w")
-    ]
-)
-
-logger = logging.getLogger(__name__) 
-
+#from pathlib import Path
 # FUNCTION log time
 def log_time(fn):
     """Decorator timing function.  Accepts any function and returns a logging
@@ -1479,6 +1458,8 @@ def send_email(log_path:str):
 def main():
     # Load data 
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
+    log_path = ""
+    current_date = support.get_time().strftime("%m-%d-%Y")
     
     # Run peak search extraction
     ecg_data = main_peak_search(

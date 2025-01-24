@@ -1,18 +1,18 @@
 import scipy.signal as ss
 from scipy.fft import rfft, rfftfreq, irfft
 import numpy as np
-import wfdb
-from collections import deque, Counter
+from rich.table import Table
+from collections import Counter
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from matplotlib.widgets import Slider, Button, RadioButtons, TextBox
 from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
 import utils # from rad_ecg.scripts
-import setup_globals# from rad_ecg.scripts 
+import setup_globals # from rad_ecg.scripts 
+from support import logger, console
 
-
-def load_graph_objects(run:str, cam:str):
+def load_graph_objects(datafile:str, filen:str, outputf:str):
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
     
@@ -214,6 +214,26 @@ def load_graph_objects(run:str, cam:str):
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
+    def make_rich_table(failures:dict) -> Table:
+        error_table = Table(
+            expand=False,
+            show_header=True,
+            header_style="bold",
+            title=f"[red][b]Errors Counts[/b]",
+            title_justify = "center",
+            highlight=True,
+        )
+        error_table.add_column(f"Reason", justify="left") 
+        error_table.add_column(f"Count", justify="center")
+        t_sorts = sorted(failures.items(), key= lambda x:len(x[0]), reverse=True)
+        for reason in t_sorts:
+            if reason[0] == " ":
+                fail = "No reason"
+            else:
+                fail = reason[0].strip()
+                
+            error_table.add_row(fail, str(reason[1]))
+        return error_table
     
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
@@ -230,9 +250,12 @@ def load_graph_objects(run:str, cam:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
-    cam_n = cam.split(".")[0].split("\\")[-1]
-    fpath = f"./src/rad_ecg/data/output/{cam_n}/{run}"  
-    lfpath = f"./src/rad_ecg/data/logs/{run}"
+    for fname in outputf:
+        if fname.endswith("_section_info.csv"):
+            fpath = datafile._str + "\\" + fname.split("_section_info")[0]
+            break
+    # fpath = f"./src/rad_ecg/data/output/{datafile.name}/{run}"  
+    # lfpath = f"./src/rad_ecg/data/logs/{run}"
 
     global ecg_data
     ecg_data = {
@@ -329,11 +352,12 @@ def load_graph_objects(run:str, cam:str):
 
     ax_ecg.legend(handles=legend_elements, loc='upper left')
 
+    failures = Counter(ecg_data['section_info']['fail_reason'])
+    table = make_rich_table(failures)
+    console.log(table)
+
     # quick log loading for checking
     # log = utils.load_log_results(lfpath)
-
-    #IDEA - Have that sections logs loaded up to when you
-    # navigate to it.  That would save some serious time.
 
     plt.show()
     plt.close()
@@ -342,27 +366,21 @@ def summarize_run():
     RMSSD = ecg_data['section_info'][['wave_section', 'RMSSD']]
     logger.info(f"{sorted(RMSSD, key= lambda x:x[1], reverse=True)[:20]}")
 
-
 def main():
-    run = "09-27-2024_20-56-36"  	
-    # run = "11-22-2024_19-57-20"    
-    
-    global logger
-    logger = utils.load_logger(__name__)
-
+    global configs
+    configs = setup_globals.load_config()
+    configs["slider"] = True
+    datafile = setup_globals.launch_tui(configs)
     global wave, fs
-    wave, fs, cam = setup_globals.load_chartdata(logger)
-    load_graph_objects(run, cam)
+    wave, fs, filen, outputf = setup_globals.load_chartdata(configs, datafile, logger)
+    load_graph_objects(datafile, filen, outputf)
     # summarize_run()
 
 if __name__ == "__main__":
     main()
 
-    #TODO - Brainstorm summary formats
-
     #IDEA - Larger section clustering of smaller groups.  Or motif shifts
         #Could run it in the slider.py file.
-
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
 

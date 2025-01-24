@@ -181,10 +181,14 @@ This repo is under active development, so if something is malfunctioning.  Pleas
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
 
 - slider.py
-  - [ ] Add stumpy wave search for anomaly detection
-  - [ ] Incorporate FFT analysis for slider.py at any point in an ECG.
-  - [ ] Re-examine distribution threshold of QRS window.
-  - [ ] Split out configs for slider.py.  Cumbersome switching files so have it only look for local CAMS and display the file tree (like hem shock tui)
+  - Anomaly Detection
+    - [ ] Add stumpy wave search for anomaly detection
+    - IDEA
+      - What if...  instead of searching the anomalous sections.  We do a discord / shapelet search on the valid sections ....
+      - This might be informative to find anomalous waveforms in good section data. 
+  - Functionality
+    - [ ] Incorporate FFT analysis for slider.py at any point in an ECG.
+    - [ ] Re-examine distribution threshold of QRS window.
 
 ### Long Term
 - peak_detect.py

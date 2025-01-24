@@ -79,26 +79,6 @@ def roll_med(wave_data:np.array)->np.array:
     return smoothed_ecg
 
 
-def load_logger(name:str):
-    FORMAT = "%(asctime)s|%(levelname)s|%(funcName)s|%(lineno)d|%(message)s" #[%(name)s]
-    FORMAT_RICH = "%(funcName)s|%(lineno)d|%(message)s"
-    console = Console(color_system="truecolor")
-    rh = RichHandler(level = logging.INFO, console=console)
-    rh.setFormatter(logging.Formatter(FORMAT_RICH))
-
-    #Set up basic config for logger
-    logging.basicConfig(
-        level=logging.INFO, 
-        format=FORMAT, 
-        datefmt="[%X]",
-        handlers=[rh]
-    )
-
-    logger = logging.getLogger(name) 
-    return logger
-
-
-
 #FUNCTION Section Finder
 def section_finder(start_p:int, wave:np.array, fs:float):
     """Quick section finder for debugging. 
@@ -215,7 +195,6 @@ def time_convert(fs:int, start_idx:int, end_idx:int, wave:np.array)->float:
         delt = 'h'
     
     return (time_length, delt)
-
 
 #FUNCTION Signal to Noise
 def signaltonoise(a, axis=0, ddof=0):

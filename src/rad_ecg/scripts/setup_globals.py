@@ -6,6 +6,18 @@ import json
 import os
 from os.path import exists
 from google.cloud import storage
+from support import logger, console
+from pathlib import PurePath, Path
+from rich import print
+from rich.logging import RichHandler
+from rich.table import Table
+from rich.console import Console
+from rich.tree import Tree
+from rich.filesize import decimal
+from rich.markup import escape
+from rich.text import Text
+from rich.table import Table
+from pathlib import Path, PurePath
 
 ################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
@@ -42,11 +54,10 @@ def load_config()->json:
     return config_data
 
 #FUNCTION Load Signal Data
-def load_signal_data(head_file:str):
+def load_signal_data(hea_path:str):
     #Load signal data 
-    head_f = head_file[:head_file.index(".hea")]
     record = wfdb.rdrecord(
-        head_f,
+        hea_path,
         sampfrom=0,
         sampto=None,
         channels=[0]
@@ -113,7 +124,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     
     input_path = save_path.replace("output" , "inputdata")
 
-    #TODO Add if secondary confirm if the cam has already been processed.  
+    #TODO Add if secondary confirm if the cam has already been processed.  aka do folders exist and 
     #Process each folder
     for folder, files in gcp_folders.items():
         # if its a results folder, skip it
@@ -170,7 +181,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
     return file_names
 
 #FUNCTION Choose CAM
-def choose_cam(logger:logging)->list:
+def choose_cam(configs:dict, logger:logging)->list:
     """Choosing your cam to evaluate.  Logic is as follows.  If the inputdata directory on the install / or git clone is empty.  
     Check the configs path setting.  If that value is None, exit program as no data can be found.
 
@@ -183,9 +194,8 @@ def choose_cam(logger:logging)->list:
     Returns:
         head_files (list): Returns a list 
     """
-    #Check if the inputdata or config data_path is empty
-    data_path = "./src/rad_ecg/data/inputdata"
-    empty_inputdir = not os.listdir(data_path)
+    #Check if the inputdata directory, load config_dir, and GCP flag
+    empty_inputdir = not os.listdir("./src/rad_ecg/data/inputdata")
     config_dir = configs["data_path"]
     gcp = configs["gcp_bucket"]
 
@@ -204,12 +214,6 @@ def choose_cam(logger:logging)->list:
         
     #Inquire which file you'd like to run
     logger.warning("Please select the index of the CAM you would like to import.\nie: 1, 2, 3...")
-    for idx, head in enumerate(head_files):
-        if gcp:
-            name = head.split(".")[-2].split("//")[-1]
-        else:
-            name = head.split(".")[0].split("\\")[-1]
-        logger.warning(f'idx: {idx}\tName: {name}')
     if not gcp:
         header_chosen = input("Please choose a CAM")
     else:
@@ -225,9 +229,12 @@ def choose_cam(logger:logging)->list:
     else:
         header_chosen = int(header_chosen)
         head = head_files[header_chosen]
-
         name = head.split(".")[-2].split("/")[-1]
-        logger.warning(f'CAM {name} chosen')
+        if name in configs["save_path"]:
+            logger.warning(f'CAM {name} chosen')
+        else:
+            logger.critical(f"CAM {name} file not in output dir")
+            exit()
 
     return head_files, header_chosen
 
@@ -276,20 +283,107 @@ def get_records(folder:str)->list:
     return head_files
 
 #FUNCTION Load Chart Data
-def load_chartdata(logger:logging):
-    global configs
-    configs = load_config()
-    head_files, header_chosen = choose_cam(logger)
-    record = load_signal_data(head_files[header_chosen])
-    
+def load_chartdata(configs:dict, datafile:Path, logger:logging):
+    # head_files, header_chosen = choose_cam(configs, logger)
+    inputdirs = os.listdir(configs["data_path"])
+    if datafile.name in inputdirs:
+        idx = inputdirs.index(datafile.name)
+        input_path = configs["data_path"] + "//" + datafile.name + "//" + inputdirs[idx]
+        record = load_signal_data(input_path)
+    else:
+        logger.warning(f"Input data for {datafile.name} not found")
+        logger.warning("Make sure base waveform data is stored correctly")
+        exit()
+
     #ECG data
     wave = record.p_signal
     
     #Frequency
     fs = record.fs
 
-    return wave, fs, head_files[header_chosen]
+    return wave, fs, datafile.name, os.listdir(f"{configs['save_path']}\{datafile.name}")
 
+#FUNCTION Walk Directory
+def walk_directory(directory: Path, tree: Tree) -> None:
+    """Recursively build a Tree with directory contents.
+    Pulled from here. https://github.com/Textualize/rich/blob/master/examples/tree.py
+
+    """
+    # Sort dirs first then by filename
+    paths = sorted(
+        Path(directory).iterdir(),
+        key=lambda path: (path.is_file(), path.name.lower()),
+    )
+    idx = 1
+    for path in paths:
+        #Normally this routine would enumerate and list individual files and
+        # folders recursively.  Instead i just want it to list the folders to
+        # select that way.  Not by files as most ecgs in the wfdb format come in
+        # 3 files. 
+        # Remove hidden files
+        if path.name.startswith("."):
+            continue
+        if path.is_dir():
+            style = "dim" if path.name.startswith("__") else ""
+            branch = tree.add(
+                f"[bold green]{idx} [/bold green][bold magenta]:open_file_folder: [link file://{path}]{escape(path.name)}",
+                style=style,
+                guide_style=style,
+            )
+            
+            # walk_directory(path, branch)
+        else:
+            text_filename = Text(path.name, "green")
+            text_filename.highlight_regex(r"\..*$", "bold red")
+            text_filename.stylize(f"link file://{path}")
+            file_size = path.stat().st_size
+            text_filename.append(f" ({decimal(file_size)})", "blue")
+            if path.suffix == "py":
+                icon = "🐍 "
+            elif path.suffix == ".hea":
+                icon = "🤯  "
+            elif path.suffix == ".dat":
+                icon = "🔫 "
+            elif path.suffix == ".mib":
+                icon = "👽 "
+            elif path.suffix == ".zip":
+                icon = "🤐 "
+            else:
+                icon = "📄 "
+            tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
+        
+        idx += 1    
+    return paths
+
+def launch_tui(configs:dict):
+    try:
+        if configs["slider"]:
+            directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
+
+        elif configs["gcp_bucket"]:
+            #TODO - Need a way to read the gcp output bucket here. 
+            directory = PurePath(Path.cwd(), Path(configs["bucket_name"]))
+        else:
+            directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/input"))
+
+    except IndexError:
+        logger.info("[b]Usage:[/] python tree.py <DIRECTORY>")
+    else:
+        tree = Tree(
+            f":open_file_folder: [link file://{directory}]{directory}",
+            guide_style="bold bright_blue",
+        )
+        files = walk_directory(Path(directory), tree)
+        #?Try a console print here too
+        print(tree)
+        
+    question ="What file would you like to load?\n"
+    file_choice = console.input(f"{question}")
+    if file_choice.isnumeric():
+        file_to_load = files[int(file_choice) - 1]
+        return file_to_load
+    else:
+        raise ValueError("Please restart and select an integer of the file you'd like to import")
 
 #FUNCTION Load Structures
 def load_structures(source:str, logger:logging):
@@ -306,7 +400,7 @@ def load_structures(source:str, logger:logging):
 
     elif source == "__main__":
         #Load             
-        head_files, header_chosen = choose_cam(logger)
+        head_files, header_chosen = choose_cam(configs, logger)
         configs["cam"] = head_files[header_chosen]
         record = load_signal_data(configs["cam"])
         

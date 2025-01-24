@@ -1,3 +1,4 @@
+#main libraries
 import datetime
 import numpy as np
 import time
@@ -5,7 +6,7 @@ import json
 from os.path import exists
 import logging
 from pathlib import Path
-#Progress bar fun
+#Formatting libraries
 from rich.progress import (
     Progress,
     BarColumn,
@@ -14,18 +15,18 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn
 )
-from rich.logging import RichHandler
 from rich.align import Align
 from rich.layout import Layout
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.console import Console
+from rich.logging import RichHandler
 import subprocess
 from collections import Counter
 
 ################################# Logger functions ####################################
-
+#FUNCTION Logging Futures
 def get_file_handler(log_dir:Path)->logging.FileHandler:
     """Assigns the saved file logger format and location to be saved
 
@@ -37,9 +38,8 @@ def get_file_handler(log_dir:Path)->logging.FileHandler:
     """	
     log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-4d|%(funcName)-23s|%(message)s|" 
                  #f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
-    current_date = time.strftime("%m_%d_%Y")
-    log_file = log_dir / f"{current_date}.log"
-    file_handler = logging.FileHandler(log_file)
+    # current_date = time.strftime("%m_%d_%Y")
+    file_handler = logging.FileHandler(log_dir)
     file_handler.setFormatter(logging.Formatter(log_format, "%m-%d-%Y %H:%M:%S"))
     return file_handler
 
@@ -57,7 +57,7 @@ def get_rich_handler(console:Console)-> RichHandler:
     rh.setFormatter(logging.Formatter(rich_format))
     return rh
 
-def get_logger(log_dir:Path, console:Console)->logging.Logger:
+def get_logger(console:Console, log_dir:Path)->logging.Logger:
     """Loads logger instance.  When given a path and access to the terminal output.  The logger will save a log of all records, as well as print it out to your terminal. Propogate set to False assigns all captured log messages to both handlers.
 
     Args:
@@ -73,6 +73,46 @@ def get_logger(log_dir:Path, console:Console)->logging.Logger:
     logger.addHandler(get_rich_handler(console))
     logger.propagate = False
     return logger
+
+#FUNCTION timer
+################################# Timing Funcs ####################################
+def log_time(fn):
+    """Decorator timing function.  Accepts any function and returns a logging
+    statement with the amount of time it took to run. DJ, I use this code everywhere still.  Thank you bud!
+
+    Args:
+        fn (function): Input function you want to time
+    """	
+    def inner(*args, **kwargs):
+        tnow = time.time()
+        out = fn(*args, **kwargs)
+        te = time.time()
+        took = round(te - tnow, 2)
+        if took <= 60:
+            logger.info(f"{fn.__name__} ran in {took:.3f}s")
+        elif took <= 3600:
+            logger.info(f"{fn.__name__} ran in {(took)/60:.3f}m")		
+        else:
+            logger.info(f"{fn.__name__} ran in {(took)/3600:.3f}h")
+        return out
+    return inner
+
+#FUNCTION get time
+def get_time():
+    """Function for getting current time
+
+    Returns:
+        t_adjusted (str): String of current time
+    """
+    current_t_s = datetime.datetime.now().strftime("%m-%d-%Y-%H-%M-%S")
+    current_t = datetime.datetime.strptime(current_t_s, "%m-%d-%Y-%H-%M-%S")
+    return current_t
+
+########################## Global Variables to return ##########################################
+DATE_JSON = get_time().strftime("%m-%d-%Y_%H-%M-%S")
+console = Console(color_system="auto")
+logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
+
 
 ################################# Saving Funcs ####################################
 
@@ -130,6 +170,7 @@ def save_results(ecg_data:dict, configs:dict, logger:logging, current_date:datet
     if tobucket:
         transfer_logfile(logger, configs, cam, current_date)
 
+#FUNCTION Transfer Logfile
 def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:datetime):
     local_path  = configs["log_path"]
     bucket_name = configs["bucket_name"]
@@ -146,7 +187,7 @@ def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:datetim
         logger.warning(f"Exception:\n{e}\nType:{type(e)}")
         raise e
 
-
+#FUNCTION Save Configs
 def save_configs(configs:dict, spath:str):
     """This function saves the configs dictionary to a JSON file. 
 
@@ -179,6 +220,7 @@ class NumpyArrayEncoder(json.JSONEncoder):
             return super(NumpyArrayEncoder, self).default(obj)
         
 ################################# Email Funcs ####################################
+#FUNCTION Send Email
 def send_run_email(run_time:str):
     """Function for sending an email.  Inputs the model runtime into the
     docstrings via decorator for easy formatting of the HTML body of an email.
