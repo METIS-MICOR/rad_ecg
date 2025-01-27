@@ -10,9 +10,14 @@ from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
 import utils # from rad_ecg.scripts
 import setup_globals # from rad_ecg.scripts 
-from support import logger, console
+from support import logger, console, log_time
+import support
 
 def load_graph_objects(datafile:str, filen:str, outputf:str):
+    #Ugh, i have to rewrite all of this.  
+
+
+    #FUNCTION Add chart labels
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
     
@@ -41,7 +46,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                 textcoords="offset points",
                 xytext=label_dict[label[0]],
                 ha='center')
-
+    #FUNCTION Valid Grouper
     def valid_grouper(arr):
         #TODO add docstrings
         #ecg_data['section_info']['valid'] passed in.
@@ -54,10 +59,28 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         sect_filt = [(x[0], x[1][1]) for x in sect_filt]
         return sect_filt
 
-
+    # FUNCTION Update plot
     def update_plot(val):
+        #Gameplan
+        #When a plot updates, it will neeed to update the main plot
+        #almost always.  The real test will be if there is anything
+        #else I need it to update.  I would like it to update the other plots
+        #if they exist.  
+        #I also want it to be able to still do the normal labelling funcs...
+        #Is it better to split this out...into a separate radio button situation
+
         #TODO add docstrings
         #clear the top chart
+
+        #TODO Will need secondary update function for when both axis are present
+        if configs["stump"] or configs["freq"]:
+            if configs["freq"] and check_axis("freqs"):
+                #Plot update routine for frequency 
+                pass
+            elif configs["stump"] and check_axis("stump"):
+                #Plot update routine for frequency 
+                pass
+
         ax_ecg.clear()
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
@@ -104,10 +127,13 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             ax_ecg.annotate(f'QT:         {QT:.0f} ms', xy=(1.01, 0.79), xycoords='axes fraction', fontsize=10)
         ax_ecg.annotate(f'RMSSD:  {ecg_data["section_info"][sect]["RMSSD"]:.0f} ms', xy=(1.01, 0.74), xycoords='axes fraction', fontsize=10)
         ax_ecg.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect} ')
-        fig.canvas.draw_idle()
 
+        fig.canvas.draw_idle()
+        
+    # FUNCTION Create Overlay plot
     def create_comparison_plot(slider_val):
         #TODO add docstrings
+        #TODO put this into sidebar view
         sect = slider_val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
@@ -144,11 +170,121 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         plt.show()
 
 
-    def radiob_action(val):
-        #TODO add docstrings
+    #FUNCTION Remove Axis
+    def remove_axis(remove_vars:list):
+        if isinstance(remove_vars, list):
+            for var in remove_vars:
+                # Generate a tuple of index and axis label for all axis in the fig.
+                existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+                ax_rem = list(map(lambda x:x[1], existlist)).index(var)
+                fig.axes[existlist[ax_rem][0]].remove()
+
+        elif isinstance(remove_vars, str):
+            existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+            ax_rem = list(map(lambda x:x[1], existlist)).index(remove_vars)
+            fig.axes[existlist[ax_rem][0]].remove()
+    
+    #FUNCTION Check Axis
+    def check_axis(valcheck:str):
+        existlist = [axis._label for axis in fig.get_axes() if axis._label != ""]
+        if valcheck in existlist:
+            return True
+        else:
+            return False
+
+    #FUNCTION Frequency
+    def frequencytown():
+        global fs
+        #removes all the labels from the frequency chart if they exist.  
+        #Other wise it will remove the entire axis
+        existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+        labels = list(map(lambda x: x[1]=="mainplot", existlist))
+        if any(labels):
+            ax_rem = existlist[labels.index(True)][0]
+            fig.axes[ax_rem].remove()
+        else:
+            remove_axis(["freq_list", "var_small"])
+
+        inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
+        ax_wave = fig.add_subplot(inner_grid[0, :1], label = "var_small")
+        ax_freq = fig.add_subplot(inner_grid[0, 1:2], label = "freq_list")
+        
+        ###  Plot the wave ###
+        col = radio.value_selected
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
+        wavesect = wave[start_w:end_w]
+        ax_wave.plot(range(start_w, end_w), wave[start_w:end_w], label=col)
+        ax_wave.set_ylim(wavesect.min() - wavesect.std()*2, wavesect.max() + wavesect.std()*2)
+        ax_wave.set_xlim(start_w, end_w)
+        ax_wave.set_ylabel('Voltage (mV)')
+        ax_wave.set_xlabel('ECG index')
+        ax_wave.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect}', size = 12)
+        ax_wave.legend(loc="upper right")
+
+        #Plot the frequencies
+        samp = wave[start_w:end_w].values
+        fft_samp = np.abs(rfft(samp))
+        freq_list = rfftfreq(len(samp), d=1/fs) #samp_freq is sampling rate
+        freqs = fft_samp[0:int(len(samp)/2)]
+        freq_l = freq_list[:int(len(samp)//2)]
+        ax_freq.stem(freq_l, freqs, "b", markerfmt=" ", basefmt="-b")
+
+        #Old way
+        # X = np.fft.fft(wave[start_w:end_w])
+        # N = len(X)
+        # n = np.arange(N)
+        # T = N/samp_freq
+        # freq = n/T
+        # ax_freq.stem(freq, np.abs(X), "b", markerfmt=" ", basefmt="-b")
+        #different frequency zooms
+
+        freqs_idx, peak_power = ss.find_peaks(freqs, height=freqs.mean()//10, distance=10)
+        combined = list(zip(freq_list[freqs_idx], peak_power["peak_heights"]))
+        sorted_p = sorted(combined, key=lambda x:x[1], reverse=True)[:10]
+        # maybe use an annotate?
+        for power in sorted_p:
+            ax_freq.annotate(
+                text=f"{power[0]:.1f}Hz",
+                xy = (power[0]+0.3,(power[1]+power[1]*.02)),
+                color="black", 
+                weight="bold", fontsize=7, 
+                ha="center", va="center"
+        )
+        if sorted_p:
+            ax_freq.set_xlim(0, sorted_p[-1][0]*1.2)
+            ax_freq.set_ylim(0, sorted_p[0][1]*1.2)
+        else:
+            ax_freq.set_xlim(0, 50)
+        ax_freq.set_xlabel("Freq (Hz)")
+        ax_freq.set_ylabel("Frequency Power")
+        ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
+
+    #FUNCTION Radio Button Actions
+    def radiob_action(val):
+        #Here we're going to switch states between where we have a single vs a 
+        #double panel display.  
+            #If i split for frequency, i want a new freq chart to the right, 
+            #as well as the signal to my left.  (With the ability to still highlight
+            #points / medians / Rpeaks. 
+        #Also means i'll need a split for the comparison plot
+        #
+        sect = sect_slider.val
+        start_w = ecg_data['section_info'][sect]['start_point']
+        end_w = ecg_data['section_info'][sect]['end_point']
+        if val != 'Frequency':
+            if configs["freq"] and check_axis("freq_list"):
+                remove_axis(["freq_list", "var_small"])
+                update_plot("val")
+                configs["freq"] = False
+            
+        if val != "Stumpy":
+            if configs["stump"] and check_axis("overlays"):
+                remove_axis(["overlays", "var_small", "dist_locs"])
+                update_plot("val")
+                configs["stump"] = False
+
         if val == 'Roll Median':	
             ax_ecg.plot(range(start_w, end_w), utils.roll_med(wave[start_w:end_w]), color='orange', label='Rolling Median')
             ax_ecg.legend(loc='upper left')
@@ -182,38 +318,52 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                     alpha=0.7)
                 ax_ecg.add_patch(rect)
 
-        fig.canvas.draw_idle()
-
         if val == 'Overlay P':
             create_comparison_plot(sect_slider.val)
 
+        if val == 'Frequency':
+            configs["freq"] = True
+            frequencytown()
+
+        # if val == 'Stumpy':
+        #     configs["stump"] = True
+        #     stumpysearch()
+
+        fig.canvas.draw_idle()    
+
+    #FUNCTION Slide forward
     def move_slider_forward(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
         next_sect = np.where(ecg_data['section_info']['valid'][curr_sect+1:]==0)[0][0] + curr_sect+1
         sect_slider.set_val(next_sect)
-
+    
+    #FUNCTION Slide forward one
     def move_slider_sing_forward(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect+1)
 
+    #FUNCTION Slide back
     def move_slider_back(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
         prev_sect = np.where(ecg_data['section_info']['valid'][:curr_sect]==0)[0][-1]
         sect_slider.set_val(prev_sect)
 
+    #FUNCTION Slide back one
     def move_slider_sing_back(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect-1)
 
+    #FUNCTION Slide to section
     def jump_slider_to_sect(v1):
         #TODO add docstrings
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
+    #FUNCTION Make rich table
     def make_rich_table(failures:dict) -> Table:
         error_table = Table(
             expand=False,
@@ -228,11 +378,16 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         t_sorts = sorted(failures.items(), key= lambda x:len(x[0]), reverse=True)
         for reason in t_sorts:
             if reason[0] == " ":
-                fail = "No reason"
+                fail = "Valid"
             else:
                 fail = reason[0].strip()
                 
             error_table.add_row(fail, str(reason[1]))
+        error_table.add_section()
+
+        error_table.add_row("% Valid", f"{(failures.get(' ') / sum(failures.values())):.1%}")
+        error_table.add_row("Total Sections", str(sum(failures.values())))
+        
         return error_table
     
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
@@ -267,13 +422,13 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
     #brokebarH plot for the background of the slider. 
     valid_sect = ecg_data['section_info']['valid']
     fig = plt.figure(figsize = (14, 8))
-    gs = gridspec.GridSpec(nrows=2, ncols=1, height_ratios=[5, 1])
+    gs = gridspec.GridSpec(nrows=2, ncols=2, height_ratios=[5, 1])
     plt.subplots_adjust(hspace=0.40) 
-    ax_ecg = fig.add_subplot(gs[0, 0])
+    ax_ecg = fig.add_subplot(gs[0, :2])
     first_sect = np.where(ecg_data['section_info']['valid']!=0)[0][0]
     start_w = ecg_data['section_info'][first_sect]['start_point']
     end_w = ecg_data['section_info'][first_sect]['end_point']
-    ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='ECG')
+    ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='mainplot')
     ax_ecg.set_xlim(start_w, end_w)
     ax_ecg.set_ylabel('Voltage (mV)')
     ax_ecg.set_xlabel('ECG index')
@@ -293,7 +448,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
 
     ax_ecg.legend(loc='upper left')
 
-    ax_section = fig.add_subplot(gs[1, 0])
+    ax_section = fig.add_subplot(gs[1, :2])
     ax_section.broken_barh(valid_grouper(valid_sect), (0,1), facecolors=('tab:blue'))
     ax_section.set_ylim(0, 1)
     ax_section.set_xlim(0, valid_sect.shape[0])
@@ -334,7 +489,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                     hovercolor='green')
 
     #Radio buttons
-    radio = RadioButtons(ax_radio, ('Roll Median', 'Add Inter', 'Hide Leg', 'Overlay P', 'Show R Valid'))
+    radio = RadioButtons(ax_radio, ('Roll Median', 'Add Inter', 'Hide Leg', 'Overlay P', 'Show R Valid', 'Frequency', 'Stumpy Search'))
 
     #Set actions for GUI items. 
     sect_slider.on_changed(update_plot)
@@ -369,7 +524,7 @@ def summarize_run():
 def main():
     global configs
     configs = setup_globals.load_config()
-    configs["slider"] = True
+    configs["freq"], configs["stump"], configs["slider"] = False, False, True
     datafile = setup_globals.launch_tui(configs)
     global wave, fs
     wave, fs, filen, outputf = setup_globals.load_chartdata(configs, datafile, logger)
@@ -383,4 +538,8 @@ if __name__ == "__main__":
         #Could run it in the slider.py file.
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
-
+    #TODO 
+        #Add FFT / stumpy to main option button layout
+        #have it reframe the layout the same way.  
+        #In the distirbution plot below.  Maybe have the ability to refocus the main
+        #chart based on the other area's.  (Think second slider below once vertical splits)

@@ -284,7 +284,6 @@ def get_records(folder:str)->list:
 
 #FUNCTION Load Chart Data
 def load_chartdata(configs:dict, datafile:Path, logger:logging):
-    # head_files, header_chosen = choose_cam(configs, logger)
     inputdirs = os.listdir(configs["data_path"])
     if datafile.name in inputdirs:
         idx = inputdirs.index(datafile.name)
@@ -292,7 +291,7 @@ def load_chartdata(configs:dict, datafile:Path, logger:logging):
         record = load_signal_data(input_path)
     else:
         logger.warning(f"Input data for {datafile.name} not found")
-        logger.warning("Make sure base waveform data is stored correctly")
+        logger.warning("Make sure base waveform data is stored in the data/input folder")
         exit()
 
     #ECG data

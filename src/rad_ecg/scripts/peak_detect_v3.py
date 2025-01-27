@@ -17,7 +17,6 @@ from matplotlib.patches import Rectangle, Arrow
 from matplotlib.colors import rgb2hex
 from collections import deque
 from time import strftime
-import datetime
 
 
 #from pathlib import Path
