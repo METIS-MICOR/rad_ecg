@@ -3,11 +3,13 @@
 import scipy.signal as ss
 from scipy.fft import rfft, rfftfreq, irfft
 import numpy as np
+import stumpy 
+import pandas as pd
 from rich.table import Table
 from collections import Counter
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
-from matplotlib.widgets import Slider, Button, RadioButtons, TextBox
+from matplotlib.widgets import Slider, Button, RadioButtons, TextBox, SpanSelector
 from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
 import utils # from rad_ecg.scripts
@@ -263,6 +265,146 @@ def load_graph_objects(datafile:str, outputf:str):
         ax_freq.set_ylabel("Frequency Power")
         ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
 
+    #FUNCTION - Wavesearch
+    def wavesearch():
+
+        #FUNCTION - Stumpy Pattern Matching
+        def stumpysearch(col:str, region_y, ax_search:plt.Axes):
+            Q_s = region_y
+            T_s = combine[col]
+            matches_improved_max_distance = stumpy.match(
+                Q_s,
+                T_s,
+                max_distance=lambda D: max(np.mean(D) - 5 * np.std(D), np.min(D))
+            )
+
+            # Since MASS computes z-normalized Euclidean distances, we should z-normalize our subsequences before plotting
+            Q_z_norm = stumpy.core.z_norm(Q_s.values)
+            ax_search.set_title(f'{matches_improved_max_distance.shape[0]} Query Matches', fontsize='18')
+            ax_search.set_xlabel('Time')
+            ax_search.set_ylabel('ECG (mv)')
+            for match_distance, match_idx in matches_improved_max_distance:
+                match_z_norm = stumpy.core.z_norm(T_s.values[match_idx:match_idx+len(Q_s)])
+                ax_search.plot(match_z_norm, lw=2)
+            ax_search.plot(Q_z_norm, lw=3, color="black", label="Selected Query, Q_s")
+            return matches_improved_max_distance
+
+        def draw_selection(col:str, region_x:range, region_y:pd.Series):
+            if check_axis("mainplot"):
+                remove_axis("mainplot")
+            
+            #BUG not sure how to handle if someone moves from 
+            #wave search to frequency. check the radio_x1 maybe?
+            if freq_activated:
+                remove_axis(["freq_list", "var_small"])
+
+            #old code
+            # inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
+            # ax_wave = fig.add_subplot(inner_grid[0, :1], label = "var_small")
+            # ax_search = fig.add_subplot(inner_grid[0, 1:2], label = "overlays")
+
+            left_grid = gridspec.GridSpecFromSubplotSpec(1, 1, gs[0, :1])
+            right_grid = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0, 1:2], height_ratios=[5, 1], hspace=0.2)
+            ax_wave = fig.add_subplot(left_grid[:, :], label = "var_small")
+            ax_search = fig.add_subplot(right_grid[:1, :1], label = "overlays")
+            ax_dist = fig.add_subplot(right_grid[1:2, :1], label = "dist_locs")
+                     
+            ###  Plot the wave ###
+            col = radio_x1.value_selected
+            sect = sect_slider.val
+            start_w = segments[sect][0]
+            end_w = segments[sect][1]
+            wavesect = combine[col][start_w:end_w]
+            ax_wave.plot(range(start_w, end_w), wavesect, label=col)
+            rect = Rectangle((min(region_x), region_y.min()), (max(region_x) - min(region_x)), (np.abs(region_y.min())+region_y.max()), facecolor='lightgrey')
+            ax_wave.add_patch(rect)
+            ax_wave.set_xlim(start_w, end_w)
+            ax_wave.set_ylim(wavesect.min() - wavesect.std()*2, region_y.max() + wavesect.std()*2)
+            # ax_wave.set_ylim(np.min(wave), np.max(wave)) #[start_w:end_w]
+            # ax_wave.set_xlim(start_w, end_w)
+            row = list(map(lambda x: x[0]==col, units))
+            ax_wave.set_ylabel(f'{units[row.index(True)][1]}') 
+            ax_wave.set_xlabel('Time index')
+            mintime = combine.iloc[start_w, 0]
+            maxtime = combine.iloc[end_w, 0]
+            mint = f'{mintime.hour}:{mintime.minute}:{mintime.second}'
+            maxt = f'{maxtime.hour}:{maxtime.minute}:{maxtime.second}'
+            ax_wave.set_title(f'{units[row.index(True)][0]} for Time {mint} --> {maxt} in sect {sect}', size=12)
+            
+            #Run stumpy match algorithm to look for the wave in the 
+            #rest of the signal. 
+            matchlocs = stumpysearch(col, region_y, ax_search)
+            
+            #[x]
+            #Plot the distribution bar below
+            #Make a counter dict of the ranges
+            seg_dict = {idx:[x, 0] for idx, x in enumerate(segments)}	
+            #
+            for match in matchlocs[:, 1]:
+                for key, arr in seg_dict.items():
+                    if match in range(arr[0][0], arr[0][1]) or match == arr[0][1]:
+                        seg_dict[key][1] += 1
+                        break
+            
+            counts = [seg_dict[key][1] for key in seg_dict.keys()]
+            #Throw up a simple bar chart. 
+            ax_dist.bar(range(len(counts)), counts, align="center", label = "Section Counts")
+            # #Plot a hist / kernel density estimate underneath. (Manually building a displot without seaborn).  
+                #NOTE Mixing seaborn and mpl programatically is challenging.  
+                #Decided to note use a hist here instead and just use a barplot
+            # ax_dist.hist(x = counts, bins=len(counts), density=False, label="match_freq")
+            # x = np.linspace(min(counts), max(counts))
+            # kde = stats.gaussian_kde(counts)(x)
+            # ax_dist.plot(x, kde, label="kde")
+            ax_dist.set_xlabel("ECG Sections")
+            ax_dist.set_ylabel("Counts")
+            ax_dist.legend(loc='upper right')
+
+        def onselect_func(xmin, xmax):
+            def _confirm_select(event):
+                if event.key == "enter":
+                    xmin, xmax = span.extents
+                    xmin = int(np.floor(xmin))
+                    xmax = int(np.ceil(xmax))
+                    col = radio_x1.value_selected
+                    region_x = range(xmin, xmax)
+                    region_y = combine[col][xmin:xmax]
+
+                    #early terminate if you accidentally click
+                    if xmin==xmax or len(region_x) <= 5:
+                        raise ValueError(f'Please select a larger range than {len(region_x)}')
+
+                    span.disconnect_events()
+                    fig.canvas.mpl_disconnect(cid)
+                    draw_selection(radio_x1.value_selected, region_x, region_y)
+
+            cid = fig.canvas.mpl_connect("key_press_event", _confirm_select)
+    
+        global span
+        span = SpanSelector(
+            ax_one, 
+            onselect_func, 
+            direction ='horizontal',
+            props = dict(alpha=0.5, facecolor='red'),
+            useblit = False,
+            interactive = True,
+            button = 1
+        )
+        
+    # https://stackoverflow.com/questions/60445772/making-spanselector-wait-for-a-specific-keypress-event
+        #Directions for wave search. 
+
+        #1. When selected, activate the span selector somehow. 
+        #2. Then ask in terminal if this is the correct wave form to search for. 
+        #3. Erase main plot, redraw mainplot as two subplots.  
+        #4. subplots
+            #Subplot 1
+                #-will be the selected waveform highlighed in its section. 
+            #Subplot 2
+                #-Will be an overlay of the query search.  With the count
+                #of how many matches were found.  
+
+        #5. Export matrix profile with locations. 
     #FUNCTION Remove Axis
     def remove_axis(remove_vars:list):
         if isinstance(remove_vars, list):
@@ -382,7 +524,7 @@ def load_graph_objects(datafile:str, outputf:str):
 
         if val == 'Stumpy':
             configs["stump"] = True
-            stumpysearch()
+            wavesearch()
 
         fig.canvas.draw_idle()    
 
