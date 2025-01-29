@@ -156,8 +156,21 @@ def load_graph_objects(datafile:str, outputf:str):
 
     # FUNCTION Create Overlay plot
     def overlay_r_peaks():
-        #TODO add docstrings
-        #TODO put this into sidebar view
+        existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+        labels = list(map(lambda x: x[1]=="mainplot", existlist))
+        if any(labels):
+            ax_rem = existlist[labels.index(True)][0]
+            fig.axes[ax_rem].remove()
+        else:
+            remove_axis(["ecg_small", "overlays"])
+
+        inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
+        global ax_ecg
+        ax_ecg = fig.add_subplot(inner_grid[0, :1], label = "ecg_small")
+        ax_over = fig.add_subplot(inner_grid[0, 1:2], label = "overlays")
+        
+        update_main()
+
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
@@ -168,19 +181,13 @@ def load_graph_objects(datafile:str, outputf:str):
         T_onset = inners[np.nonzero(inners[:, 13])[0], 13]
         T_offset = inners[np.nonzero(inners[:, 14])[0], 14]
 
-        fig2, ax3 = plt.subplots(ncols=1, nrows=1, figsize=(12, 8))
-
         RR_diffs = int(np.mean(np.diff(R_peaks))//2)
         for idx, Rpeak in enumerate(R_peaks):
-            ax3.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'ECG', color='dodgerblue', alpha=.5)
-            ax3.scatter((P_onset[idx] - Rpeak) + RR_diffs , wave[P_onset[idx]], label='P Onset', s = 60, color='purple')
-            ax3.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color='darkgoldenrod')
-            ax3.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color='teal')
-            ax3.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color='orange')
-
-            #TODO - Update this to use the peak dictionary and also add the other points to layer on top.  R peaks 
-            #will all stack on each other, but the rest should should variability.  
-        #Make a custom legend. 
+            ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
+            ax_over.scatter((P_onset[idx] - Rpeak) + RR_diffs , wave[P_onset[idx]], label='P Onset', s = 60, color='purple')
+            ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color='darkgoldenrod')
+            ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color='teal')
+            ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color='orange')
 
         legend_elements = [
             Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor='purple', markersize=15),
@@ -188,12 +195,11 @@ def load_graph_objects(datafile:str, outputf:str):
             Line2D([0], [0], marker='o', color='w', label='T Onset', markerfacecolor='teal', markersize=15),
             Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor='orange', markersize=15)
         ]
-        ax3.set_ylabel('Voltage (mV)')
-        ax3.set_xlabel('ECG index')
-        
-        ax3.legend(handles=legend_elements, loc='upper left')
-        ax3.set_title(f'Overlayed QRS Complexes for section {sect} ', size=14)
-        plt.show()
+        ax_over.set_ylabel('Voltage (mV)')
+        ax_over.set_xlabel('ECG index')
+        ax_over.legend(handles=legend_elements, loc='upper left')
+        ax_over.set_title(f'Overlayed QRS Complexes for section {sect} ', size=14)
+
 
     #FUNCTION Frequency
     def frequencytown():
@@ -217,16 +223,6 @@ def load_graph_objects(datafile:str, outputf:str):
         ###  Plot the wave ###
         update_main()
         
-        # start_w = ecg_data['section_info'][sect]['start_point']
-        # end_w = ecg_data['section_info'][sect]['end_point']
-        # wavesect = wave[start_w:end_w]
-        # ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], label="smallECG")
-        # ax_ecg.set_ylim(wavesect.min() - wavesect.std()*2, wavesect.max() + wavesect.std()*2)
-        # ax_ecg.set_xlim(start_w, end_w)
-        # ax_ecg.set_ylabel('Voltage (mV)')
-        # ax_ecg.set_xlabel('ECG index')
-        # ax_ecg.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect}', size = 12)
-        # ax_ecg.legend(loc="upper right")
 
         #Plot the frequencies
         sect = sect_slider.val
@@ -301,10 +297,13 @@ def load_graph_objects(datafile:str, outputf:str):
                 ax_ecg = fig.add_subplot(gs[0, :2], label="mainplot")
             update_main()
 
-        #Gameplan
         if configs["freq"]:
             logger.info(f'{check_axis("mainplot")}')
             frequencytown()
+
+        if configs["overlay"]:
+            logger.info(f'{check_axis("overlays")}')
+            overlay_r_peaks()
 
         # elif configs["spect"] and check_axis("mainplot"):
         #     wavesearch
@@ -333,14 +332,15 @@ def load_graph_objects(datafile:str, outputf:str):
                 update_plot(val)
                 
             if configs["overlay"] and check_axis("overlays"):
-                remove_axis(["overlays", "ecg_small", "dist_locs"])
-                update_plot()
-                configs["stump"] = False
-            
-            # if configs["layer"] and check_axis("overlays"):
-            #     remove_axis(["overlays", "ecg_small", "dist_locs"])
-            #     update_plot()
-            #     configs["overlay"] = False
+                remove_axis(["overlays", "ecg_small"])
+                configs["overlay"] = False
+                update_plot(val)
+                
+            if configs["stump"] and check_axis("stumpy"):
+                remove_axis(["stumpy", "ecg_small", "dist_locs"])
+                configs["overlay"] = False
+                update_plot(val)
+                
 
         if val == 'Roll Median':	
             ax_ecg.plot(range(start_w, end_w), utils.roll_med(wave[start_w:end_w]), color='orange', label='Rolling Median')
@@ -380,9 +380,9 @@ def load_graph_objects(datafile:str, outputf:str):
             configs["overlay"] = True
             overlay_r_peaks()
 
-        # if val == 'Stumpy':
-        #     configs["stump"] = True
-        #     stumpysearch()
+        if val == 'Stumpy':
+            configs["stump"] = True
+            stumpysearch()
 
         fig.canvas.draw_idle()    
 
