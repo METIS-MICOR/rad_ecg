@@ -1,3 +1,5 @@
+# import matplotlib
+# matplotlib.use('TkAgg')
 import scipy.signal as ss
 from scipy.fft import rfft, rfftfreq, irfft
 import numpy as np
@@ -13,10 +15,60 @@ import setup_globals # from rad_ecg.scripts
 from support import logger, console, log_time
 import support
 
-def load_graph_objects(datafile:str, filen:str, outputf:str):
+PEAKDICT = {
+    0:('P', 'green'),
+    1:('Q', 'cyan'),
+    2:('R', 'red'),
+    3:('S', 'magenta'),
+    4:('T', 'black')
+}
+PEAKDICT_EXT = {
+    11:('P_on', 'purple'),
+    12:('Q_on', 'darkgoldenrod'), 
+    13:('T_on', 'teal'), 
+    14:('T_off', 'orange')
+}
+LABELDICT = {
+    "P":(0, 7),
+    "Q":(-11, -4),
+    "R":(10, -4),
+    "S":(-5, -15),
+    "T":(0, 5),
+    "P_on":(0, -10),
+    "Q_on":(-11, -4),
+    "T_on":(10, 0),
+    "T_off":(10, 10),
+}
+
+#FUNCTION Make rich table
+def make_rich_table(failures:dict) -> Table:
+    error_table = Table(
+        expand=False,
+        show_header=True,
+        header_style="bold",
+        title=f"[red][b]Errors Counts[/b]",
+        title_justify = "center",
+        highlight=True,
+    )
+    error_table.add_column(f"Reason", justify="left") 
+    error_table.add_column(f"Count", justify="center")
+    t_sorts = sorted(failures.items(), key= lambda x:len(x[0]), reverse=True)
+    for reason in t_sorts:
+        if reason[0] == " ":
+            fail = "Valid"
+        else:
+            fail = reason[0].strip()
+            
+        error_table.add_row(fail, str(reason[1]))
+    error_table.add_section()
+
+    error_table.add_row("% Valid", f"{(failures.get(' ') / sum(failures.values())):.1%}")
+    error_table.add_row("Total Sections", str(sum(failures.values())))
+    
+    return error_table
+
+def load_graph_objects(datafile:str, outputf:str):
     #Ugh, i have to rewrite all of this.  
-
-
     #FUNCTION Add chart labels
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
@@ -27,29 +79,17 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             plt ([chart]): [Chart to add label to]
             label (str, optional): [Title of the chart.  Key to the dict of where its label should be shifted]. Defaults to "".
         """
-        label_dict = {
-            "P":(0, 7),
-            "Q":(-11, -4),
-            "R":(10, -4),
-            "S":(-5, -15),
-            "T":(0, 5),
-            "P_on":(0, -10),
-            "Q_on":(-11, -4),
-            "T_on":(10, 0),
-            "T_off":(10, 10),
-        }
         for x, y in zip(x,y):
             label = f'{label[0]}' #:{y:.2f}
             plt.annotate(
                 label,
                 (x,y),
                 textcoords="offset points",
-                xytext=label_dict[label[0]],
+                xytext=LABELDICT[label[0]],
                 ha='center')
+    
     #FUNCTION Valid Grouper
     def valid_grouper(arr):
-        #TODO add docstrings
-        #ecg_data['section_info']['valid'] passed in.
         sections = np.split(arr, np.where(np.diff(arr) != 0)[0] + 1)
         sect_lengths = [(x[0], len(x)) for x in sections]
         start_sects = np.where(np.diff(arr)!=0)[0] + 1
@@ -58,29 +98,9 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         sect_filt = list(filter(lambda x: x[1][0] == 1, sect_tups))
         sect_filt = [(x[0], x[1][1]) for x in sect_filt]
         return sect_filt
-
-    # FUNCTION Update plot
-    def update_plot(val):
-        #Gameplan
-        #When a plot updates, it will neeed to update the main plot
-        #almost always.  The real test will be if there is anything
-        #else I need it to update.  I would like it to update the other plots
-        #if they exist.  
-        #I also want it to be able to still do the normal labelling funcs...
-        #Is it better to split this out...into a separate radio button situation
-
-        #TODO add docstrings
-        #clear the top chart
-
-        #TODO Will need secondary update function for when both axis are present
-        if configs["stump"] or configs["freq"]:
-            if configs["freq"] and check_axis("freqs"):
-                #Plot update routine for frequency 
-                pass
-            elif configs["stump"] and check_axis("stump"):
-                #Plot update routine for frequency 
-                pass
-
+    
+    def update_main():
+        global ax_ecg
         ax_ecg.clear()
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
@@ -96,7 +116,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         ax_ecg.set_xticks(ticks_loc)
         ax_ecg.set_xticklabels(labels, rotation=-20)
 
-        ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='ECG')
+        ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='mainECG')
         if valid==0:
             ax_ecg.set_facecolor('gainsboro')
             fails = np.char.split(ecg_data["section_info"][sect]["fail_reason"].strip(), sep="|")
@@ -111,34 +131,36 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             #add patches for whether a peak is valid or not. 
 
         if inners.size > 0:
-            [ax_ecg.scatter(inners[:, x], wave[inners[:, x]], label=peak_dict[x][0], color=peak_dict[x][1], alpha=0.8) for x in peak_dict.keys() if x !=2]  
-            [add_cht_labels(inners[:, key], wave[inners[:, key].flatten()], ax_ecg, val[0]) for key, val in peak_dict.items() if key !=2]
+            [ax_ecg.scatter(inners[:, x], wave[inners[:, x]], label=PEAKDICT[x][0], color=PEAKDICT[x][1], alpha=0.8) for x in PEAKDICT.keys() if x !=2]  
+            [add_cht_labels(inners[:, key], wave[inners[:, key].flatten()], ax_ecg, val[0]) for key, val in PEAKDICT.items() if key !=2]
         
-        ax_ecg.annotate(f'Avgs ', xy=(1.01, 0.99), xycoords='axes fraction', fontsize=10) #| Counts
-        ax_ecg.annotate(f'HR:        {ecg_data["section_info"][sect]["Avg_HR"]:.0f} bpm', xy=(1.01, 0.94), xycoords='axes fraction', fontsize=10)
-        if len(np.nonzero(inners[:, 8])[0]) > 0:
-            QRS = np.mean(inners[np.nonzero(inners[:, 8])[0],8])
-            ax_ecg.annotate(f'QRS:      {QRS:.0f} ms', xy=(1.01, 0.89), xycoords='axes fraction', fontsize=10) # | {QRS[1]:.0f}
-        if len(np.nonzero(inners[:, 7])[0]) > 0:
-            PR = np.mean(inners[np.nonzero(inners[:, 7])[0],7])
-            ax_ecg.annotate(f'PR:         {PR:.0f} ms', xy=(1.01, 0.84), xycoords='axes fraction', fontsize=10)
-        if len(np.nonzero(inners[:, 10])[0]) > 0:
-            QT = np.mean(inners[np.nonzero(inners[:, 10])[0],10])
-            ax_ecg.annotate(f'QT:         {QT:.0f} ms', xy=(1.01, 0.79), xycoords='axes fraction', fontsize=10)
-        ax_ecg.annotate(f'RMSSD:  {ecg_data["section_info"][sect]["RMSSD"]:.0f} ms', xy=(1.01, 0.74), xycoords='axes fraction', fontsize=10)
-        ax_ecg.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect} ')
+        if ax_ecg._label == "mainplot":
+            ax_ecg.annotate(f'Avgs ', xy=(1.01, 0.99), xycoords='axes fraction', fontsize=10) #| Counts
+            ax_ecg.annotate(f'HR:        {ecg_data["section_info"][sect]["Avg_HR"]:.0f} bpm', xy=(1.01, 0.94), xycoords='axes fraction', fontsize=10)
+            if len(np.nonzero(inners[:, 8])[0]) > 0:
+                QRS = np.mean(inners[np.nonzero(inners[:, 8])[0],8])
+                ax_ecg.annotate(f'QRS:      {QRS:.0f} ms', xy=(1.01, 0.89), xycoords='axes fraction', fontsize=10) # | {QRS[1]:.0f}
+            if len(np.nonzero(inners[:, 7])[0]) > 0:
+                PR = np.mean(inners[np.nonzero(inners[:, 7])[0],7])
+                ax_ecg.annotate(f'PR:         {PR:.0f} ms', xy=(1.01, 0.84), xycoords='axes fraction', fontsize=10)
+            if len(np.nonzero(inners[:, 10])[0]) > 0:
+                QT = np.mean(inners[np.nonzero(inners[:, 10])[0],10])
+                ax_ecg.annotate(f'QT:         {QT:.0f} ms', xy=(1.01, 0.79), xycoords='axes fraction', fontsize=10)
+            ax_ecg.annotate(f'RMSSD:  {ecg_data["section_info"][sect]["RMSSD"]:.0f} ms', xy=(1.01, 0.74), xycoords='axes fraction', fontsize=10)
+        elif ax_ecg._label == "small_ecg":
+            pass
+            #TODO Think of way to summarize table data on smaller chart.  Or maybe just leave off. 
 
-        fig.canvas.draw_idle()
-        
+        ax_ecg.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect} ')
+        ax_ecg.legend(loc="upper left")
+
     # FUNCTION Create Overlay plot
-    def create_comparison_plot(slider_val):
+    def overlay_r_peaks():
         #TODO add docstrings
         #TODO put this into sidebar view
-        sect = slider_val
+        sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
-        valid = ecg_data['section_info'][sect]['valid']
-        sect_mean = np.mean(wave[start_w:end_w])
         inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
         R_peaks = inners[np.nonzero(inners[:, 2])[0], 2]
         P_onset = inners[np.nonzero(inners[:, 11])[0], 11]
@@ -155,7 +177,11 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             ax3.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color='darkgoldenrod')
             ax3.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color='teal')
             ax3.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color='orange')
+
+            #TODO - Update this to use the peak dictionary and also add the other points to layer on top.  R peaks 
+            #will all stack on each other, but the rest should should variability.  
         #Make a custom legend. 
+
         legend_elements = [
             Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor='purple', markersize=15),
             Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor='darkgoldenrod', markersize=15),
@@ -169,29 +195,6 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         ax3.set_title(f'Overlayed QRS Complexes for section {sect} ', size=14)
         plt.show()
 
-
-    #FUNCTION Remove Axis
-    def remove_axis(remove_vars:list):
-        if isinstance(remove_vars, list):
-            for var in remove_vars:
-                # Generate a tuple of index and axis label for all axis in the fig.
-                existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
-                ax_rem = list(map(lambda x:x[1], existlist)).index(var)
-                fig.axes[existlist[ax_rem][0]].remove()
-
-        elif isinstance(remove_vars, str):
-            existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
-            ax_rem = list(map(lambda x:x[1], existlist)).index(remove_vars)
-            fig.axes[existlist[ax_rem][0]].remove()
-    
-    #FUNCTION Check Axis
-    def check_axis(valcheck:str):
-        existlist = [axis._label for axis in fig.get_axes() if axis._label != ""]
-        if valcheck in existlist:
-            return True
-        else:
-            return False
-
     #FUNCTION Frequency
     def frequencytown():
         global fs
@@ -203,28 +206,31 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             ax_rem = existlist[labels.index(True)][0]
             fig.axes[ax_rem].remove()
         else:
-            remove_axis(["freq_list", "var_small"])
+            remove_axis(["ecg_small", "freq_list"])
 
+        #Set the inner grid to the first row space
         inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
-        ax_wave = fig.add_subplot(inner_grid[0, :1], label = "var_small")
+        global ax_ecg
+        ax_ecg = fig.add_subplot(inner_grid[0, :1], label = "ecg_small")
         ax_freq = fig.add_subplot(inner_grid[0, 1:2], label = "freq_list")
         
         ###  Plot the wave ###
-        col = radio.value_selected
-        sect = sect_slider.val
-        start_w = ecg_data['section_info'][sect]['start_point']
-        end_w = ecg_data['section_info'][sect]['end_point']
-        wavesect = wave[start_w:end_w]
-        ax_wave.plot(range(start_w, end_w), wave[start_w:end_w], label=col)
-        ax_wave.set_ylim(wavesect.min() - wavesect.std()*2, wavesect.max() + wavesect.std()*2)
-        ax_wave.set_xlim(start_w, end_w)
-        ax_wave.set_ylabel('Voltage (mV)')
-        ax_wave.set_xlabel('ECG index')
-        ax_wave.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect}', size = 12)
-        ax_wave.legend(loc="upper right")
+        update_main()
+        
+        # start_w = ecg_data['section_info'][sect]['start_point']
+        # end_w = ecg_data['section_info'][sect]['end_point']
+        # wavesect = wave[start_w:end_w]
+        # ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], label="smallECG")
+        # ax_ecg.set_ylim(wavesect.min() - wavesect.std()*2, wavesect.max() + wavesect.std()*2)
+        # ax_ecg.set_xlim(start_w, end_w)
+        # ax_ecg.set_ylabel('Voltage (mV)')
+        # ax_ecg.set_xlabel('ECG index')
+        # ax_ecg.set_title(f'ECG for idx {start_w:_d}:{end_w:_d} in sect {sect}', size = 12)
+        # ax_ecg.legend(loc="upper right")
 
         #Plot the frequencies
-        samp = wave[start_w:end_w].values
+        sect = sect_slider.val
+        samp = wave[start_w:end_w].flatten()
         fft_samp = np.abs(rfft(samp))
         freq_list = rfftfreq(len(samp), d=1/fs) #samp_freq is sampling rate
         freqs = fft_samp[0:int(len(samp)/2)]
@@ -253,13 +259,57 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                 ha="center", va="center"
         )
         if sorted_p:
-            ax_freq.set_xlim(0, sorted_p[-1][0]*1.2)
+            ax_freq.set_xlim(0, max(list(map(lambda x:x[0], sorted_p)))*1.2)
             ax_freq.set_ylim(0, sorted_p[0][1]*1.2)
         else:
             ax_freq.set_xlim(0, 50)
         ax_freq.set_xlabel("Freq (Hz)")
         ax_freq.set_ylabel("Frequency Power")
         ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
+
+    #FUNCTION Remove Axis
+    def remove_axis(remove_vars:list):
+        if isinstance(remove_vars, list):
+            for var in remove_vars:
+                # Generate a tuple of index and axis label for all axis in the fig.
+                existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+                ax_rem = list(map(lambda x:x[1], existlist)).index(var)
+                fig.axes[existlist[ax_rem][0]].remove()
+
+        elif isinstance(remove_vars, str):
+            existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+            ax_rem = list(map(lambda x:x[1], existlist)).index(remove_vars)
+            fig.axes[existlist[ax_rem][0]].remove()
+    
+    #FUNCTION Check Axis
+    def check_axis(valcheck:str):
+        existlist = [axis._label for axis in fig.get_axes() if axis._label != ""]
+        if valcheck in existlist:
+            return True
+        else:
+            return False
+
+    # FUNCTION Update plot
+    def update_plot(val):
+        # If the command is not to change to freq
+        global ax_ecg
+        command = radio.value_selected
+        if command in ["Base Figure", "Roll Median", "Add Inter", "Hide Leg", "Show R Valid"]:
+            if check_axis("mainplot"):
+                ax_ecg.cla()
+            else:
+                ax_ecg = fig.add_subplot(gs[0, :2], label="mainplot")
+            update_main()
+
+        #Gameplan
+        if configs["freq"]:
+            logger.info(f'{check_axis("mainplot")}')
+            frequencytown()
+
+        # elif configs["spect"] and check_axis("mainplot"):
+        #     wavesearch
+
+        fig.canvas.draw_idle()
 
     #FUNCTION Radio Button Actions
     def radiob_action(val):
@@ -269,32 +319,36 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
             #as well as the signal to my left.  (With the ability to still highlight
             #points / medians / Rpeaks. 
         #Also means i'll need a split for the comparison plot
-        #
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
-        if val != 'Frequency':
+
+        if val in ["Base Figure", "Roll Median", "Add Inter", "Hide Leg", "Show R Valid"]:
+            #When selecting various functions.
+            #This is to make sure you remove the appropriate axis' before redrawing the main chart
             if configs["freq"] and check_axis("freq_list"):
-                remove_axis(["freq_list", "var_small"])
-                update_plot("val")
+                #remove the mainplot
+                remove_axis(["freq_list", "ecg_small"])
                 configs["freq"] = False
-            
-        if val != "Stumpy":
-            if configs["stump"] and check_axis("overlays"):
-                remove_axis(["overlays", "var_small", "dist_locs"])
-                update_plot("val")
+                update_plot(val)
+                
+            if configs["overlay"] and check_axis("overlays"):
+                remove_axis(["overlays", "ecg_small", "dist_locs"])
+                update_plot()
                 configs["stump"] = False
+            
+            # if configs["layer"] and check_axis("overlays"):
+            #     remove_axis(["overlays", "ecg_small", "dist_locs"])
+            #     update_plot()
+            #     configs["overlay"] = False
 
         if val == 'Roll Median':	
             ax_ecg.plot(range(start_w, end_w), utils.roll_med(wave[start_w:end_w]), color='orange', label='Rolling Median')
             ax_ecg.legend(loc='upper left')
 
         if val == 'Add Inter':
-            sect = sect_slider.val
-            start_w = ecg_data['section_info'][sect]['start_point']
-            end_w = ecg_data['section_info'][sect]['end_point']
             inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
-            for key, val in peak_dict_ext.items():
+            for key, val in PEAKDICT_EXT.items():
                 if inners[np.nonzero(inners[:, key])[0], key].size > 0:
                     ax_ecg.scatter(inners[:, key], wave[inners[:, key]], label=val[0], color=val[1], alpha=0.8)
             ax_ecg.set_title(f'All interior peaks for section {sect} ', size=14)
@@ -313,17 +367,18 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                     xy=((Rpeaks[peak, 0] - 10), (wave[Rpeaks[peak,0]] + wave[Rpeaks[peak,0]]*(0.05)).item()), 
                     width=np.mean(np.diff(Rpeaks[:, 0])) // 6, 
                     height=wave[Rpeaks[peak, 0]].item() / 10,
-                    facecolor=band_color,
-                    edgecolor="grey",
-                    alpha=0.7)
-                ax_ecg.add_patch(rect)
-
-        if val == 'Overlay P':
-            create_comparison_plot(sect_slider.val)
+                facecolor=band_color,
+                edgecolor="grey",
+                alpha=0.7)
+            ax_ecg.add_patch(rect)
 
         if val == 'Frequency':
             configs["freq"] = True
             frequencytown()
+
+        if val == 'Overlay P':
+            configs["overlay"] = True
+            overlay_r_peaks()
 
         # if val == 'Stumpy':
         #     configs["stump"] = True
@@ -331,7 +386,8 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
 
         fig.canvas.draw_idle()    
 
-    #FUNCTION Slide forward
+
+    #FUNCTION Slide forward invalid
     def move_slider_forward(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
@@ -344,7 +400,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect+1)
 
-    #FUNCTION Slide back
+    #FUNCTION Slide back invalid
     def move_slider_back(vl):
         #TODO add docstrings
         curr_sect = sect_slider.val
@@ -363,32 +419,6 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
-    #FUNCTION Make rich table
-    def make_rich_table(failures:dict) -> Table:
-        error_table = Table(
-            expand=False,
-            show_header=True,
-            header_style="bold",
-            title=f"[red][b]Errors Counts[/b]",
-            title_justify = "center",
-            highlight=True,
-        )
-        error_table.add_column(f"Reason", justify="left") 
-        error_table.add_column(f"Count", justify="center")
-        t_sorts = sorted(failures.items(), key= lambda x:len(x[0]), reverse=True)
-        for reason in t_sorts:
-            if reason[0] == " ":
-                fail = "Valid"
-            else:
-                fail = reason[0].strip()
-                
-            error_table.add_row(fail, str(reason[1]))
-        error_table.add_section()
-
-        error_table.add_row("% Valid", f"{(failures.get(' ') / sum(failures.values())):.1%}")
-        error_table.add_row("Total Sections", str(sum(failures.values())))
-        
-        return error_table
     
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
@@ -419,35 +449,23 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(15)))
     }
 
-    #brokebarH plot for the background of the slider. 
+    #Draw main plot inititally and set params
     valid_sect = ecg_data['section_info']['valid']
-    fig = plt.figure(figsize = (14, 8))
+    global ax_ecg, gs, fig
+    fig = plt.figure(figsize=(16, 10))
     gs = gridspec.GridSpec(nrows=2, ncols=2, height_ratios=[5, 1])
-    plt.subplots_adjust(hspace=0.40) 
-    ax_ecg = fig.add_subplot(gs[0, :2])
+    plt.subplots_adjust(hspace=0.40)
+    ax_ecg = fig.add_subplot(gs[0, :2], label="mainplot")
     first_sect = np.where(ecg_data['section_info']['valid']!=0)[0][0]
     start_w = ecg_data['section_info'][first_sect]['start_point']
     end_w = ecg_data['section_info'][first_sect]['end_point']
-    ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='mainplot')
+    ax_ecg.plot(range(start_w, end_w), wave[start_w:end_w], color='dodgerblue', label='mainECG')
     ax_ecg.set_xlim(start_w, end_w)
     ax_ecg.set_ylabel('Voltage (mV)')
     ax_ecg.set_xlabel('ECG index')
-    peak_dict = {
-            0:('P', 'green'),
-            1:('Q', 'cyan'),
-            2:('R', 'red'),
-            3:('S', 'magenta'),
-            4:('T', 'black')
-    }
-    peak_dict_ext = {
-            11:('P_on', 'purple'),
-            12:('Q_on', 'darkgoldenrod'), 
-            13:('T_on', 'teal'), 
-            14:('T_off', 'orange')
-    }
-
     ax_ecg.legend(loc='upper left')
 
+    #brokebarH plot for the background of the slider. 
     ax_section = fig.add_subplot(gs[1, :2])
     ax_section.broken_barh(valid_grouper(valid_sect), (0,1), facecolors=('tab:blue'))
     ax_section.set_ylim(0, 1)
@@ -489,7 +507,7 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
                     hovercolor='green')
 
     #Radio buttons
-    radio = RadioButtons(ax_radio, ('Roll Median', 'Add Inter', 'Hide Leg', 'Overlay P', 'Show R Valid', 'Frequency', 'Stumpy Search'))
+    radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay P', 'Frequency', 'Stumpy Search'))
 
     #Set actions for GUI items. 
     sect_slider.on_changed(update_plot)
@@ -502,20 +520,19 @@ def load_graph_objects(datafile:str, filen:str, outputf:str):
 
     #Make a custom legend. 
     legend_elements = [
-        Line2D([0], [0], marker='o', color='w', label=val[0], markerfacecolor=val[1], markersize=10) for val in peak_dict.values()
+        Line2D([0], [0], marker='o', color='w', label=val[0], markerfacecolor=val[1], markersize=10) for val in PEAKDICT.values()
         ]
-
     ax_ecg.legend(handles=legend_elements, loc='upper left')
-
+    
+    #Print failures table
     failures = Counter(ecg_data['section_info']['fail_reason'])
     table = make_rich_table(failures)
     console.log(table)
 
-    # quick log loading for checking
-    # log = utils.load_log_results(lfpath)
-
     plt.show()
-    plt.close()
+    logger.info("yo")
+
+
     
 def summarize_run():
     RMSSD = ecg_data['section_info'][['wave_section', 'RMSSD']]
@@ -524,11 +541,13 @@ def summarize_run():
 def main():
     global configs
     configs = setup_globals.load_config()
-    configs["freq"], configs["stump"], configs["slider"] = False, False, True
+    configs["freq"], configs["stump"] =  False, False
+    configs["slider"], configs["overlay"] = True, False
+
     datafile = setup_globals.launch_tui(configs)
     global wave, fs
-    wave, fs, filen, outputf = setup_globals.load_chartdata(configs, datafile, logger)
-    load_graph_objects(datafile, filen, outputf)
+    wave, fs, outputf = setup_globals.load_chartdata(configs, datafile, logger)
+    graph = load_graph_objects(datafile, outputf)
     # summarize_run()
 
 if __name__ == "__main__":

@@ -300,7 +300,7 @@ def load_chartdata(configs:dict, datafile:Path, logger:logging):
     #Frequency
     fs = record.fs
 
-    return wave, fs, datafile.name, os.listdir(f"{configs['save_path']}\{datafile.name}")
+    return wave, fs, os.listdir(f"{configs['save_path']}\{datafile.name}")
 
 #FUNCTION Walk Directory
 def walk_directory(directory: Path, tree: Tree) -> None:
