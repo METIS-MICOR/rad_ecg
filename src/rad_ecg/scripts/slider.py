@@ -101,6 +101,24 @@ def load_graph_objects(datafile:str, outputf:str):
         sect_filt = [(x[0], x[1][1]) for x in sect_filt]
         return sect_filt
     
+    def reformat_axis():
+        #Format axis.  Remove mainplot if its there, or remove the other axis so we can rewdraw what we need
+        existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+        labels = list(map(lambda x: x[1]=="mainplot", existlist))
+        if any(labels):
+            ax_rem = existlist[labels.index(True)][0]
+            fig.axes[ax_rem].remove()
+
+        elif check_axis("overlays"):
+            remove_axis(["ecg_small", "overlays"])
+
+        elif check_axis("freq_list"):
+            remove_axis(["ecg_small", "freq_list"])
+
+        elif check_axis("stumpy"):
+            remove_axis(["ecg_small", "stumpy", "dist_locs"])
+
+
     def update_main():
         global ax_ecg
         ax_ecg.clear()
@@ -158,21 +176,13 @@ def load_graph_objects(datafile:str, outputf:str):
 
     # FUNCTION Create Overlay plot
     def overlay_r_peaks(main_p:bool=False):
-        existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
-        labels = list(map(lambda x: x[1]=="mainplot", existlist))
-        if any(labels):
-            ax_rem = existlist[labels.index(True)][0]
-            fig.axes[ax_rem].remove()
-        else:
-            remove_axis(["ecg_small", "overlays"])
-
+        
+        reformat_axis()
         inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
         global ax_ecg
         ax_ecg = fig.add_subplot(inner_grid[0, :1], label = "ecg_small")
         ax_over = fig.add_subplot(inner_grid[0, 1:2], label = "overlays")
-        
         update_main()
-
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
@@ -228,15 +238,7 @@ def load_graph_objects(datafile:str, outputf:str):
     #FUNCTION Frequency
     def frequencytown():
         global fs
-        #removes all the labels from the frequency chart if they exist.  
-        #Other wise it will remove the entire axis
-        existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
-        labels = list(map(lambda x: x[1]=="mainplot", existlist))
-        if any(labels):
-            ax_rem = existlist[labels.index(True)][0]
-            fig.axes[ax_rem].remove()
-        else:
-            remove_axis(["ecg_small", "freq_list"])
+        reformat_axis()
 
         #Set the inner grid to the first row space
         inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
@@ -255,15 +257,6 @@ def load_graph_objects(datafile:str, outputf:str):
         freq_l = freq_list[:int(len(samp)//2)]
         ax_freq.stem(freq_l, freqs, "b", markerfmt=" ", basefmt="-b")
 
-        #Old way
-        # X = np.fft.fft(wave[start_w:end_w])
-        # N = len(X)
-        # n = np.arange(N)
-        # T = N/samp_freq
-        # freq = n/T
-        # ax_freq.stem(freq, np.abs(X), "b", markerfmt=" ", basefmt="-b")
-        #different frequency zooms
-
         freqs_idx, peak_power = ss.find_peaks(freqs, height=freqs.mean()//10, distance=10)
         combined = list(zip(freq_list[freqs_idx], peak_power["peak_heights"]))
         sorted_p = sorted(combined, key=lambda x:x[1], reverse=True)[:10]
@@ -277,10 +270,11 @@ def load_graph_objects(datafile:str, outputf:str):
                 ha="center", va="center"
         )
         if sorted_p:
-            ax_freq.set_xlim(0, max(list(map(lambda x:x[0], sorted_p)))*1.2)
+            ax_freq.set_xlim(0, max(list(map(lambda x:x[0], sorted_p)))*1.5)
             ax_freq.set_ylim(0, sorted_p[0][1]*1.2)
         else:
             ax_freq.set_xlim(0, 50)
+
         ax_freq.set_xlabel("Freq (Hz)")
         ax_freq.set_ylabel("Frequency Power")
         ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
@@ -293,12 +287,12 @@ def load_graph_objects(datafile:str, outputf:str):
             #I can't do a direct wave search with stumpy.  
             #So how about lets search an hour before and an hour behind maybe? That could be useful
 
-            Q_s = wave[query]
-            T_s = wave[srchwidth]
+            Q_s = wave[list(query)]
+            T_s = wave[list(srchwidth)]
             matches_improved_max_distance = stumpy.match(
-                Q_s,
-                T_s,
-                max_distance=lambda D: np.max(np.mean(D) - 2 * np.std(D), np.min(D))
+                Q = Q_s,
+                T = T_s,
+                max_distance=lambda D: np.max(np.mean(D) - 5 * np.std(D), np.min(D))
             )
 
             # Since MASS computes z-normalized Euclidean distances, we should z-normalize our subsequences before plotting
@@ -314,15 +308,8 @@ def load_graph_objects(datafile:str, outputf:str):
 
             return matches_improved_max_distance
 
-        def draw_selection(region_x:range, region_y:pd.Series):
-            #Format axis.  Remove mainplot if its there, or remove the other axis so we can rewdraw them.
-            existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
-            labels = list(map(lambda x: x[1]=="mainplot", existlist))
-            if any(labels):
-                ax_rem = existlist[labels.index(True)][0]
-                fig.axes[ax_rem].remove()
-            else:
-                remove_axis(["ecg_small", "stumpy", "dist_locs"])
+        def draw_selection(region_x:range, region_y:np.array):
+            reformat_axis()
 
             left_grid = gridspec.GridSpecFromSubplotSpec(1, 1, gs[0, :1])
             right_grid = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0, 1:2], height_ratios=[5, 1], hspace=0.2)
@@ -339,9 +326,9 @@ def load_graph_objects(datafile:str, outputf:str):
             #segment the total wave
             segments = utils.segment_ECG(wave, fs)
             sect = sect_slider.val
-            sdelta = 1000
+            sdelta = 100
             searchwidth = segments[sect - sdelta:sect + sdelta]
-            srange = range(searchwidth[0, 0],searchwidth[-1, 1])
+            srange = searchwidth[0, 0],searchwidth[-1, 1]
             #Run stumpy match algorithm to look for the wave in the 
             #rest of the signal. 
             matchlocs = stumpysearch(region_x, srange, ax_stump)
@@ -369,7 +356,7 @@ def load_graph_objects(datafile:str, outputf:str):
                     region_y = wave[xmin:xmax]
 
                     #early terminate if you accidentally click
-                    if xmin==xmax or len(region_x) <= 5:
+                    if xmin==xmax or len(region_x) <= 10:
                         raise ValueError(f'Please select a larger range than {len(region_x)}')
 
                     span.disconnect_events()
@@ -442,13 +429,11 @@ def load_graph_objects(datafile:str, outputf:str):
             # logger.info(f'{check_axis("mainplot")}')
             frequencytown()
 
-        elif (configs["overlay"]==True) & (command == "Overlay Main"):
-            # logger.info(f'{check_axis("overlays")}')w
-            overlay_r_peaks(True)
-
-        elif (configs["overlay"]==True) & (command == "Overlay Inner"):
-            # logger.info(f'{check_axis("overlays")}')
-            overlay_r_peaks()
+        elif configs["overlay"]:
+            if command == "Overlay Main":
+                overlay_r_peaks(True)
+            elif command == "Overlay Inner":
+                overlay_r_peaks()
 
         elif configs["stump"]:
             wavesearch()
@@ -496,6 +481,7 @@ def load_graph_objects(datafile:str, outputf:str):
             ax_ecg.get_legend().remove()
 
         elif val == 'Show R Valid':
+            #BUG - Not aligning correctly.  Looks to be one section off
             Rpeaks = ecg_data['peaks'][(ecg_data['peaks'][:, 0] >= start_w) & (ecg_data['peaks'][:, 0] <= end_w), :]
             for peak in range(Rpeaks.shape[0]):
                 if Rpeaks[peak, 1]==0:
@@ -528,7 +514,6 @@ def load_graph_objects(datafile:str, outputf:str):
             wavesearch()
 
         fig.canvas.draw_idle()    
-
 
     #FUNCTION Slide forward invalid
     def move_slider_forward(vl):
