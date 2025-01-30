@@ -157,7 +157,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ax_ecg.legend(loc="upper left")
 
     # FUNCTION Create Overlay plot
-    def overlay_r_peaks():
+    def overlay_r_peaks(main_p:bool=False):
         existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
         labels = list(map(lambda x: x[1]=="mainplot", existlist))
         if any(labels):
@@ -178,30 +178,52 @@ def load_graph_objects(datafile:str, outputf:str):
         end_w = ecg_data['section_info'][sect]['end_point']
         inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
         R_peaks = inners[np.nonzero(inners[:, 2])[0], 2]
-        P_onset = inners[np.nonzero(inners[:, 11])[0], 11]
-        Q_onset = inners[np.nonzero(inners[:, 12])[0], 12]
-        T_onset = inners[np.nonzero(inners[:, 13])[0], 13]
-        T_offset = inners[np.nonzero(inners[:, 14])[0], 14]
-
         RR_diffs = int(np.mean(np.diff(R_peaks))//2)
-        for idx, Rpeak in enumerate(R_peaks):
-            ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
-            ax_over.scatter((P_onset[idx] - Rpeak) + RR_diffs , wave[P_onset[idx]], label='P Onset', s = 60, color='purple')
-            ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color='darkgoldenrod')
-            ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color='teal')
-            ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color='orange')
+        if main_p:
+            P_peak = inners[np.nonzero(inners[:, 0])[0], 0]
+            Q_peak = inners[np.nonzero(inners[:, 1])[0], 1]
+            S_peak = inners[np.nonzero(inners[:, 3])[0], 3]
+            T_peak = inners[np.nonzero(inners[:, 4])[0], 4]
 
-        legend_elements = [
-            Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor='purple', markersize=15),
-            Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor='darkgoldenrod', markersize=15),
-            Line2D([0], [0], marker='o', color='w', label='T Onset', markerfacecolor='teal', markersize=15),
-            Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor='orange', markersize=15)
-        ]
+            for idx, Rpeak in enumerate(R_peaks):
+                ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
+                ax_over.scatter((P_peak[idx] - Rpeak) + RR_diffs , wave[P_peak[idx]], label='P Peak', s = 60, color=PEAKDICT[0][1])
+                ax_over.scatter((Q_peak[idx] - Rpeak) + RR_diffs , wave[Q_peak[idx]], label='Q Peak', s = 60, color=PEAKDICT[1][1])
+                ax_over.scatter((R_peaks[idx] - Rpeak) + RR_diffs, wave[R_peaks[idx]], label='R Peak', s = 60, color=PEAKDICT[2][1])
+                ax_over.scatter((S_peak[idx] - Rpeak) + RR_diffs , wave[S_peak[idx]], label='S Peak', s = 60, color=PEAKDICT[3][1])
+                ax_over.scatter((T_peak[idx] - Rpeak) + RR_diffs , wave[T_peak[idx]], label='T Peak', s = 60, color=PEAKDICT[4][1])
+
+            legend_elements = [
+                Line2D([0], [0], marker='o', color='w', label='P Peak', markerfacecolor=PEAKDICT[0][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='Q Peak', markerfacecolor=PEAKDICT[1][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='R Peak', markerfacecolor=PEAKDICT[2][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='S Peak', markerfacecolor=PEAKDICT[3][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15)
+            ]
+
+        else:
+            P_onset = inners[np.nonzero(inners[:, 11])[0], 11]
+            Q_onset = inners[np.nonzero(inners[:, 12])[0], 12]
+            T_onset = inners[np.nonzero(inners[:, 13])[0], 13]
+            T_offset = inners[np.nonzero(inners[:, 14])[0], 14]
+
+            for idx, Rpeak in enumerate(R_peaks):
+                ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
+                ax_over.scatter((P_onset[idx] - Rpeak) + RR_diffs , wave[P_onset[idx]], label='P Onset', s = 60, color=PEAKDICT_EXT[11][1])
+                ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color=PEAKDICT_EXT[12][1])
+                ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color=PEAKDICT_EXT[13][1])
+                ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color=PEAKDICT_EXT[14][1])
+
+            legend_elements = [
+                Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor=PEAKDICT_EXT[11][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor=PEAKDICT_EXT[12][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='T Onset', markerfacecolor=PEAKDICT_EXT[13][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor=PEAKDICT_EXT[14][1], markersize=15)
+            ]
         ax_over.set_ylabel('Voltage (mV)')
         ax_over.set_xlabel('ECG index')
         ax_over.legend(handles=legend_elements, loc='upper left')
         ax_over.set_title(f'Overlayed QRS Complexes for section {sect} ', size=14)
-
 
     #FUNCTION Frequency
     def frequencytown():
@@ -263,18 +285,19 @@ def load_graph_objects(datafile:str, outputf:str):
         ax_freq.set_ylabel("Frequency Power")
         ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
 
-    #FUNCTION - Wavesearch
+    #FUNCTION Wavesearch
     def wavesearch():
-        #FUNCTION - Stumpy Fast Pattern Matching
-        def stumpysearch(query:range, ax_stump:plt.axis):
+        #FUNCTION Stumpy Fast Pattern Matching
+        def stumpysearch(query:range, srchwidth:range, ax_stump:plt.axis):
             #BUG Search area too large.  
             #I can't do a direct wave search with stumpy.  
             #So how about lets search an hour before and an hour behind maybe? That could be useful
 
             Q_s = wave[query]
+            T_s = wave[srchwidth]
             matches_improved_max_distance = stumpy.match(
                 Q_s,
-                wave,
+                T_s,
                 max_distance=lambda D: np.max(np.mean(D) - 2 * np.std(D), np.min(D))
             )
 
@@ -313,19 +336,23 @@ def load_graph_objects(datafile:str, outputf:str):
             rect = Rectangle((min(region_x), region_y.min()), (max(region_x) - min(region_x)), (np.abs(region_y.min())+region_y.max()), facecolor='lightgrey')
             ax_ecg.add_patch(rect)
 
+            #segment the total wave
+            segments = utils.segment_ECG(wave, fs)
+            sect = sect_slider.val
+            sdelta = 1000
+            searchwidth = segments[sect - sdelta:sect + sdelta]
+            srange = range(searchwidth[0, 0],searchwidth[-1, 1])
             #Run stumpy match algorithm to look for the wave in the 
             #rest of the signal. 
-            matchlocs = stumpysearch(region_x, ax_stump)
+            matchlocs = stumpysearch(region_x, srange, ax_stump)
             
-            #Plot the distribution bar below
-            segments = utils.segment_ECG(wave, fs)
             seg_dict = {idx:[x, 0] for idx, x in enumerate(segments)}	
             for match in matchlocs[:, 1]:
                 for key, arr in seg_dict.items():
                     if match in range(arr[0][0], arr[0][1]) or match == arr[0][1]:
                         seg_dict[key][1] += 1
                         break
-            
+            #Plot the distribution bar below
             counts = [seg_dict[key][1] for key in seg_dict.keys()]
             ax_dist.bar(range(len(counts)), counts, align="center", label = "Section Counts")
             ax_dist.set_xlabel("ECG Sections")
@@ -412,11 +439,15 @@ def load_graph_objects(datafile:str, outputf:str):
             update_main()
 
         if configs["freq"]:
-            logger.info(f'{check_axis("mainplot")}')
+            # logger.info(f'{check_axis("mainplot")}')
             frequencytown()
 
-        if configs["overlay"]:
-            logger.info(f'{check_axis("overlays")}')
+        elif (configs["overlay"]==True) & (command == "Overlay Main"):
+            # logger.info(f'{check_axis("overlays")}')w
+            overlay_r_peaks(True)
+
+        elif (configs["overlay"]==True) & (command == "Overlay Inner"):
+            # logger.info(f'{check_axis("overlays")}')
             overlay_r_peaks()
 
         elif configs["stump"]:
@@ -459,6 +490,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 if inners[np.nonzero(inners[:, key])[0], key].size > 0:
                     ax_ecg.scatter(inners[:, key], wave[inners[:, key]], label=val[0], color=val[1], alpha=0.8)
             ax_ecg.set_title(f'All interior peaks for section {sect} ', size=14)
+            ax_ecg.legend(loc='upper left')
 
         elif val == 'Hide Leg':
             ax_ecg.get_legend().remove()
@@ -483,13 +515,17 @@ def load_graph_objects(datafile:str, outputf:str):
             configs["freq"] = True
             frequencytown()
 
-        elif val == 'Overlay P':
+        elif val == 'Overlay Main':
+            configs["overlay"] = True
+            overlay_r_peaks(True)
+
+        elif val == 'Overlay Inner':
             configs["overlay"] = True
             overlay_r_peaks()
 
-        # elif val == 'Stumpy Search':
-        #     configs["stump"] = True
-        #     wavesearch()
+        elif val == 'Stumpy Search':
+            configs["stump"] = True
+            wavesearch()
 
         fig.canvas.draw_idle()    
 
@@ -614,7 +650,7 @@ def load_graph_objects(datafile:str, outputf:str):
                     hovercolor='green')
 
     #Radio buttons
-    radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay P', 'Frequency', 'Stumpy Search'))
+    radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay Main', 'Overlay Inner', 'Frequency', 'Stumpy Search'))
 
     #Set actions for GUI items. 
     sect_slider.on_changed(update_plot)
