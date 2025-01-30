@@ -222,9 +222,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ax_ecg = fig.add_subplot(inner_grid[0, :1], label = "ecg_small")
         ax_freq = fig.add_subplot(inner_grid[0, 1:2], label = "freq_list")
         
-        ###  Plot the wave ###
         update_main()
-        
 
         #Plot the frequencies
         sect = sect_slider.val
@@ -267,79 +265,61 @@ def load_graph_objects(datafile:str, outputf:str):
 
     #FUNCTION - Wavesearch
     def wavesearch():
+        #FUNCTION - Stumpy Fast Pattern Matching
+        def stumpysearch(query:range, ax_stump:plt.axis):
+            #BUG Search area too large.  
+            #I can't do a direct wave search with stumpy.  
+            #So how about lets search an hour before and an hour behind maybe? That could be useful
 
-        #FUNCTION - Stumpy Pattern Matching
-        def stumpysearch(col:str, region_y, ax_search:plt.Axes):
-            Q_s = region_y
-            T_s = combine[col]
+            Q_s = wave[query]
             matches_improved_max_distance = stumpy.match(
                 Q_s,
-                T_s,
-                max_distance=lambda D: max(np.mean(D) - 5 * np.std(D), np.min(D))
+                wave,
+                max_distance=lambda D: np.max(np.mean(D) - 2 * np.std(D), np.min(D))
             )
 
             # Since MASS computes z-normalized Euclidean distances, we should z-normalize our subsequences before plotting
             Q_z_norm = stumpy.core.z_norm(Q_s.values)
-            ax_search.set_title(f'{matches_improved_max_distance.shape[0]} Query Matches', fontsize='18')
-            ax_search.set_xlabel('Time')
-            ax_search.set_ylabel('ECG (mv)')
+            ax_stump.set_title(f'{matches_improved_max_distance.shape[0]} Query Matches', fontsize='18')
+            ax_stump.set_xlabel('Time')
+            ax_stump.set_ylabel('ECG (mv)')
             for match_distance, match_idx in matches_improved_max_distance:
                 match_z_norm = stumpy.core.z_norm(T_s.values[match_idx:match_idx+len(Q_s)])
-                ax_search.plot(match_z_norm, lw=2)
-            ax_search.plot(Q_z_norm, lw=3, color="black", label="Selected Query, Q_s")
+                ax_stump.plot(match_z_norm, lw=2)
+
+            ax_stump.plot(Q_z_norm, lw=3, color="black", label="Selected Query, Q_s")
+
             return matches_improved_max_distance
 
-        def draw_selection(col:str, region_x:range, region_y:pd.Series):
-            if check_axis("mainplot"):
-                remove_axis("mainplot")
-            
-            #BUG not sure how to handle if someone moves from 
-            #wave search to frequency. check the radio_x1 maybe?
-            if freq_activated:
-                remove_axis(["freq_list", "var_small"])
-
-            #old code
-            # inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
-            # ax_wave = fig.add_subplot(inner_grid[0, :1], label = "var_small")
-            # ax_search = fig.add_subplot(inner_grid[0, 1:2], label = "overlays")
+        def draw_selection(region_x:range, region_y:pd.Series):
+            #Format axis.  Remove mainplot if its there, or remove the other axis so we can rewdraw them.
+            existlist = [(idx,axis._label) for idx, axis in enumerate(fig.get_axes()) if axis._label != ""]
+            labels = list(map(lambda x: x[1]=="mainplot", existlist))
+            if any(labels):
+                ax_rem = existlist[labels.index(True)][0]
+                fig.axes[ax_rem].remove()
+            else:
+                remove_axis(["ecg_small", "stumpy", "dist_locs"])
 
             left_grid = gridspec.GridSpecFromSubplotSpec(1, 1, gs[0, :1])
             right_grid = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0, 1:2], height_ratios=[5, 1], hspace=0.2)
-            ax_wave = fig.add_subplot(left_grid[:, :], label = "var_small")
-            ax_search = fig.add_subplot(right_grid[:1, :1], label = "overlays")
+            global ax_ecg
+            ax_ecg = fig.add_subplot(left_grid[:, :], label = "ecg_small")
+            ax_stump = fig.add_subplot(right_grid[:1, :1], label = "stumpy")
             ax_dist = fig.add_subplot(right_grid[1:2, :1], label = "dist_locs")
-                     
-            ###  Plot the wave ###
-            col = radio_x1.value_selected
-            sect = sect_slider.val
-            start_w = segments[sect][0]
-            end_w = segments[sect][1]
-            wavesect = combine[col][start_w:end_w]
-            ax_wave.plot(range(start_w, end_w), wavesect, label=col)
+
+            update_main()
+
             rect = Rectangle((min(region_x), region_y.min()), (max(region_x) - min(region_x)), (np.abs(region_y.min())+region_y.max()), facecolor='lightgrey')
-            ax_wave.add_patch(rect)
-            ax_wave.set_xlim(start_w, end_w)
-            ax_wave.set_ylim(wavesect.min() - wavesect.std()*2, region_y.max() + wavesect.std()*2)
-            # ax_wave.set_ylim(np.min(wave), np.max(wave)) #[start_w:end_w]
-            # ax_wave.set_xlim(start_w, end_w)
-            row = list(map(lambda x: x[0]==col, units))
-            ax_wave.set_ylabel(f'{units[row.index(True)][1]}') 
-            ax_wave.set_xlabel('Time index')
-            mintime = combine.iloc[start_w, 0]
-            maxtime = combine.iloc[end_w, 0]
-            mint = f'{mintime.hour}:{mintime.minute}:{mintime.second}'
-            maxt = f'{maxtime.hour}:{maxtime.minute}:{maxtime.second}'
-            ax_wave.set_title(f'{units[row.index(True)][0]} for Time {mint} --> {maxt} in sect {sect}', size=12)
-            
+            ax_ecg.add_patch(rect)
+
             #Run stumpy match algorithm to look for the wave in the 
             #rest of the signal. 
-            matchlocs = stumpysearch(col, region_y, ax_search)
+            matchlocs = stumpysearch(region_x, ax_stump)
             
-            #[x]
             #Plot the distribution bar below
-            #Make a counter dict of the ranges
+            segments = utils.segment_ECG(wave, fs)
             seg_dict = {idx:[x, 0] for idx, x in enumerate(segments)}	
-            #
             for match in matchlocs[:, 1]:
                 for key, arr in seg_dict.items():
                     if match in range(arr[0][0], arr[0][1]) or match == arr[0][1]:
@@ -347,15 +327,7 @@ def load_graph_objects(datafile:str, outputf:str):
                         break
             
             counts = [seg_dict[key][1] for key in seg_dict.keys()]
-            #Throw up a simple bar chart. 
             ax_dist.bar(range(len(counts)), counts, align="center", label = "Section Counts")
-            # #Plot a hist / kernel density estimate underneath. (Manually building a displot without seaborn).  
-                #NOTE Mixing seaborn and mpl programatically is challenging.  
-                #Decided to note use a hist here instead and just use a barplot
-            # ax_dist.hist(x = counts, bins=len(counts), density=False, label="match_freq")
-            # x = np.linspace(min(counts), max(counts))
-            # kde = stats.gaussian_kde(counts)(x)
-            # ax_dist.plot(x, kde, label="kde")
             ax_dist.set_xlabel("ECG Sections")
             ax_dist.set_ylabel("Counts")
             ax_dist.legend(loc='upper right')
@@ -366,9 +338,8 @@ def load_graph_objects(datafile:str, outputf:str):
                     xmin, xmax = span.extents
                     xmin = int(np.floor(xmin))
                     xmax = int(np.ceil(xmax))
-                    col = radio_x1.value_selected
                     region_x = range(xmin, xmax)
-                    region_y = combine[col][xmin:xmax]
+                    region_y = wave[xmin:xmax]
 
                     #early terminate if you accidentally click
                     if xmin==xmax or len(region_x) <= 5:
@@ -376,13 +347,13 @@ def load_graph_objects(datafile:str, outputf:str):
 
                     span.disconnect_events()
                     fig.canvas.mpl_disconnect(cid)
-                    draw_selection(radio_x1.value_selected, region_x, region_y)
+                    draw_selection(region_x, region_y)
 
             cid = fig.canvas.mpl_connect("key_press_event", _confirm_select)
-    
+
         global span
         span = SpanSelector(
-            ax_one, 
+            ax_ecg, 
             onselect_func, 
             direction ='horizontal',
             props = dict(alpha=0.5, facecolor='red'),
@@ -432,6 +403,7 @@ def load_graph_objects(datafile:str, outputf:str):
         # If the command is not to change to freq
         global ax_ecg
         command = radio.value_selected
+        #If you chose anything except frequency or stumpy, clear main axis and redraw it in its original form
         if command in ["Base Figure", "Roll Median", "Add Inter", "Hide Leg", "Show R Valid"]:
             if check_axis("mainplot"):
                 ax_ecg.cla()
@@ -447,19 +419,13 @@ def load_graph_objects(datafile:str, outputf:str):
             logger.info(f'{check_axis("overlays")}')
             overlay_r_peaks()
 
-        # elif configs["spect"] and check_axis("mainplot"):
-        #     wavesearch
+        elif configs["stump"]:
+            wavesearch()
 
         fig.canvas.draw_idle()
 
     #FUNCTION Radio Button Actions
     def radiob_action(val):
-        #Here we're going to switch states between where we have a single vs a 
-        #double panel display.  
-            #If i split for frequency, i want a new freq chart to the right, 
-            #as well as the signal to my left.  (With the ability to still highlight
-            #points / medians / Rpeaks. 
-        #Also means i'll need a split for the comparison plot
         sect = sect_slider.val
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
@@ -479,26 +445,25 @@ def load_graph_objects(datafile:str, outputf:str):
                 update_plot(val)
                 
             if configs["stump"] and check_axis("stumpy"):
-                remove_axis(["stumpy", "ecg_small", "dist_locs"])
-                configs["overlay"] = False
+                remove_axis(["stumpy", "dist_locs", "ecg_small"])
+                configs["stump"] = False
                 update_plot(val)
-                
 
         if val == 'Roll Median':	
             ax_ecg.plot(range(start_w, end_w), utils.roll_med(wave[start_w:end_w]), color='orange', label='Rolling Median')
             ax_ecg.legend(loc='upper left')
 
-        if val == 'Add Inter':
+        elif val == 'Add Inter':
             inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
             for key, val in PEAKDICT_EXT.items():
                 if inners[np.nonzero(inners[:, key])[0], key].size > 0:
                     ax_ecg.scatter(inners[:, key], wave[inners[:, key]], label=val[0], color=val[1], alpha=0.8)
             ax_ecg.set_title(f'All interior peaks for section {sect} ', size=14)
 
-        if val == 'Hide Leg':
+        elif val == 'Hide Leg':
             ax_ecg.get_legend().remove()
 
-        if val == 'Show R Valid':
+        elif val == 'Show R Valid':
             Rpeaks = ecg_data['peaks'][(ecg_data['peaks'][:, 0] >= start_w) & (ecg_data['peaks'][:, 0] <= end_w), :]
             for peak in range(Rpeaks.shape[0]):
                 if Rpeaks[peak, 1]==0:
@@ -514,17 +479,17 @@ def load_graph_objects(datafile:str, outputf:str):
                 alpha=0.7)
             ax_ecg.add_patch(rect)
 
-        if val == 'Frequency':
+        elif val == 'Frequency':
             configs["freq"] = True
             frequencytown()
 
-        if val == 'Overlay P':
+        elif val == 'Overlay P':
             configs["overlay"] = True
             overlay_r_peaks()
 
-        if val == 'Stumpy':
-            configs["stump"] = True
-            wavesearch()
+        # elif val == 'Stumpy Search':
+        #     configs["stump"] = True
+        #     wavesearch()
 
         fig.canvas.draw_idle()    
 
@@ -672,9 +637,6 @@ def load_graph_objects(datafile:str, outputf:str):
     console.log(table)
 
     plt.show()
-    logger.info("yo")
-
-
     
 def summarize_run():
     RMSSD = ecg_data['section_info'][['wave_section', 'RMSSD']]
