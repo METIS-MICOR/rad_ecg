@@ -360,10 +360,9 @@ def launch_tui(configs:dict):
             directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
 
         elif configs["gcp_bucket"]:
-            #TODO - Need a way to read the gcp output bucket here. 
             directory = PurePath(Path.cwd(), Path(configs["bucket_name"]))
         else:
-            directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/input"))
+            directory = PurePath(Path.cwd(), Path(configs["data_path"]))
 
     except IndexError:
         logger.info("[b]Usage:[/] python tree.py <DIRECTORY>")

@@ -327,6 +327,7 @@ def load_graph_objects(datafile:str, outputf:str):
             #Add the rect patch
             rect = Rectangle((min(region_x), region_y.min()), (max(region_x) - min(region_x)), (np.abs(region_y.min())+region_y.max()), facecolor='lightgrey')
             ax_ecg.add_patch(rect)
+            rect.set_zorder(-1)
 
             #segment the total wave
             segments = utils.segment_ECG(wave, fs)
@@ -594,7 +595,7 @@ def load_graph_objects(datafile:str, outputf:str):
     valid_sect = ecg_data['section_info']['valid']
     global ax_ecg, gs, fig
     fig = plt.figure(figsize=(16, 10))
-    gs = gridspec.GridSpec(nrows=2, ncols=2, height_ratios=[5, 1])
+    gs = gridspec.GridSpec(nrows=2, ncols=2, height_ratios=[6, 1])
     plt.subplots_adjust(hspace=0.40)
     ax_ecg = fig.add_subplot(gs[0, :2], label="mainplot")
     first_sect = np.where(ecg_data['section_info']['valid']!=0)[0][0]

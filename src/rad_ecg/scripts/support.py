@@ -117,7 +117,7 @@ logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log")
 ################################# Saving Funcs ####################################
 
 #FUNCTION save results
-def save_results(ecg_data:dict, configs:dict, logger:logging, current_date:datetime, tobucket:bool=False):
+def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bool=False):
     #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
     #have to feed the types back to the save routine when you save it.
     #(╯°□°）╯︵ ┻━┻

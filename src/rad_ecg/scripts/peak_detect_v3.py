@@ -17,30 +17,8 @@ from matplotlib.patches import Rectangle, Arrow
 from matplotlib.colors import rgb2hex
 from collections import deque
 from time import strftime
-
-
+from support import logger, console, DATE_JSON, log_time
 #from pathlib import Path
-# FUNCTION log time
-def log_time(fn):
-    """Decorator timing function.  Accepts any function and returns a logging
-    statement with the amount of time it took to run.
-
-    Args:
-        fn (function): Input function you want to time
-    """	
-    def inner(*args, **kwargs):
-        tnow = time.time()
-        out = fn(*args, **kwargs)
-        te = time.time()
-        took = round(te - tnow, 2)
-        if took <= 60:
-            logger.warning(f"{fn.__name__} ran in {took:.2f}s")
-        elif took <= 3600:
-            logger.warning(f"{fn.__name__} ran in {(took)/60:.2f}m")		
-        else:
-            logger.warning(f"{fn.__name__} ran in {(took)/3600:.2f}h")
-        return out
-    return inner
 
 # @log_time
 # FUNCTION consecutive valid peaks
@@ -1452,14 +1430,12 @@ def send_email(log_path:str):
 
 # NOTE START PROGRAM
 # TODO - Add overall prog to log output in terminal
-# TODO - Nest logger functions and declare as global. maybe
 
 def main():
     # Load data 
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
-    log_path = ""
     current_date = support.get_time().strftime("%m-%d-%Y")
-    
+    datafile = setup_globals.launch_tui(configs)
     # Run peak search extraction
     ecg_data = main_peak_search(
         configs["plot_fft"],
@@ -1470,11 +1446,11 @@ def main():
     #send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
     has_bucket_name = len(configs.get("bucket_name")) > 0
-    configs["log_path"] = log_path
+    configs["log_path"] = f"src/rad_ecg/data/logs/{DATE_JSON}.log"
     if use_bucket & has_bucket_name :
-        support.save_results(ecg_data, configs, logger, current_date, True)
+        support.save_results(ecg_data, configs, current_date, True)
     else:
-        support.save_results(ecg_data, configs, logger, current_date)
+        support.save_results(ecg_data, configs, current_date)
 
     logger.info("Woo hoo!\nECG Analysis Complete")
 
