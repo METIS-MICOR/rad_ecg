@@ -280,68 +280,81 @@ def load_graph_objects(datafile:str, outputf:str):
         ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
 
     #FUNCTION Wavesearch
+    @log_time
     def wavesearch():
         #FUNCTION Stumpy Fast Pattern Matching
+        @log_time
         def stumpysearch(query:range, srchwidth:range, ax_stump:plt.axis):
             #BUG Search area too large.  
             #I can't do a direct wave search with stumpy.  
             #So how about lets search an hour before and an hour behind maybe? That could be useful
 
-            Q_s = wave[list(query)]
-            T_s = wave[list(srchwidth)]
+            Q_s = wave[list(query)].flatten()
+            T_s = wave[list(srchwidth)].flatten()
             matches_improved_max_distance = stumpy.match(
                 Q = Q_s,
                 T = T_s,
-                max_distance=lambda D: np.max(np.mean(D) - 5 * np.std(D), np.min(D))
+                max_distance=lambda D: max(np.mean(D) - 5 * np.std(D), np.min(D))
             )
 
             # Since MASS computes z-normalized Euclidean distances, we should z-normalize our subsequences before plotting
-            Q_z_norm = stumpy.core.z_norm(Q_s.values)
+            Q_z_norm = stumpy.core.z_norm(Q_s)
             ax_stump.set_title(f'{matches_improved_max_distance.shape[0]} Query Matches', fontsize='18')
             ax_stump.set_xlabel('Time')
             ax_stump.set_ylabel('ECG (mv)')
             for match_distance, match_idx in matches_improved_max_distance:
-                match_z_norm = stumpy.core.z_norm(T_s.values[match_idx:match_idx+len(Q_s)])
+                match_z_norm = stumpy.core.z_norm(T_s[match_idx:match_idx+len(Q_s)])
                 ax_stump.plot(match_z_norm, lw=2)
 
             ax_stump.plot(Q_z_norm, lw=3, color="black", label="Selected Query, Q_s")
 
             return matches_improved_max_distance
-
+        @log_time
         def draw_selection(region_x:range, region_y:np.array):
+            #reformat the axis on entry
             reformat_axis()
 
+            #redraw the top row how we want it. 
             left_grid = gridspec.GridSpecFromSubplotSpec(1, 1, gs[0, :1])
             right_grid = gridspec.GridSpecFromSubplotSpec(2, 1, gs[0, 1:2], height_ratios=[5, 1], hspace=0.2)
             global ax_ecg
             ax_ecg = fig.add_subplot(left_grid[:, :], label = "ecg_small")
             ax_stump = fig.add_subplot(right_grid[:1, :1], label = "stumpy")
             ax_dist = fig.add_subplot(right_grid[1:2, :1], label = "dist_locs")
-
+            
+            #update ax_ecg
             update_main()
-
+            #Add the rect patch
             rect = Rectangle((min(region_x), region_y.min()), (max(region_x) - min(region_x)), (np.abs(region_y.min())+region_y.max()), facecolor='lightgrey')
             ax_ecg.add_patch(rect)
 
             #segment the total wave
             segments = utils.segment_ECG(wave, fs)
             sect = sect_slider.val
-            sdelta = 100
-            searchwidth = segments[sect - sdelta:sect + sdelta]
-            srange = searchwidth[0, 0],searchwidth[-1, 1]
+            sdelta = 1000
+            st_sect = sect - sdelta
+            fn_sect = sect + sdelta
+            searchwidth = segments[st_sect:fn_sect]
+            srange = range(searchwidth[0, 0],searchwidth[-1, 1])
             #Run stumpy match algorithm to look for the wave in the 
-            #rest of the signal. 
+            #a delta forward and back of its current position
             matchlocs = stumpysearch(region_x, srange, ax_stump)
+            matchcounts = {}
+            for idx, rag in enumerate(searchwidth):
+                start, stop, _ = rag 
+                count = 0
+                for match in matchlocs[:, 1]:
+                    if start <= match + srange[0] <= stop:
+                        count += 1
+                if count > 0:
+                    matchcounts[idx + st_sect] = count
             
-            seg_dict = {idx:[x, 0] for idx, x in enumerate(segments)}	
-            for match in matchlocs[:, 1]:
-                for key, arr in seg_dict.items():
-                    if match in range(arr[0][0], arr[0][1]) or match == arr[0][1]:
-                        seg_dict[key][1] += 1
-                        break
             #Plot the distribution bar below
-            counts = [seg_dict[key][1] for key in seg_dict.keys()]
-            ax_dist.bar(range(len(counts)), counts, align="center", label = "Section Counts")
+            counts = [matchcounts[key] for key in matchcounts.keys()]
+            x_vals = [key for key in matchcounts.keys()]
+            ax_dist.bar(x_vals, counts, align="center", label = "Section Counts")
+            ax_dist.set_xlim(x_vals[0], x_vals[-1])
+            ax_dist.set_ylim(0, max(counts)*1.2)
             ax_dist.set_xlabel("ECG Sections")
             ax_dist.set_ylabel("Counts")
             ax_dist.legend(loc='upper right')
