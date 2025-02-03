@@ -4,7 +4,7 @@ import wfdb
 import logging
 import json
 import os
-from os.path import exists
+import subprocess
 from google.cloud import storage
 from support import logger, console
 from pathlib import PurePath, Path
@@ -17,6 +17,7 @@ from rich.markup import escape
 from rich.text import Text
 from rich.table import Table
 from pathlib import Path, PurePath
+
 
 ################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
@@ -402,6 +403,33 @@ def launch_tui(configs:dict):
     else:
         raise ValueError("Please restart and select an integer of the file you'd like to import")
 
+def test_endpoint(test_sp:str):
+    try:
+        command = ["gsutil", "ls", f"{test_sp}"]
+        runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
+        return True
+    except subprocess.CalledProcessError as e:
+        if "One or more URLs matched no objects" in e.stderr:
+            return False
+        else:
+            raise e
+        
+def create_endpoint(test_sp:str, configs:dict):
+    try:
+        create_command = ["gsutil", "touch", f"gs://{configs['gcp_bucket']}/{test_sp}.txt"]
+        subprocess.run(create_command, capture_output=True, text=True, check=True)
+
+        # Optionally remove the dummy file:
+        remove_command = ["gsutil", "rm", f"gs://{configs['gcp_bucket']}/{test_sp}.txt"]
+        subprocess.run(remove_command, capture_output=True, text=True, check=True)
+        return True
+
+    except subprocess.CalledProcessError as e:
+        if "One or more URLs matched no objects" in e.stderr:
+            return False
+        else:
+            raise e
+
 #FUNCTION Load Structures
 def load_structures(source:str, datafile:Path):
     if source == "test":
@@ -418,20 +446,10 @@ def load_structures(source:str, datafile:Path):
     elif source == "__main__":
         #Load all possibles in the input dir or gcp
         #Check output folder for existence
-        test_sp = os.path.join(configs["save_path"], datafile.name)
-        if os.path.exists(test_sp):
-            logger.warning(f"{datafile.name} input folder already exists")
-            logger.warning("Do you want to overwrite results?")
-            overwrite = input("(y/n)?")
-            if overwrite.lower() == "n":
-                exit()
-        else:
-            os.mkdir(test_sp)
-            logger.info(f"folder created @ {test_sp} ")
-        if configs["gcp"]:
-            test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
-            if os.path.exists:
-                logger.warning(f"{datafile.name} path exists")
+        if not configs["gcp_bucket"]:
+            test_sp = os.path.join(configs["save_path"], datafile.name)
+            if os.path.exists(test_sp):
+                logger.warning(f"{datafile.name} input folder already exists")
                 logger.warning("Do you want to overwrite results?")
                 overwrite = input("(y/n)?")
                 if overwrite.lower() == "n":
@@ -439,6 +457,23 @@ def load_structures(source:str, datafile:Path):
             else:
                 os.mkdir(test_sp)
                 logger.info(f"folder created @ {test_sp} ")
+
+        if configs["gcp_bucket"]:
+            test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
+            passed = test_endpoint(test_sp)
+            if passed:
+                logger.warning(f"{datafile.name} path exists")
+                logger.warning("Do you want to overwrite results?")
+                overwrite = input("(y/n)?")
+                if overwrite.lower() == "n":
+                    logger.warning("Shutting down program")
+                    exit()
+            else:
+                created = create_endpoint(test_sp)
+                if created:
+                    logger.info(f"folder created @ {test_sp}")
+                else:
+                    logger.warning(f"Error {created}")
 
         configs["cam"] = os.path.join(datafile, datafile.name)
         record = load_signal_data(configs["cam"])
