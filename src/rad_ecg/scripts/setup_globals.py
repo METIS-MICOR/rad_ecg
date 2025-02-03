@@ -13,7 +13,6 @@ from rich.logging import RichHandler
 from rich.table import Table
 from rich.console import Console
 from rich.tree import Tree
-from rich.filesize import decimal
 from rich.markup import escape
 from rich.text import Text
 from rich.table import Table
@@ -38,7 +37,8 @@ def init(source:str, logger:logging):
     #Load config variables
     global configs
     configs = load_config()
-    ecg_data, wave, fs = load_structures(source, logger)
+    datafile = launch_tui(configs)
+    ecg_data, wave, fs = load_structures(source, datafile)
     
     return ecg_data, wave, fs, configs
 
@@ -182,6 +182,7 @@ def download_ecg_from_gcs(bucket_name:str, save_path:str, logger:logging):
 
 #FUNCTION Choose CAM
 def choose_cam(configs:dict, logger:logging)->list:
+    #BUG DELETE this func
     """Choosing your cam to evaluate.  Logic is as follows.  If the inputdata directory on the install / or git clone is empty.  
     Check the configs path setting.  If that value is None, exit program as no data can be found.
 
@@ -240,6 +241,7 @@ def choose_cam(configs:dict, logger:logging)->list:
 
 #FUNCTION Load Header Files
 def get_records(folder:str)->list:
+    #BUG - DELETE this fun
     """Pulls the file info out of the data directory for file paths
 
     Args:
@@ -302,10 +304,27 @@ def load_chartdata(configs:dict, datafile:Path, logger:logging):
 
     return wave, fs, os.listdir(f"{configs['save_path']}\{datafile.name}")
 
+def sizeofobject(folder)->str:
+    for unit in ["B", "KB", "MB", "GB"]:
+        if abs(folder) < 1024:
+            return f"{folder:4.1f} {unit}"
+        folder /= 1024.0
+    return f"{folder:.1f} PB"
+
+def getfoldersize(folder:Path):
+    fsize = 0
+    for root, dirs, files in os.walk(folder):
+        for f in files:
+            fp = os.path.join(folder,f)
+            fsize += os.stat(fp).st_size
+
+    return sizeofobject(fsize)
+
+
 #FUNCTION Walk Directory
 def walk_directory(directory: Path, tree: Tree) -> None:
-    """Recursively build a Tree with directory contents.
-    Pulled from here. https://github.com/Textualize/rich/blob/master/examples/tree.py
+    """Build a Tree with directory contents.
+    Source Code: https://github.com/Textualize/rich/blob/master/examples/tree.py
 
     """
     # Sort dirs first then by filename
@@ -315,41 +334,39 @@ def walk_directory(directory: Path, tree: Tree) -> None:
     )
     idx = 1
     for path in paths:
-        #Normally this routine would enumerate and list individual files and
-        # folders recursively.  Instead i just want it to list the folders to
-        # select that way.  Not by files as most ecgs in the wfdb format come in
-        # 3 files. 
         # Remove hidden files
         if path.name.startswith("."):
             continue
+        # Just list the CAM folders
         if path.is_dir():
             style = "dim" if path.name.startswith("__") else ""
+            file_size = getfoldersize(path)
             branch = tree.add(
-                f"[bold green]{idx} [/bold green][bold magenta]:open_file_folder: [link file://{path}]{escape(path.name)}",
+                f"[bold green]{idx} [/bold green][bold magenta]:open_file_folder: [link file://{path}]{escape(path.name)}[/bold magenta] [bold blue]{file_size}[/bold blue]",
                 style=style,
                 guide_style=style,
             )
             
             # walk_directory(path, branch)
-        else:
-            text_filename = Text(path.name, "green")
-            text_filename.highlight_regex(r"\..*$", "bold red")
-            text_filename.stylize(f"link file://{path}")
-            file_size = path.stat().st_size
-            text_filename.append(f" ({decimal(file_size)})", "blue")
-            if path.suffix == "py":
-                icon = "🐍 "
-            elif path.suffix == ".hea":
-                icon = "🤯  "
-            elif path.suffix == ".dat":
-                icon = "🔫 "
-            elif path.suffix == ".mib":
-                icon = "👽 "
-            elif path.suffix == ".zip":
-                icon = "🤐 "
-            else:
-                icon = "📄 "
-            tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
+        # else:
+        #     text_filename = Text(path.name, "green")
+        #     text_filename.highlight_regex(r"\..*$", "bold red")
+        #     text_filename.stylize(f"link file://{path}")
+        #     file_size = path.stat().st_size
+        #     text_filename.append(f" ({decimal(file_size)})", "blue")
+        #     if path.suffix == "py":
+        #         icon = "🐍 "
+        #     elif path.suffix == ".hea":
+        #         icon = "🤯  "
+        #     elif path.suffix == ".dat":
+        #         icon = "🔫 "
+        #     elif path.suffix == ".mib":
+        #         icon = "👽 "
+        #     elif path.suffix == ".zip":
+        #         icon = "🤐 "
+        #     else:
+        #         icon = "📄 "
+        #     tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
         
         idx += 1    
     return paths
@@ -360,6 +377,7 @@ def launch_tui(configs:dict):
             directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
 
         elif configs["gcp_bucket"]:
+            #! - Need seperate function to read in the list of possibles.
             directory = PurePath(Path.cwd(), Path(configs["bucket_name"]))
         else:
             directory = PurePath(Path.cwd(), Path(configs["data_path"]))
@@ -379,12 +397,13 @@ def launch_tui(configs:dict):
     file_choice = console.input(f"{question}")
     if file_choice.isnumeric():
         file_to_load = files[int(file_choice) - 1]
+        #check output directory exists
         return file_to_load
     else:
         raise ValueError("Please restart and select an integer of the file you'd like to import")
 
 #FUNCTION Load Structures
-def load_structures(source:str, logger:logging):
+def load_structures(source:str, datafile:Path):
     if source == "test":
         #Set paths and global variables
         fpath = "./src/rad_ecg/data/sample/scipy_sample.csv"
@@ -397,9 +416,10 @@ def load_structures(source:str, logger:logging):
         windowsi = 9
 
     elif source == "__main__":
-        #Load             
-        head_files, header_chosen = choose_cam(configs, logger)
-        configs["cam"] = head_files[header_chosen]
+        #Load all possibles in the input dir
+        # head_files, header_chosen = choose_cam(configs, datafile)
+        # configs["cam"] = head_files[header_chosen]
+        configs["cam"] = datafile._str + "\\" + datafile.name
         record = load_signal_data(configs["cam"])
         
         #ECG data

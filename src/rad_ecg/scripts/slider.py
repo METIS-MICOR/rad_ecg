@@ -614,11 +614,12 @@ def load_graph_objects(datafile:str, outputf:str):
     ax_section.set_xlim(0, valid_sect.shape[0])
 
     sect_slider = Slider(ax_section, 
-                        label='Sections',
-                        valmin=first_sect, 
-                        valmax=len(valid_sect), 
-                        valinit=first_sect, 
-                        valstep=1)
+        label='Sections',
+        valmin=first_sect, 
+        valmax=len(valid_sect), 
+        valinit=first_sect, 
+        valstep=1
+    )
 
     #Invalid step axes placeholders
     axnext = plt.axes([0.595, 0.01, 0.15, 0.050])
@@ -644,9 +645,10 @@ def load_graph_objects(datafile:str, outputf:str):
 
     #TextBox for section jump
     jump_sect_text = TextBox(ax_jump_textb, 
-                    label='Jump to Section',
-                    textalignment="center", 
-                    hovercolor='green')
+        label='Jump to Section',
+        textalignment="center", 
+        hovercolor='green'
+    )
 
     #Radio buttons
     radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay Main', 'Overlay Inner', 'Frequency', 'Stumpy Search'))

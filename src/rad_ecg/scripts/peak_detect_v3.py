@@ -1430,12 +1430,13 @@ def send_email(log_path:str):
 
 # NOTE START PROGRAM
 # TODO - Add overall prog to log output in terminal
+# TODO - Nest logger functions and declare as global. maybe
 
 def main():
     # Load data 
     ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
     current_date = support.get_time().strftime("%m-%d-%Y")
-    datafile = setup_globals.launch_tui(configs)
+    
     # Run peak search extraction
     ecg_data = main_peak_search(
         configs["plot_fft"],
