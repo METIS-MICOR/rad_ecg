@@ -416,10 +416,7 @@ def load_structures(source:str, datafile:Path):
         windowsi = 9
 
     elif source == "__main__":
-        #Load all possibles in the input dir
-        # head_files, header_chosen = choose_cam(configs, datafile)
-        # configs["cam"] = head_files[header_chosen]
-
+        #Load all possibles in the input dir or gcp
         #Check output folder for existence
         test_sp = os.path.join(configs["save_path"], datafile.name)
         if os.path.exists(test_sp):
@@ -428,13 +425,22 @@ def load_structures(source:str, datafile:Path):
             overwrite = input("(y/n)?")
             if overwrite.lower() == "n":
                 exit()
-
         else:
             os.mkdir(test_sp)
             logger.info(f"folder created @ {test_sp} ")
+        if configs["gcp"]:
+            test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
+            if os.path.exists:
+                logger.warning(f"{datafile.name} path exists")
+                logger.warning("Do you want to overwrite results?")
+                overwrite = input("(y/n)?")
+                if overwrite.lower() == "n":
+                    exit()
+            else:
+                os.mkdir(test_sp)
+                logger.info(f"folder created @ {test_sp} ")
 
-
-        configs["cam"] = datafile._str + "\\" + datafile.name
+        configs["cam"] = os.path.join(datafile, datafile.name)
         record = load_signal_data(configs["cam"])
         
         #ECG data
