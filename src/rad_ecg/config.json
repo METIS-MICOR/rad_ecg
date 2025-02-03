@@ -1,6 +1,6 @@
 {
     "plot_fft"   : true,
-    "plot_errors": false,
+    "plot_errors": true,
     "live_term"  : false,
     "porcine"    : false,
     "slider"     : false,
