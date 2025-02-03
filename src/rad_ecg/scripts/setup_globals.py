@@ -377,9 +377,6 @@ def launch_tui(configs:dict):
         if configs["slider"]:
             directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
 
-        elif configs["gcp_bucket"]:
-            #! - Need seperate function to read in the list of possibles.
-            directory = PurePath(Path.cwd(), Path(configs["bucket_name"]))
         else:
             directory = PurePath(Path.cwd(), Path(configs["data_path"]))
 
@@ -405,7 +402,7 @@ def launch_tui(configs:dict):
 
 def test_endpoint(test_sp:str):
     try:
-        command = ["gsutil", "ls", f"{test_sp}"]
+        command = ["gsutil", "ls", f"gs://{test_sp}"]
         runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
         return True
     except subprocess.CalledProcessError as e:
@@ -414,21 +411,28 @@ def test_endpoint(test_sp:str):
         else:
             raise e
         
-def create_endpoint(test_sp:str, configs:dict):
+def create_endpoint(test_sp:str):
     try:
-        create_command = ["gsutil", "touch", f"gs://{configs['gcp_bucket']}/{test_sp}.txt"]
+        #BUG - Folder create
+            #Since GCP doesn't have a folder creation function (weird) you have
+            #to trick it by creating a file at that folder level In testing this
+            #works and I get an ok that the folder was made, but when I go back
+            #to verify it,  the folder is not there.  Be sure to come back and
+            #check this the next time you run a full cam
+        create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
         subprocess.run(create_command, capture_output=True, text=True, check=True)
 
         # Optionally remove the dummy file:
-        remove_command = ["gsutil", "rm", f"gs://{configs['gcp_bucket']}/{test_sp}.txt"]
-        subprocess.run(remove_command, capture_output=True, text=True, check=True)
+        # remove_command = ["gsutil", "rm", f"gs://{test_sp}/test.txt"]
+        # subprocess.run(remove_command, capture_output=True, text=True, check=True)
+
         return True
 
     except subprocess.CalledProcessError as e:
         if "One or more URLs matched no objects" in e.stderr:
             return False
         else:
-            raise e
+            return e
 
 #FUNCTION Load Structures
 def load_structures(source:str, datafile:Path):
@@ -459,10 +463,11 @@ def load_structures(source:str, datafile:Path):
                 logger.info(f"folder created @ {test_sp} ")
 
         if configs["gcp_bucket"]:
+            #Test for endpoint in gcp bucket
             test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
             passed = test_endpoint(test_sp)
             if passed:
-                logger.warning(f"{datafile.name} path exists")
+                logger.warning(f"{datafile.name} path exists in gcp")
                 logger.warning("Do you want to overwrite results?")
                 overwrite = input("(y/n)?")
                 if overwrite.lower() == "n":
@@ -474,6 +479,7 @@ def load_structures(source:str, datafile:Path):
                     logger.info(f"folder created @ {test_sp}")
                 else:
                     logger.warning(f"Error {created}")
+                    exit()
 
         configs["cam"] = os.path.join(datafile, datafile.name)
         record = load_signal_data(configs["cam"])
