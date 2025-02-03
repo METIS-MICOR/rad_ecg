@@ -419,6 +419,21 @@ def load_structures(source:str, datafile:Path):
         #Load all possibles in the input dir
         # head_files, header_chosen = choose_cam(configs, datafile)
         # configs["cam"] = head_files[header_chosen]
+
+        #Check output folder for existence
+        test_sp = os.path.join(configs["save_path"], datafile.name)
+        if os.path.exists(test_sp):
+            logger.warning(f"{datafile.name} input folder already exists")
+            logger.warning("Do you want to overwrite results?")
+            overwrite = input("(y/n)?")
+            if overwrite.lower() == "n":
+                exit()
+
+        else:
+            os.mkdir(test_sp)
+            logger.info(f"folder created @ {test_sp} ")
+
+
         configs["cam"] = datafile._str + "\\" + datafile.name
         record = load_signal_data(configs["cam"])
         
@@ -431,6 +446,8 @@ def load_structures(source:str, datafile:Path):
         
         #Size of timing segment window
         windowsi = 10
+
+
     else:
         logger.CRITICAL("New runtime environment detected outside of normal operating params.\nPlease rerun with appropriate configuration")
         exit()
