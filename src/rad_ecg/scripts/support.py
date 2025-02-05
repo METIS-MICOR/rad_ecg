@@ -150,7 +150,7 @@ def mainspinner(console:Console, totalstops:int):
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         transient=True,
         console=console,
-        refresh_per_second=10,
+        refresh_per_second=5,
         redirect_stdout=False
     )
     jobtask = my_progress_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
