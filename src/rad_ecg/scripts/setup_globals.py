@@ -18,15 +18,13 @@ from rich.text import Text
 from rich.table import Table
 from pathlib import Path, PurePath
 
-
 ################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
-def init(source:str, logger:logging):
+def init(source:str):
     """Custom init
 
     Args:
         source (str): Where the init was called from (test/main)
-        logger (logging): For all things logging
 
     Returns:
         tuple (ecg_data, wave, fs): Returns the data containers to run software. 

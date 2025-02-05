@@ -15,11 +15,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn
 )
-from rich.align import Align
-from rich.layout import Layout
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
+
 from rich.console import Console
 from rich.logging import RichHandler
 import subprocess
@@ -67,10 +63,17 @@ def get_logger(console:Console, log_dir:Path)->logging.Logger:
     Returns:
         logger: Returns custom logger object.  Info level reporting with a file handler and rich handler to properly terminal print
     """	
+    #Load logger and set basic level
     logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(get_file_handler(log_dir))
-    logger.addHandler(get_rich_handler(console))
+    logger.setLevel(logging.DEBUG)
+    #Load file handler for how to format the log file.
+    file_handler = get_file_handler(log_dir)
+    file_handler.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+    #Load rich handler for how to display the log in the console
+    rich_handler = get_rich_handler(console)
+    rich_handler.setLevel(logging.WARNING)
+    logger.addHandler(rich_handler)
     logger.propagate = False
     return logger
 
@@ -114,8 +117,85 @@ console = Console(color_system="auto")
 logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
 
 
+
+################################# Rich Spinner Control ####################################
+
+#FUNCTION Progress bar
+def mainspinner(console:Console, totalstops:int):
+    """Load a rich Progress bar for alerting you to the progress of the algorithm
+
+    Args:
+        console (Console): reference to the terminal
+        totalstops (int): Amount of categories searched
+
+    Returns:
+        my_progress_bar (Progress): Progress bar for tracking overall progress
+        jobtask (int): mainjob id for ecg extraction
+    """
+
+    #BUG - MPL and Rich
+        #There seems to be an error when using the plotfft or plot_errors tags
+        #in the config file.  The progress bar seems to freeze which... 
+        #makes me think I might not be able to use it.  
+        
+    my_progress_bar = Progress(
+        TextColumn("{task.description}"),
+        SpinnerColumn("aesthetic"),
+        BarColumn(),
+        TextColumn("*"),
+        "time elapsed:",
+        TextColumn("*"),
+        TimeElapsedColumn(),
+        TextColumn("*"),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        transient=True,
+        console=console,
+        refresh_per_second=10
+    )
+    jobtask = my_progress_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
+    return my_progress_bar, jobtask
+
+def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
+    """Adds a secondary job to the main progress bar that will take a nap at each of the servers that are visited
+
+    Args:
+        prog (Progress): Main progress bar
+        msg (str): Message to update secondary progress bar
+        howmanysleeps (int): How long to let the timer sleep
+    """
+    #Add secondary task to progbar
+    liljob = prog.add_task(f"[magenta]{msg}", total = howmanysleeps)
+    #Run job for random sleeps
+    for _ in range(howmanysleeps):
+        time.sleep(1)
+        prog.update(liljob, advance=1)
+    #Hide secondary progress bar
+    prog.update(liljob, visible=False)
+
+
 ################################# Saving Funcs ####################################
 
+#CLASS Numpy encoder
+class NumpyArrayEncoder(json.JSONEncoder):
+    """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.
+    Source Code found here.  https://pynative.com/python-serialize-numpy-ndarray-into-json/
+    Args:
+        json (object): Json serialized format
+    """	
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        elif isinstance(obj, np.floating):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, str):
+            return str(obj)
+        elif isinstance(obj, datetime.datetime):
+            return datetime.datetime.strftime(obj, "%m-%d-%Y_%H-%M-%S")
+        else:
+            return super(NumpyArrayEncoder, self).default(obj)
+        
 #FUNCTION save results
 def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bool=False):
     #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
@@ -198,27 +278,6 @@ def save_configs(configs:dict, spath:str):
     with open(spath, "w") as out_f:
         out_f.write(out_json)
 
-#CLASS Numpy encoder
-class NumpyArrayEncoder(json.JSONEncoder):
-    """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.
-    Source Code found here.  https://pynative.com/python-serialize-numpy-ndarray-into-json/
-    Args:
-        json (object): Json serialized format
-    """	
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, str):
-            return str(obj)
-        elif isinstance(obj, datetime.datetime):
-            return datetime.datetime.strftime(obj, "%m-%d-%Y_%H-%M-%S")
-        else:
-            return super(NumpyArrayEncoder, self).default(obj)
-        
 ################################# Email Funcs ####################################
 #FUNCTION Send Email
 def send_run_email(run_time:str):

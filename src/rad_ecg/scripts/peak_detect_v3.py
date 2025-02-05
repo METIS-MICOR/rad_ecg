@@ -14,11 +14,9 @@ from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
-from matplotlib.colors import rgb2hex
 from collections import deque
 from time import strftime
 from support import logger, console, DATE_JSON, log_time
-#from pathlib import Path
 
 # @log_time
 # FUNCTION consecutive valid peaks
@@ -434,7 +432,6 @@ def peak_validation_check(
     last_avg_peak_heights = np.mean([wave[x][0] for x in last_keys])
 
     # NOTE Slope Check
-        # TODO update method based on historical data
         # Process.
             # 1. Grab the R peaks. 	
             # 2. Find 75% of the distance of the Rpeak diffs.
@@ -1172,245 +1169,247 @@ def main_peak_search(
 
     # Load up a deque of start and end sections ( made by segment ECG)
     sect_que = deque(ecg_data['section_info'][['start_point', 'end_point']])
+    progbar, job_id = support.mainspinner(console, len(sect_que))
+    with progbar:
+        while len(sect_que) > 0:
+            progbar.update(task_id=job_id, description=f"[green] Extracting Peaks", advance=1)
+            curr_section = sect_que.popleft()
+            start_p = curr_section[0]
+            end_p = curr_section[1]
 
-    while len(sect_que) > 0:
-        curr_section = sect_que.popleft()
-        start_p = curr_section[0]
-        end_p = curr_section[1]
+            wave_chunk = wave[start_p:end_p]
+            
+            # Calculated the  rolling median of the wave chunk.
+            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
 
-        wave_chunk = wave[start_p:end_p]
-        
-        # Calculated the  rolling median of the wave chunk.
-        rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
-
-        # Grab the overlap between the current section and the previous section. 
-        if section_counter == 0:
-            shift = 0
-        else:
-            shift = ecg_data['section_info'][section_counter-1]['end_point'] - ecg_data['section_info'][section_counter]['start_point']
-
-        # Add the rolling median with the overlap removed. 
-        ecg_data['rolling_med'][start_p + shift:end_p] = rolled_med[shift:].flatten()
-
-        # Run R peak search with scipy
-        R_peaks, peak_info = ss.find_peaks(
-            wave_chunk.flatten(), 
-            prominence = np.percentile(wave_chunk, 99), #99 -> stock
-            height = np.percentile(wave_chunk, 95),     #95 -> stock
-            distance = round(fs*(0.200)) #Can't have a heart rate faster than 200ms
-        )  
-
-        # Set the section validity to False
-        sect_valid = False
-
-        # If the first wave section hasn't been found.
-        if not found_wave:
-            # Look for early signal reject. Early signal rejection is if the
-            # signal is complete garbage. ie - has too many or too little peaks.
-            if R_peaks.size < 4 or R_peaks.size > 60:
-                logger.warning(f'Num of peaks error for section {section_counter}\nR_peaks_val.size < 4 or > 60')
-                ecg_data['section_info'][section_counter]['valid'] = 0
-                ecg_data['section_info'][section_counter]['fail_reason'] = "no_sig"
-                
+            # Grab the overlap between the current section and the previous section. 
+            if section_counter == 0:
+                shift = 0
             else:
-                # Shift the R peaks to align with the start point. 
+                shift = ecg_data['section_info'][section_counter-1]['end_point'] - ecg_data['section_info'][section_counter]['start_point']
+
+            # Add the rolling median with the overlap removed. 
+            ecg_data['rolling_med'][start_p + shift:end_p] = rolled_med[shift:].flatten()
+
+            # Run R peak search with scipy
+            R_peaks, peak_info = ss.find_peaks(
+                wave_chunk.flatten(), 
+                prominence = np.percentile(wave_chunk, 99), #99 -> stock
+                height = np.percentile(wave_chunk, 95),     #95 -> stock
+                distance = round(fs*(0.200)) #Can't have a heart rate faster than 200ms
+            )  
+
+            # Set the section validity to False
+            sect_valid = False
+
+            # If the first wave section hasn't been found.
+            if not found_wave:
+                # Look for early signal reject. Early signal rejection is if the
+                # signal is complete garbage. ie - has too many or too little peaks.
+                if R_peaks.size < 4 or R_peaks.size > 60:
+                    logger.warning(f'Num of peaks error for section {section_counter}\nR_peaks_val.size < 4 or > 60')
+                    ecg_data['section_info'][section_counter]['valid'] = 0
+                    ecg_data['section_info'][section_counter]['fail_reason'] = "no_sig"
+                    
+                else:
+                    # Shift the R peaks to align with the start point. 
+                    R_peaks_shifted = R_peaks + start_p
+                    
+                    # reshape it into a 1D array so you can stack it. 
+                    new_peaks = R_peaks_shifted.reshape(-1, 1)
+
+                    # make an empty array of zeros to hold the validity of the R peak
+                    valid_mask = np.zeros(shape=(len(new_peaks[:, 0]),1), dtype=int)
+
+                    # stack the new peaks and valid mask into a single array
+                    new_peaks_arr = np.hstack((new_peaks, valid_mask))
+                    
+                    # Validate the section with a STFT
+                    sect_valid, new_peaks_arr = STFT(
+                        new_peaks_arr, 
+                        peak_info, 
+                        rolled_med, 
+                        (section_counter, start_p, end_p), 
+                        plot_fft
+                    )
+
+                    # If you've found the wave and have sufficient num of peaks
+                    if sect_valid and R_peaks.size > 10:
+                        found_wave = True
+                        start_sect = section_counter #BUG Possible bug 
+                        ecg_data['section_info'][section_counter]['valid'] = 1
+                        logger.critical(f'Wave found at {start_p}:{end_p} in section {start_sect}')
+
+                        # Add the current  R peaks to the "peaks" and "interior_peaks" data container. 
+                        ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
+
+                        # Make temp container for interior peaks
+                        int_peaks = np.zeros(shape=(new_peaks.shape[0], 15), dtype=np.int32)
+                        # Add the R peaks to the interior_peaks container. 
+                        int_peaks[:, 2] = new_peaks_arr[:, 0]
+                        ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
+                        
+                        # TODO extract PQRST and section stats?  
+                            # Not sure i can do that with no historical data
+
+                # In either case advance the section counter forward and keep looking
+                # for the first sign of a signal
+                section_counter += 1
+                continue
+
+            else:
+                # WAVE FOUND BELOW
+                # Shift the start point to match the wave indices
                 R_peaks_shifted = R_peaks + start_p
+
+                # Compare the new peaks, to the last 20 in ecg_data['peaks']  
+                # Does a set intersection to find the common peaks 
+                # between the two sets.
+                same_peaks = sorted(list(set(R_peaks_shifted) & set(ecg_data['peaks'][-20:,0]))) #+start_p
                 
-                # reshape it into a 1D array so you can stack it. 
-                new_peaks = R_peaks_shifted.reshape(-1, 1)
+                if len(same_peaks) > 0:
+                    last_peak = max(same_peaks)
+                    new_peaks = list(set(R_peaks_shifted) - set(same_peaks))
+                    new_peaks.append(last_peak)
+                    new_peaks = sorted(new_peaks)
+                    
+                    # Need to pop off the last R Peak as it will always be zero (last in the peak loop)
+                    ecg_data['peaks'] = ecg_data['peaks'][:-1,:]  
+                    peak_info['peak_heights'] = peak_info['peak_heights'][len(same_peaks)-1:]
+                    peak_info['prominences'] = peak_info['prominences'][len(same_peaks)-1:]
+                    new_peaks = np.array(new_peaks).reshape(-1, 1)
+                else:
+                    new_peaks = R_peaks_shifted.reshape(-1, 1)
 
-                # make an empty array of zeros to hold the validity of the R peak
-                valid_mask = np.zeros(shape=(len(new_peaks[:, 0]),1), dtype=int)
+                # Set the valid mask to ones for the R peaks. 
+                # We use ones because the historical validation check will seek to invalidate sections. 
+                # I know it seems backwards but it works better this way. 
+                valid_mask = np.ones(shape=(len(new_peaks[:, 0]),1), dtype=int)
 
-                # stack the new peaks and valid mask into a single array
+                # concat the peaks with the valid_mask of zeros
                 new_peaks_arr = np.hstack((new_peaks, valid_mask))
                 
-                # Validate the section with a STFT
-                sect_valid, new_peaks_arr = STFT(
-                    new_peaks_arr, 
-                    peak_info, 
-                    rolled_med, 
-                    (section_counter, start_p, end_p), 
-                    plot_fft
-                )
-
-                # If you've found the wave and have sufficient num of peaks
-                if sect_valid and R_peaks.size > 10:
-                    found_wave = True
-                    start_sect = section_counter #BUG Possible bug 
-                    ecg_data['section_info'][section_counter]['valid'] = 1
-                    logger.critical(f'Wave found at {start_p}:{end_p} in section {start_sect}')
-
-                    # Add the current  R peaks to the "peaks" and "interior_peaks" data container. 
-                    ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
-
-                    # Make temp container for interior peaks
-                    int_peaks = np.zeros(shape=(new_peaks.shape[0], 15), dtype=np.int32)
-                    # Add the R peaks to the interior_peaks container. 
-                    int_peaks[:, 2] = new_peaks_arr[:, 0]
-                    ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
-                    
-                    # TODO extract PQRST and section stats?  
-                        # Not sure i can do that with no historical data
-
-            # In either case advance the section counter forward and keep looking
-            # for the first sign of a signal
-            section_counter += 1
-            continue
-
-        else:
-            # WAVE FOUND BELOW
-            # Shift the start point to match the wave indices
-            R_peaks_shifted = R_peaks + start_p
-
-            # Compare the new peaks, to the last 20 in ecg_data['peaks']  
-            # Does a set intersection to find the common peaks 
-            # between the two sets.
-            same_peaks = sorted(list(set(R_peaks_shifted) & set(ecg_data['peaks'][-20:,0]))) #+start_p
-            
-            if len(same_peaks) > 0:
-                last_peak = max(same_peaks)
-                new_peaks = list(set(R_peaks_shifted) - set(same_peaks))
-                new_peaks.append(last_peak)
-                new_peaks = sorted(new_peaks)
+                # Making sure we have enough historical data to scan backwards in time. 
+                # Make sure the section counter is at least 10 ahead of the start_sect
+                if section_counter < start_sect + 10:
+                    sect_valid, new_peaks_arr = STFT(
+                        new_peaks_arr, 
+                        peak_info, 
+                        rolled_med, 
+                        (section_counter, start_p, end_p), 
+                        plot_fft
+                    )
+                    logger.info(f'Building up time for historical data Section:{section_counter}')			
                 
-                # Need to pop off the last R Peak as it will always be zero (last in the peak loop)
-                ecg_data['peaks'] = ecg_data['peaks'][:-1,:]  
-                peak_info['peak_heights'] = peak_info['peak_heights'][len(same_peaks)-1:]
-                peak_info['prominences'] = peak_info['prominences'][len(same_peaks)-1:]
-                new_peaks = np.array(new_peaks).reshape(-1, 1)
-            else:
-                new_peaks = R_peaks_shifted.reshape(-1, 1)
-
-            # Set the valid mask to ones for the R peaks. 
-            # We use ones because the historical validation check will seek to invalidate sections. 
-            # I know it seems backwards but it works better this way. 
-            valid_mask = np.ones(shape=(len(new_peaks[:, 0]),1), dtype=int)
-
-            # concat the peaks with the valid_mask of zeros
-            new_peaks_arr = np.hstack((new_peaks, valid_mask))
-            
-            # Making sure we have enough historical data to scan backwards in time. 
-            # Make sure the section counter is at least 10 ahead of the start_sect
-            if section_counter < start_sect + 10:
-                sect_valid, new_peaks_arr = STFT(
-                    new_peaks_arr, 
-                    peak_info, 
-                    rolled_med, 
-                    (section_counter, start_p, end_p), 
-                    plot_fft
-                )
-                logger.info(f'Building up time for historical data Section:{section_counter}')			
-            
-            # Still need a quick peak count check. Found 1 edge case that got through
-            # and messed up a 2 hour section. 
-            elif new_peaks_arr.shape[0] < 4:
-                sect_valid = False
-                fail_reas = "Not enough peaks"
-                ecg_data['section_info'][section_counter]['fail_reason'] = fail_reas
-                logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
-                new_peaks_arr[:, 1] = 0
-
-            elif stft_loop_on:
-                logger.warning(f'STFT cooldown loop.  Section: {section_counter} Counter at : {stft_count}')
-                sect_valid, new_peaks_arr = STFT(
-                    new_peaks_arr, 
-                    peak_info, 
-                    rolled_med, 
-                    (section_counter, start_p, end_p),
-                    plot_fft
-                )
-
-                stft_count -= 1
-                # If cooldown is finished, resume historical peak averages
-                if stft_count == 0:
-                    stft_loop_on = False
-
-                # Make sure to mark the section as invalid due to FFT. 
-                if not sect_valid:
-                    ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
-
-            # Checking our bad section counter. More than 10 and we switch back to STFT.  
-            elif invalid_sect_counter > 10:
-                stft_loop_on = True
-                stft_count = 5
-                logger.critical(f'Signal lost in section {section_counter} Switching to STFT')
-                sect_valid, new_peaks_arr = STFT(
-                    new_peaks_arr, 
-                    peak_info, 
-                    rolled_med, 
-                    (section_counter, start_p, end_p), 
-                    plot_fft
-                )
-
-                if not sect_valid:
-                    ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
-            else:
-                # Set the section validity for Peak Validation
-                PV_sect_valid = False
-                # Grab the last consecutive peaks that are marked as valid
-                last_keys = consecutive_valid_peaks(ecg_data['peaks'])
-                # Run Peak validation check based oh historical avgs
-                PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
-
-                if not PV_sect_valid: 
-                    fail_reas = ecg_data['section_info'][section_counter]['fail_reason']
-                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                # Still need a quick peak count check. Found 1 edge case that got through
+                # and messed up a 2 hour section. 
+                elif new_peaks_arr.shape[0] < 4:
                     sect_valid = False
+                    fail_reas = "Not enough peaks"
+                    ecg_data['section_info'][section_counter]['fail_reason'] = fail_reas
+                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                    new_peaks_arr[:, 1] = 0
+
+                elif stft_loop_on:
+                    logger.warning(f'STFT cooldown loop.  Section: {section_counter} Counter at : {stft_count}')
+                    sect_valid, new_peaks_arr = STFT(
+                        new_peaks_arr, 
+                        peak_info, 
+                        rolled_med, 
+                        (section_counter, start_p, end_p),
+                        plot_fft
+                    )
+
+                    stft_count -= 1
+                    # If cooldown is finished, resume historical peak averages
+                    if stft_count == 0:
+                        stft_loop_on = False
+
+                    # Make sure to mark the section as invalid due to FFT. 
+                    if not sect_valid:
+                        ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
+                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
+
+                # Checking our bad section counter. More than 10 and we switch back to STFT.  
+                elif invalid_sect_counter > 10:
+                    stft_loop_on = True
+                    stft_count = 5
+                    logger.critical(f'Signal lost in section {section_counter} Switching to STFT')
+                    sect_valid, new_peaks_arr = STFT(
+                        new_peaks_arr, 
+                        peak_info, 
+                        rolled_med, 
+                        (section_counter, start_p, end_p), 
+                        plot_fft
+                    )
+
+                    if not sect_valid:
+                        ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
+                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
                 else:
-                    sect_valid = True
+                    # Set the section validity for Peak Validation
+                    PV_sect_valid = False
+                    # Grab the last consecutive peaks that are marked as valid
+                    last_keys = consecutive_valid_peaks(ecg_data['peaks'])
+                    # Run Peak validation check based oh historical avgs
+                    PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
 
-            if sect_valid:
-                # Mark section as good.  Reset invalid sect counter
-                ecg_data['section_info'][section_counter]['valid'] = 1
+                    if not PV_sect_valid: 
+                        fail_reas = ecg_data['section_info'][section_counter]['fail_reason']
+                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                        sect_valid = False
+                    else:
+                        sect_valid = True
 
-                # If we're in a valid section, reduce the invalid sect count by one. 
-                # Ensure the invalid_sect counter is positive to prevent runaways
-                if invalid_sect_counter > 0:
-                    invalid_sect_counter -= 1
+                if sect_valid:
+                    # Mark section as good.  Reset invalid sect counter
+                    ecg_data['section_info'][section_counter]['valid'] = 1
+
+                    # If we're in a valid section, reduce the invalid sect count by one. 
+                    # Ensure the invalid_sect counter is positive to prevent runaways
+                    if invalid_sect_counter > 0:
+                        invalid_sect_counter -= 1
+                    
+                    # Add HR stats for that section
+                    sect_stats = section_stats(new_peaks_arr, section_counter)
+                    if sect_stats:
+                        ecg_data['section_info'][section_counter]['Avg_HR'] = sect_stats[0]
+                        ecg_data['section_info'][section_counter]['SDNN'] = sect_stats[1]
+                        ecg_data['section_info'][section_counter]['min_HR_diff'] = sect_stats[2]
+                        ecg_data['section_info'][section_counter]['max_HR_diff'] = sect_stats[3]
+                        ecg_data['section_info'][section_counter]['RMSSD'] = sect_stats[4]
+                        ecg_data['section_info'][section_counter]['NN50'] = sect_stats[5]
+                        ecg_data['section_info'][section_counter]['PNN50'] = sect_stats[6]
+
+                    # Pull out interior peaks and segment data for QRS, PR, QT, etc
+                    int_peaks = extract_PQRST((section_counter, start_p, end_p), new_peaks_arr, peak_info, rolled_med)
                 
-                # Add HR stats for that section
-                sect_stats = section_stats(new_peaks_arr, section_counter)
-                if sect_stats:
-                    ecg_data['section_info'][section_counter]['Avg_HR'] = sect_stats[0]
-                    ecg_data['section_info'][section_counter]['SDNN'] = sect_stats[1]
-                    ecg_data['section_info'][section_counter]['min_HR_diff'] = sect_stats[2]
-                    ecg_data['section_info'][section_counter]['max_HR_diff'] = sect_stats[3]
-                    ecg_data['section_info'][section_counter]['RMSSD'] = sect_stats[4]
-                    ecg_data['section_info'][section_counter]['NN50'] = sect_stats[5]
-                    ecg_data['section_info'][section_counter]['PNN50'] = sect_stats[6]
+                    # Stack the interior peak data into data container
+                    ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
 
-                # Pull out interior peaks and segment data for QRS, PR, QT, etc
-                int_peaks = extract_PQRST((section_counter, start_p, end_p), new_peaks_arr, peak_info, rolled_med)
-            
-                # Stack the interior peak data into data container
-                ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
+                else:
+                    # Mark section as bad
+                    ecg_data['section_info'][section_counter]['valid'] = 0
+                    # Limit the amount of invalid sections it can grow too. This
+                    # will cause the detector to use the STFT for 10 sections before
+                    # it resumes peak validation techniques (if it grows to that
+                    # high).  Giving it time to regenerate recent historical
+                    # averages to then compare to the current section.
 
-            else:
-                # Mark section as bad
-                ecg_data['section_info'][section_counter]['valid'] = 0
-                # Limit the amount of invalid sections it can grow too. This
-                # will cause the detector to use the STFT for 10 sections before
-                # it resumes peak validation techniques (if it grows to that
-                # high).  Giving it time to regenerate recent historical
-                # averages to then compare to the current section.
+                    if invalid_sect_counter < 15:
+                        invalid_sect_counter += 1
 
-                if invalid_sect_counter < 15:
-                    invalid_sect_counter += 1
+                logger.info(f'Invalid count {invalid_sect_counter} in section {section_counter}')
 
-            logger.info(f'Invalid count {invalid_sect_counter} in section {section_counter}')
+                if section_counter in stack_range: 
+                    ecg_data['peaks'] = peak_stack_test(new_peaks_arr)
+                else:
+                    ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
+                
 
-            if section_counter in stack_range: 
-                ecg_data['peaks'] = peak_stack_test(new_peaks_arr)
-            else:
-                ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
-            
-
-            # Advance section tracker to next section
-            section_counter += 1
-            logger.info(f'Section counter at {section_counter}')
+                # Advance section tracker to next section
+                section_counter += 1
+                logger.info(f'Section counter at {section_counter}')
 
     return ecg_data
 
@@ -1434,7 +1433,7 @@ def send_email(log_path:str):
 
 def main():
     # Load data 
-    ecg_data, wave, fs, configs = setup_globals.init(__name__, logger)
+    ecg_data, wave, fs, configs = setup_globals.init(__name__)
     current_date = support.get_time().strftime("%m-%d-%Y")
     
     # Run peak search extraction
