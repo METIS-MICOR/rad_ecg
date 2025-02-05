@@ -1060,11 +1060,12 @@ def extract_PQRST(
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
         # MEAS QRS Complex
+        #TODO - update this to J point
         # Add the QRS time in ms if both the onsets exist.
-        if Q_onset and T_onset:
-            temp_arr[temp_counter, 8] = int(1000*((T_onset - Q_onset)/fs))
+        if Q_onset and S_peak:
+            temp_arr[temp_counter, 8] = int(1000*((T_onset - S_peak)/fs))
 
-        # PR Interval
+        # PR Interval   
         slope_start = P_peak - int(srch_width)
         slope_end = P_peak + 1
         try:

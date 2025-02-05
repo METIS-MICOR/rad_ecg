@@ -112,6 +112,7 @@ def load_structures(source:str, datafile:Path):
                 logger.info(f"folder created @ {test_sp} ")
 
         if configs["gcp_bucket"]:
+            #TODO refactor this section
             #Test for endpoint in gcp bucket
             test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
             passed = test_endpoint(test_sp)
@@ -129,6 +130,8 @@ def load_structures(source:str, datafile:Path):
                 else:
                     logger.warning(f"Error {created}")
                     exit()
+                #TODO - Input local folder creation as well.  Still need to save it locally
+
 
         configs["cam"] = os.path.join(datafile, datafile.name)
         record = load_signal_data(configs["cam"])

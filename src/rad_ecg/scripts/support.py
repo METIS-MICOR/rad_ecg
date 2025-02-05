@@ -116,8 +116,6 @@ DATE_JSON = get_time().strftime("%m-%d-%Y_%H-%M-%S")
 console = Console(color_system="auto")
 logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
 
-
-
 ################################# Rich Spinner Control ####################################
 
 #FUNCTION Progress bar
@@ -150,14 +148,14 @@ def mainspinner(console:Console, totalstops:int):
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         transient=True,
         console=console,
-        refresh_per_second=5,
+        refresh_per_second=6,
         redirect_stdout=False
     )
     jobtask = my_progress_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
     return my_progress_bar, jobtask
 
 def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
-    """Adds a secondary job to the main progress bar that will take a nap at each of the servers that are visited
+    """Adds a secondary job to the main progress bar
 
     Args:
         prog (Progress): Main progress bar
@@ -172,7 +170,6 @@ def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
         prog.update(liljob, advance=1)
     #Hide secondary progress bar
     prog.update(liljob, visible=False)
-
 
 ################################# Saving Funcs ####################################
 
@@ -209,6 +206,7 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     cam = configs["cam"].split(".")[-2].split("/")[-1]
     configs["last_run"] = current_date
     for x in ["peaks", "interior_peaks", "section_info"]:
+        #BUG Possibly wrap this in a try block
         file_path = "/".join([configs["save_path"], cam, current_date]) + "_" + x + ".csv"
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
