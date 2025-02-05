@@ -176,8 +176,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
   - [x] Review T onset extraction
   - [ ] Add J point discovery (Means I'll need a base container change as well)
     - Use same logic as Q onset.
-  - [x] Change base container to dataclass. Might not do this actually.  Class objects aren't as lean as dictionary's
-  - [ ] Add overall progbar with standard log output
+  - [x] Add overall progbar with standard log output
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
 
 - slider.py
@@ -187,7 +186,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
       - What if...  instead of searching the anomalous sections.  We do a discord / shapelet search on the valid sections ....
       - This might be informative to find anomalous waveforms in good section data. 
   - Functionality
-    - [ ] Incorporate FFT analysis for slider.py at any point in an ECG.
+    - [x] Incorporate FFT analysis for slider.py at any point in an ECG.
     - [ ] Re-examine distribution threshold of QRS window.
 
 ### Long Term

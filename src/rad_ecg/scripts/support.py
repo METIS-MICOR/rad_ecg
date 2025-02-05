@@ -32,7 +32,7 @@ def get_file_handler(log_dir:Path)->logging.FileHandler:
     Returns:
         filehandler(handler): This will handle the logger's format and file management
     """	
-    log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-4d|%(funcName)-23s|%(message)s|" 
+    log_format = "%(asctime)s|%(levelname)-8s|%(lineno)-4d|%(funcName)-23s|%(message)-100s|" 
                  #f"%(asctime)s - [%(levelname)s] - (%(funcName)s(%(lineno)d)) - %(message)s"
     # current_date = time.strftime("%m_%d_%Y")
     file_handler = logging.FileHandler(log_dir)
@@ -150,7 +150,8 @@ def mainspinner(console:Console, totalstops:int):
         TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
         transient=True,
         console=console,
-        refresh_per_second=10
+        refresh_per_second=10,
+        redirect_stdout=False
     )
     jobtask = my_progress_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
     return my_progress_bar, jobtask

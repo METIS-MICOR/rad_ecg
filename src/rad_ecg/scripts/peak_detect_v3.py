@@ -286,7 +286,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
     elif new_peaks_arr.size <= 2:
         ecg_data['section_info'][section_counter]['fail_reason'] = "no_peaks"
         logger.warning(f'Not enough peaks to calculate section stats')
-        
+
     else:
         # MEAS Section Measures 
         RR_diffs = np.diff(new_peaks_arr[:,0])
@@ -572,6 +572,7 @@ def peak_validation_check(
                 fail_reas = 'roll'
 
             if plot_errors:
+                # plt.ion()
                 fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize=(12,6))
                 plt.plot(range(start_idx, end_idx), wave[start_idx:end_idx], label = 'ECG')
                 plt.plot(range(start_idx, end_idx), samp_roll_med, label='Rolling Median shifted')
@@ -579,9 +580,7 @@ def peak_validation_check(
                 plt.axhline(y=(np.quantile(samp_roll_med, .80)+1.5*IQR), color='magenta', linestyle='--', label='upper past roll med')
                 plt.axhline(y=(np.quantile(samp_roll_med, .20)-1.5*IQR), color='red', linestyle='--', label='lower past roll med')
                 plt.axhline(y=samp_roll_med.mean(), color = 'green', linestyle='--', label='rolling median mean (shifted)')
-                ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-
-                plt.legend()
+                
                 for x in outs:
                     if x[0] == 'above':
                         rect = Rectangle(
@@ -599,7 +598,9 @@ def peak_validation_check(
                             alpha=0.9)
                     ax.add_patch(rect)
 
+                plt.legend()
                 plt.title(f'Bad rolling median for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
+                ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
                 a = 3000
                 b = 450 
                 fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
@@ -608,6 +609,7 @@ def peak_validation_check(
                 timer_cid = timer_error.add_callback(plt.close, fig)
                 spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
                 timer_error.start()
+                # plt.ioff()
                 plt.show()
                 plt.close()
             sect_valid = False
@@ -677,7 +679,6 @@ def peak_validation_check(
             timer_error.start()
             plt.show()
             plt.close()
-            #plot_errors = False
         sect_valid = False
 
     lower_bound = last_avg_p_sep * 0.5
@@ -1103,9 +1104,9 @@ def extract_PQRST(
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         
         # MEAS ST Segment
-        if T_onset and T_offset:
+        if T_onset:
             # Add ST interval.  
-            temp_arr[temp_counter, 9] = int(1000*((T_offset - Q_onset)/fs))
+            temp_arr[temp_counter, 9] = int(1000*((T_onset - S_peak)/fs))
 
         # MEAS QT Interval
         if Q_onset and T_offset:
@@ -1428,8 +1429,6 @@ def send_email(log_path:str):
         logger.warning(f"{peak_search_runtime}")
 
 # NOTE START PROGRAM
-# TODO - Add overall prog to log output in terminal
-# TODO - Nest logger functions and declare as global. maybe
 
 def main():
     # Load data 

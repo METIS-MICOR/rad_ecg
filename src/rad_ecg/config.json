@@ -1,5 +1,5 @@
 {
-    "plot_fft"   : true,
+    "plot_fft"   : false,
     "plot_errors": false,
     "live_term"  : false,
     "porcine"    : false,
