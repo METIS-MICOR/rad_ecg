@@ -420,10 +420,7 @@ def peak_validation_check(
     logger.info(f'IQR used for section {cur_sect} is {IQR:.5f}')
 
     samp_roll_med = rolled_med
-    ##!Removed and replaced with below
     #Get the outliers outside of the IQR in for rolling med
-    # out_above = np.where(samp_roll_med > (Q3 + 1.5*IQR))[0]
-    # out_below = np.where(samp_roll_med < (Q1 - 1.5*IQR))[0]
     out_above = np.where(samp_roll_med > (np.quantile(samp_roll_med, .80) + 1.5*IQR))[0]
     out_below = np.where(samp_roll_med < (np.quantile(samp_roll_med, .20) - 1.5*IQR))[0]
 
@@ -443,8 +440,9 @@ def peak_validation_check(
     RPeaks = new_peaks_arr[:, 0]
     lookbacks = RPeaks - int(last_avg_p_sep * 0.75) #This needs to be somewhat wider to ensure a sign change
     leftbases = []
+
     # Loop through the lookback positions and R peaks to build the left bases to build the slopes
-    for lookback, RP in zip(lookbacks,RPeaks):
+    for lookback, RP in zip(lookbacks, RPeaks):
         # First we go through and find the difference between each point.
         # (viewpoint is from the lookback to the R peak)
         grad = np.diff(wave[lookback:RP+1].flatten())
@@ -468,7 +466,7 @@ def peak_validation_check(
 
     if len(leftbases) == len(RPeaks):
         slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
-        lower_bound = np.mean(slopes) * 0.30 #started at .51 
+        lower_bound = np.mean(slopes) * 0.20 #started at .51 
         upper_bound = np.mean(slopes) * 3
         peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
     else:
@@ -478,6 +476,9 @@ def peak_validation_check(
         sect_valid = False
 
     if peak_slope_check:
+        logger.warning(f'Bad Slope in section {cur_sect}')
+        fail_reas = "slope"
+        sect_valid = False
         if plot_errors:
             fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize=(12,6))
             plt.plot(range(start_idx, end_idx), wave[start_idx:end_idx], label = 'ECG')
@@ -489,7 +490,6 @@ def peak_validation_check(
             _smax = np.max(wave[start_idx:end_idx])
             _smin = np.min(wave[start_idx:end_idx])
             _delt = 0.10 * (_smax - _smin)
-
             if high_slopes.size > 0:
                 for highslo in high_slopes:
                     arrow = Arrow(
@@ -526,7 +526,7 @@ def peak_validation_check(
             timer_error.start()
             plt.show()
             plt.close()
-
+        
     # NOTE Rolling Median Check
     # If either outabove or outbelow has values, proceed with wave check.
     if out_above.size > 0 or out_below.size > 0:
@@ -558,13 +558,15 @@ def peak_validation_check(
         
         # If the number of bad wave sections (bad pandas) is greater than 50% of of the Rpeaks, reject section
         if bad_pandas > (round(0.50 * (new_peaks_arr.shape[0]-1))):
+            
             logger.warning(f'Bad Wave segment roll_med in section:{cur_sect}')
             logger.warning(f'Number of bad peaks: {bad_pandas} out of {new_peaks_arr.shape[0]}')
             
             # Log how far back the historical search went
             lookback_time = (new_peaks_arr[0, 0] - last_keys[0] ) / fs 
             lookback_time, delt = look_back_time_format(lookback_time)
-            logger.critical(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+            logger.warning(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+            sect_valid = False
 
             if len(fail_reas) > 0:
                 fail_reas = fail_reas + '|roll'
@@ -572,7 +574,6 @@ def peak_validation_check(
                 fail_reas = 'roll'
 
             if plot_errors:
-                # plt.ion()
                 fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize=(12,6))
                 plt.plot(range(start_idx, end_idx), wave[start_idx:end_idx], label = 'ECG')
                 plt.plot(range(start_idx, end_idx), samp_roll_med, label='Rolling Median shifted')
@@ -609,10 +610,9 @@ def peak_validation_check(
                 timer_cid = timer_error.add_callback(plt.close, fig)
                 spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
                 timer_error.start()
-                # plt.ioff()
                 plt.show()
                 plt.close()
-            sect_valid = False
+            
 
     Rpeak_roll_diff = wave[last_keys][:,0] - ecg_data['rolling_med'][last_keys]
     #lower_bound = Rpeak_roll_diff.mean() - np.std(Rpeak_roll_diff)*3
@@ -642,7 +642,9 @@ def peak_validation_check(
         # Log how far back the historical search went
         lookback_time = (new_peaks_arr[0, 0] - last_keys[0] ) / fs 
         lookback_time, delt = look_back_time_format(lookback_time)
-        logger.critical(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+        logger.warning(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+        sect_valid = False
+
         # Encode fail reason
         if len(fail_reas) > 0:
             fail_reas = fail_reas + '|height'
@@ -679,7 +681,6 @@ def peak_validation_check(
             timer_error.start()
             plt.show()
             plt.close()
-        sect_valid = False
 
     lower_bound = last_avg_p_sep * 0.5
     upper_bound = last_avg_p_sep * 2  #stock 1.5
@@ -703,7 +704,8 @@ def peak_validation_check(
         # Log how far back the historical search went from the current position in time.
         lookback_time = (new_peaks_arr[0, 0] - last_keys[0] ) / fs 
         lookback_time, delt = look_back_time_format(lookback_time)
-        logger.critical(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+        logger.warning(f'QRS lookback was {lookback_time:.2f}{delt} starting at R_peak {last_keys[0]:_d}')
+        sect_valid = False
 
         # Encode fail reason
         if len(fail_reas) > 0:
@@ -734,8 +736,6 @@ def peak_validation_check(
             timer_error.start()
             plt.show()
             plt.close()
-
-        sect_valid = False
 
     # Add failure reason to section_info array
     if len(fail_reas) > 0:
@@ -1063,7 +1063,7 @@ def extract_PQRST(
         #TODO - update this to J point
         # Add the QRS time in ms if both the onsets exist.
         if Q_onset and S_peak:
-            temp_arr[temp_counter, 8] = int(1000*((T_onset - S_peak)/fs))
+            temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
 
         # PR Interval   
         slope_start = P_peak - int(srch_width)

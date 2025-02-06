@@ -1,9 +1,9 @@
 {
     "plot_fft"   : false,
-    "plot_errors": false,
+    "plot_errors": true,
     "live_term"  : false,
     "porcine"    : false,
-    "slider"     : true,
+    "slider"     : false,
     "batch"      : false,
     "samp_freq"  : "",
     "data_path"  : "./src/rad_ecg/data/inputdata",

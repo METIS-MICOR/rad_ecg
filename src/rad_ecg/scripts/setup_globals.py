@@ -99,20 +99,18 @@ def load_structures(source:str, datafile:Path):
     elif source == "__main__":
         #Load all possibles in the input dir or gcp
         #Check output folder for existence
-        if not configs["gcp_bucket"]:
-            test_sp = os.path.join(configs["save_path"], datafile.name)
-            if os.path.exists(test_sp):
-                logger.warning(f"{datafile.name} input folder already exists")
-                logger.warning("Do you want to overwrite results?")
-                overwrite = input("(y/n)?")
-                if overwrite.lower() == "n":
-                    exit()
-            else:
-                os.mkdir(test_sp)
-                logger.info(f"folder created @ {test_sp} ")
+        test_sp = os.path.join(configs["save_path"], datafile.name)
+        if os.path.exists(test_sp):
+            logger.warning(f"{datafile.name} output folder already exists")
+            logger.warning("Do you want to overwrite results?")
+            overwrite = input("(y/n)?")
+            if overwrite.lower() == "n":
+                exit()
+        else:
+            os.mkdir(test_sp)
+            logger.info(f"folder created @ {test_sp} ")
 
         if configs["gcp_bucket"]:
-            #TODO refactor this section
             #Test for endpoint in gcp bucket
             test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
             passed = test_endpoint(test_sp)
@@ -228,12 +226,7 @@ def test_endpoint(test_sp:str):
         
 def create_endpoint(test_sp:str):
     try:
-        #BUG - Folder create
-            #Since GCP doesn't have a folder creation function (weird) you have
-            #to trick it by creating a file at that folder level In testing this
-            #works and I get an ok that the folder was made, but when I go back
-            #to verify it,  the folder is not there.  Be sure to come back and
-            #check this the next time you run a full cam
+        #TODO - check this the next time you run a full cam
         create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
         subprocess.run(create_command, capture_output=True, text=True, check=True)
 
