@@ -1432,7 +1432,8 @@ def send_email(log_path:str):
 # NOTE START PROGRAM
 
 def main():
-    # Load data 
+    # Load data
+    global configs
     ecg_data, wave, fs, configs = setup_globals.init(__name__)
     current_date = support.get_time().strftime("%m-%d-%Y")
     
@@ -1456,10 +1457,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-# IDEA?  - What if you have a function similar to slider
-    # To inspect the ECG before its run.  Would be ideal if 
-    # it ran in the cloud for plotting but i'm not sure 
-    # how that renders locally
-    

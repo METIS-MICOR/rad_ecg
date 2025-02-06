@@ -65,10 +65,10 @@ def get_logger(console:Console, log_dir:Path)->logging.Logger:
     """	
     #Load logger and set basic level
     logger = logging.getLogger()
-    logger.setLevel(logging.DEBUG)
+    logger.setLevel(logging.INFO)
     #Load file handler for how to format the log file.
     file_handler = get_file_handler(log_dir)
-    file_handler.setLevel(logging.INFO)
+    file_handler.setLevel(logging.WARNING)
     logger.addHandler(file_handler)
     #Load rich handler for how to display the log in the console
     rich_handler = get_rich_handler(console)
@@ -203,11 +203,11 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     #Export the CSV files
     logger.info("Savings CSV's")
     #Eventually need a folder existence check here.  If it doesn't, create it. 
-    cam = configs["cam"].split(".")[-2].split("/")[-1]
+    camname = configs["cam_name"]
     configs["last_run"] = current_date
     for x in ["peaks", "interior_peaks", "section_info"]:
-        #BUG Possibly wrap this in a try block
-        file_path = "/".join([configs["save_path"], cam, current_date]) + "_" + x + ".csv"
+        #BUG Wrap this in a try block, just in case
+        file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
         else:
@@ -224,11 +224,11 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
         if tobucket:
             gcp_path  = file_path[file_path.index(f"{current_date}"):]
             bucket_name = configs["bucket_name"]
-            destination_gcp = f'gs://{bucket_name}/results/{cam}/{gcp_path}'
+            destination_gcp = f'gs://{bucket_name}/results/{camname}/{gcp_path}'
             gsutil_command = ['gsutil', 'cp', file_path, destination_gcp]
             try:
                 subprocess.run(gsutil_command, check=True)
-                logger.warning(f"{cam} successfully saved to {bucket_name} on GCP")
+                logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
             #Trapping FNF error specifically
             except FileNotFoundError as e:
                 logger.warning(f"FileNotFound:\n{e}")
@@ -247,7 +247,7 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     logger.critical(f"Fail reasons found:{list(fail_counts.items())}")
     logger.critical(f"Runtime configuration {list(configs.items())}")
     if tobucket:
-        transfer_logfile(logger, configs, cam, current_date)
+        transfer_logfile(logger, configs, camname, current_date)
 
 #FUNCTION Transfer Logfile
 def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:datetime):
