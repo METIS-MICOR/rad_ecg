@@ -250,34 +250,52 @@ def load_graph_objects(datafile:str, outputf:str):
 
         #Plot the frequencies
         sect = sect_slider.val
+        kindofgraph = radio.value_selected
+        start_w = ecg_data['section_info'][sect]['start_point']
+        end_w = ecg_data['section_info'][sect]['end_point']
+        inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
+        R_peaks = inners[np.nonzero(inners[:, 2])[0], 2]
+        RR_diffs = int(np.mean(np.diff(R_peaks))//2)
         samp = wave[start_w:end_w].flatten()
         fft_samp = np.abs(rfft(samp))
         freq_list = rfftfreq(len(samp), d=1/fs) #samp_freq is sampling rate
         freqs = fft_samp[0:int(len(samp)/2)]
         freq_l = freq_list[:int(len(samp)//2)]
-        ax_freq.stem(freq_l, freqs, "b", markerfmt=" ", basefmt="-b")
-
         freqs_idx, peak_power = ss.find_peaks(freqs, height=freqs.mean()//10, distance=10)
         combined = list(zip(freq_list[freqs_idx], peak_power["peak_heights"]))
         sorted_p = sorted(combined, key=lambda x:x[1], reverse=True)[:10]
-        # maybe use an annotate?
-        for power in sorted_p:
-            ax_freq.annotate(
-                text=f"{power[0]:.1f}Hz",
-                xy = (power[0]+0.3,(power[1]+power[1]*.02)),
-                color="black", 
-                weight="bold", fontsize=7, 
-                ha="center", va="center"
-        )
-        if sorted_p:
-            ax_freq.set_xlim(0, max(list(map(lambda x:x[0], sorted_p)))*1.5)
-            ax_freq.set_ylim(0, sorted_p[0][1]*1.2)
-        else:
-            ax_freq.set_xlim(0, 50)
 
-        ax_freq.set_xlabel("Freq (Hz)")
-        ax_freq.set_ylabel("Frequency Power")
-        ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
+        if "Stem" in kindofgraph:
+            ax_freq.stem(freq_l, freqs, "b", markerfmt=" ", basefmt="-b")
+            for power in sorted_p:
+                ax_freq.annotate(
+                    text=f"{power[0]:.1f}Hz",
+                    xy = (power[0]+0.3,(power[1]+power[1]*.02)),
+                    color="black", 
+                    weight="bold", fontsize=7, 
+                    ha="center", va="center"
+            )
+            if sorted_p:
+                ax_freq.set_xlim(0, max(list(map(lambda x:x[0], sorted_p)))*1.5)
+                ax_freq.set_ylim(0, sorted_p[0][1]*1.2)
+            else:
+                ax_freq.set_xlim(0, 50)
+
+            ax_freq.set_xlabel("Freq (Hz)")
+            ax_freq.set_ylabel("Frequency Power")
+            ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
+
+        if "Spec" in kindofgraph:
+            ax_freq.specgram(
+                wave[start_w:end_w].flatten(),
+                NFFT= int(np.mean(RR_diffs)),
+                detrend="linear",
+                noverlap = 10,
+                Fs=fs
+            )
+            ax_freq.set_xlabel("Time (sec)")
+            ax_freq.set_ylabel("Freq, Hz")
+            ax_freq.set_title(f'Spectogram for peaks {R_peaks[0]}:{R_peaks[-1]}')
 
     #FUNCTION Wavesearch
     @log_time
@@ -511,7 +529,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 alpha=0.7)
             ax_ecg.add_patch(rect)
 
-        elif val == 'Frequency':
+        elif 'Frequency' in val:
             configs["freq"] = True
             frequencytown()
 
@@ -651,7 +669,7 @@ def load_graph_objects(datafile:str, outputf:str):
     )
 
     #Radio buttons
-    radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay Main', 'Overlay Inner', 'Frequency', 'Stumpy Search'))
+    radio = RadioButtons(ax_radio, ('Base Figure', 'Roll Median', 'Add Inter', 'Hide Leg', 'Show R Valid', 'Overlay Main', 'Overlay Inner', 'Frequency-Stem', 'Frequency-Spec', 'Stumpy Search'))
 
     #Set actions for GUI items. 
     sect_slider.on_changed(update_plot)
