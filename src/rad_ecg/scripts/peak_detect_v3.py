@@ -172,11 +172,12 @@ def STFT(
 
         ##################### Spectogram ######################
         ax_spec.specgram(
-                        wave[start_point:end_point].flatten(),
-                        NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
-                        detrend="linear",
-                        noverlap = 10,
-                        Fs=fs)
+            wave[start_point:end_point].flatten(),
+            NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
+            detrend="linear",
+            noverlap = 10,
+            Fs=fs
+        )
 
         ax_spec.set_xlabel("Time (sec)")
         ax_spec.set_ylabel("Freq, Hz")

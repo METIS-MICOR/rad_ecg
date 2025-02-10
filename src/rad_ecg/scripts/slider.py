@@ -7,6 +7,7 @@ import stumpy
 import pandas as pd
 from rich.table import Table
 from collections import Counter
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from matplotlib.widgets import Slider, Button, RadioButtons, TextBox, SpanSelector
@@ -283,20 +284,21 @@ def load_graph_objects(datafile:str, outputf:str):
 
             ax_freq.set_xlabel("Freq (Hz)")
             ax_freq.set_ylabel("Frequency Power")
-            ax_freq.set_title(f"Top 10 frequencies found in sect {sect}", size=12)
+            ax_freq.set_title(f"Top 10 frequencies found in sect {sect:_d}", size=12)
 
         if "Spec" in kindofgraph:
-            ax_freq.specgram(
+            _, specfreqs, _, spectro = ax_freq.specgram(
                 wave[start_w:end_w].flatten(),
                 NFFT= int(np.mean(RR_diffs)),
+                cmap="rainbow",
                 detrend="linear",
                 noverlap = 10,
                 Fs=fs
             )
             ax_freq.set_xlabel("Time (sec)")
             ax_freq.set_ylabel("Freq, Hz")
-            ax_freq.set_title(f'Spectogram for peaks {R_peaks[0]}:{R_peaks[-1]}')
-
+            ax_freq.set_title(f'Spectrogram for peaks {R_peaks[0]:_d}:{R_peaks[-1]:_d}')
+     
     #FUNCTION Wavesearch
     @log_time
     def wavesearch():
@@ -513,7 +515,6 @@ def load_graph_objects(datafile:str, outputf:str):
             ax_ecg.get_legend().remove()
 
         elif val == 'Show R Valid':
-            #BUG - Not aligning correctly.  Looks to be one section off
             Rpeaks = ecg_data['peaks'][(ecg_data['peaks'][:, 0] >= start_w) & (ecg_data['peaks'][:, 0] <= end_w), :]
             for peak in range(Rpeaks.shape[0]):
                 if Rpeaks[peak, 1]==0:
@@ -651,7 +652,7 @@ def load_graph_objects(datafile:str, outputf:str):
     ax_jump_textb = plt.axes([0.88, 0.01, 0.06, 0.050])
 
     #Add axis container for radio buttons
-    ax_radio = plt.axes([0.905, .45, 0.09, 0.20])
+    ax_radio = plt.axes([0.905, .33, 0.09, 0.32])
 
     #Button for Invalid Step process
     next_button = Button(axnext, label='Next Invalid Section')
@@ -685,14 +686,12 @@ def load_graph_objects(datafile:str, outputf:str):
         Line2D([0], [0], marker='o', color='w', label=val[0], markerfacecolor=val[1], markersize=10) for val in PEAKDICT.values()
         ]
     ax_ecg.legend(handles=legend_elements, loc='upper left')
-    
+    plt.show()
     #Print failures table
     failures = Counter(ecg_data['section_info']['fail_reason'])
     table = make_rich_table(failures)
     console.log(table)
 
-    plt.show()
-    
 def summarize_run():
     RMSSD = ecg_data['section_info'][['wave_section', 'RMSSD']]
     logger.info(f"{sorted(RMSSD, key= lambda x:x[1], reverse=True)[:20]}")
