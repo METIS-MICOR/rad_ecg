@@ -119,7 +119,6 @@ def load_graph_objects(datafile:str, outputf:str):
         elif check_axis("stumpy"):
             remove_axis(["ecg_small", "stumpy", "dist_locs"])
 
-
     def update_main():
         global ax_ecg
         ax_ecg.clear()
@@ -251,6 +250,8 @@ def load_graph_objects(datafile:str, outputf:str):
 
         #Plot the frequencies
         sect = sect_slider.val
+        #Clear plot and colorbar
+        ax_freq.cla()
         kindofgraph = radio.value_selected
         start_w = ecg_data['section_info'][sect]['start_point']
         end_w = ecg_data['section_info'][sect]['end_point']
@@ -287,18 +288,32 @@ def load_graph_objects(datafile:str, outputf:str):
             ax_freq.set_title(f"Top 10 frequencies found in sect {sect:_d}", size=12)
 
         if "Spec" in kindofgraph:
-            _, specfreqs, _, spectro = ax_freq.specgram(
+            for artist in fig.axes:
+                if artist._label == "<colorbar>":
+                    artist.remove()
+
+            _, specfreqs, _, _ = ax_freq.specgram(
                 wave[start_w:end_w].flatten(),
-                NFFT= int(np.mean(RR_diffs)),
+                NFFT= int(np.mean(RR_diffs)),   
                 cmap="rainbow",
                 detrend="linear",
                 noverlap = 10,
                 Fs=fs
             )
-            ax_freq.set_xlabel("Time (sec)")
-            ax_freq.set_ylabel("Freq, Hz")
+            ax_freq.set_xlabel(f"Time (sec)\nBinned in {np.mean(RR_diffs/fs):0.1f} sec intervals")
+            ax_freq.set_ylabel(f"")
+            ax_freq.set_yticks([]) 
             ax_freq.set_title(f'Spectrogram for peaks {R_peaks[0]:_d}:{R_peaks[-1]:_d}')
-     
+            cbar = fig.colorbar(
+                mpl.cm.ScalarMappable(
+                norm=mpl.colors.Normalize(0, np.max(specfreqs)), 
+                cmap='rainbow'), 
+                ax=ax_freq, 
+                pad=0.03,
+                orientation='vertical', 
+                label=f'Frequency Range (Hz)',
+                location='left')
+            logger.info("")
     #FUNCTION Wavesearch
     @log_time
     def wavesearch():
