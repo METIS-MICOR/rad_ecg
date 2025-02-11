@@ -194,7 +194,7 @@ def u_wave_present() -> bool:
     #Ways to detect U wave. 
     #1.Klein Method. 
         #Fit a gaussian (scipy.optimize) to that section post T peak. (Good idea honestly)
-        #
+        
     #2.Signchanges
         #possibly look at sign changes in the post T peak area
 
@@ -442,15 +442,19 @@ def plot_results(
 
 #FUNCTION -> export dataclass
 def dump_dataclass(data:PeakInfo):
-    #TODO - Reformat this to output the dataclass objects in 
-    #the above order.  Probalby can just loop over the list and pull out by name
     order = ["P_onset", "P_peak", "P_offset", "R_onset", "Q_peak", 
              "R_peak", "S_peak", "R_offset", "T_peak", "T_offset"]
     ordered_peaks = []
     for location in order:
         if location in fields(data):
-            ordered_peaks.append(getattr(data, location))
-
+            value = getattr(data, location)
+            if value:
+                ordered_peaks.append(value)
+            else:
+                ordered_peaks.append(np.nan)
+        else:
+            raise ValueError(f"{location} not in order")
+        
     return ordered_peaks
 
 ################################ Base Functions ############################
@@ -522,6 +526,10 @@ def calc_assets(wave:np.array, data:PeakInfo)-> list:
         
     return data
 
+#FUNCTION -> calc confidences
+def calc_confidences(data:PeakInfo):
+    pass
+
 #FUNCTION -> run_extract
 def run_template_extract(
     input_signal:np.array,         #Entire ECG
@@ -541,6 +549,7 @@ def run_template_extract(
     data.r_peaks = template_annotations
     data.rr_means = template_rr
     data.fs = sampling_frequency
+    data.plot_search = False
     
     #Isolate R-peak
     data.peaks_r = pull_R_peak(wave)
@@ -549,15 +558,17 @@ def run_template_extract(
     if data.peaks_r[0].shape[0] == 1:
         data.R_peak = data.peaks_r[0].item()
         data = calc_assets(wave, data)
+        #Offload findings back to the template
+        tracking_points = dump_dataclass(data)
+        confidences = calc_confidence(data)
+        #BUG - Need a way to calculate the confidences. 
+        return tracking_points, confidences
+    
     else:
         raise ValueError("Too many R peaks discovered.\nChange parameters and run again")
     
-    #Offload findings back to the template
-    tracking_points = dump_dataclass(data)
-    confidences = calc_confidence(data)
-    #BUG - Need a way to calculate the confidences. 
 
-    return tracking_points, confidences
+    
 
 
 #FUNCTION -> main
