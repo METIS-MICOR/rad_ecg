@@ -1,7 +1,5 @@
-from pathlib import Path, PurePath
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-from datetime import datetime
 from os.path import exists
 from support import log_time, logger
 from dataclasses import dataclass, fields
@@ -443,12 +441,17 @@ def plot_results(
     plt.close()
 
 #FUNCTION -> export dataclass
-def dump_dataclass(data:PeakInfo, template:dict):
-    for col in fields(data):
-        if not col.name in template.keys():
-            template[col.name] = getattr(data, col.name)
+def dump_dataclass(data:PeakInfo):
+    #TODO - Reformat this to output the dataclass objects in 
+    #the above order.  Probalby can just loop over the list and pull out by name
+    order = ["P_onset", "P_peak", "P_offset", "R_onset", "Q_peak", 
+             "R_peak", "S_peak", "R_offset", "T_peak", "T_offset"]
+    ordered_peaks = []
+    for location in order:
+        if location in fields(data):
+            ordered_peaks.append(getattr(data, location))
 
-    return template
+    return ordered_peaks
 
 ################################ Base Functions ############################
 #FUNCTION -> calc_assets
@@ -521,22 +524,22 @@ def calc_assets(wave:np.array, data:PeakInfo)-> list:
 
 #FUNCTION -> run_extract
 def run_template_extract(
-    input_signal:np.array, 
-    sampling_frequency:float,
-    template_signal:np.array,
-    template_annotations:list, #list?
-    template_rr,
-    tracking_points,
-    plot_steps, #bool
+    input_signal:np.array,         #Entire ECG
+    sampling_frequency:float,      #Samp freq
+    template_signal:np.array,      #Averaged signal
+    template_annotations:np.array, #List of R peaks from neurokit
+    template_rr:float,             #RR mean
+    tracking_points:list,          #List of template peaks/offsets
+    plot_steps:bool                #Whether to plot graph
     ):
 
     #Create object to fill in.
     data = PeakInfo
 
     #Load template data - Original
-    wave = input_signal
-    data.rr_means = template["rr_means"]
-    data.r_peaks = template["r_peaks"]
+    wave = template_signal
+    data.r_peaks = template_annotations
+    data.rr_means = template_rr
     data.fs = sampling_frequency
     
     #Isolate R-peak
@@ -550,9 +553,12 @@ def run_template_extract(
         raise ValueError("Too many R peaks discovered.\nChange parameters and run again")
     
     #Offload findings back to the template
-    template = dump_dataclass(data, template)
+    tracking_points = dump_dataclass(data)
+    confidences = calc_confidence(data)
+    #BUG - Need a way to calculate the confidences. 
 
-    return template
+    return tracking_points, confidences
+
 
 #FUNCTION -> main
 ################################# Main Function ####################################    
