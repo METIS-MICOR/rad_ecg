@@ -288,10 +288,7 @@ def load_graph_objects(datafile:str, outputf:str):
             ax_freq.set_title(f"Top 10 frequencies found in sect {sect:_d}", size=12)
 
         if "Spec" in kindofgraph:
-            for artist in fig.axes:
-                if artist._label == "<colorbar>":
-                    artist.remove()
-
+            remove_colorbar()
             _, specfreqs, _, _ = ax_freq.specgram(
                 wave[start_w:end_w].flatten(),
                 NFFT= int(np.mean(RR_diffs)),   
@@ -424,6 +421,8 @@ def load_graph_objects(datafile:str, outputf:str):
             interactive = True,
             button = 1
         )
+        remove_colorbar()
+
         
     # https://stackoverflow.com/questions/60445772/making-spanselector-wait-for-a-specific-keypress-event
         #Directions for wave search. 
@@ -439,6 +438,13 @@ def load_graph_objects(datafile:str, outputf:str):
                 #of how many matches were found.  
 
         #5. Export matrix profile with locations. 
+
+            
+    def remove_colorbar():
+        for artist in fig.axes:
+            if artist._label == "<colorbar>":
+                artist.remove()
+
     #FUNCTION Remove Axis
     def remove_axis(remove_vars:list):
         if isinstance(remove_vars, list):
@@ -499,7 +505,6 @@ def load_graph_objects(datafile:str, outputf:str):
             #When selecting various functions.
             #This is to make sure you remove the appropriate axis' before redrawing the main chart
             if configs["freq"] and check_axis("freq_list"):
-                #remove the mainplot
                 remove_axis(["freq_list", "ecg_small"])
                 configs["freq"] = False
                 update_plot(val)

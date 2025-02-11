@@ -13,9 +13,7 @@ from rich.progress import (
     SpinnerColumn,
     TextColumn,
     TimeRemainingColumn,
-    TimeElapsedColumn
-)
-
+    TimeElapsedColumn)
 from rich.console import Console
 from rich.logging import RichHandler
 import subprocess
