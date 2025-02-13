@@ -440,23 +440,6 @@ def plot_results(
     plt.show()
     plt.close()
 
-#FUNCTION -> export dataclass
-def dump_dataclass(data:PeakInfo):
-    order = ["P_onset", "P_peak", "P_offset", "R_onset", "Q_peak", 
-             "R_peak", "S_peak", "R_offset", "T_peak", "T_offset"]
-    ordered_peaks = []
-    for location in order:
-        if location in fields(data):
-            value = getattr(data, location)
-            if value:
-                ordered_peaks.append(value)
-            else:
-                ordered_peaks.append(np.nan)
-        else:
-            raise ValueError(f"{location} not in order")
-        
-    return ordered_peaks
-
 ################################ Base Functions ############################
 #FUNCTION -> calc_assets
 def calc_assets(wave:np.array, data:PeakInfo)-> list:
@@ -526,6 +509,23 @@ def calc_assets(wave:np.array, data:PeakInfo)-> list:
         
     return data
 
+#FUNCTION -> export dataclass
+def dump_dataclass(data:PeakInfo):
+    order = ["P_onset", "P_peak", "P_offset", "R_onset", "Q_peak", #switch R_onset for Q_onset
+             "R_peak", "S_peak", "R_offset", "T_peak", "T_offset"] #switch R_offset for J_point
+    ordered_peaks = []
+    for location in order:
+        if location in fields(data):
+            value = getattr(data, location)
+            if value:
+                ordered_peaks.append(value)
+            else:
+                ordered_peaks.append(np.nan)
+        else:
+            raise ValueError(f"{location} not in order")
+        
+    return ordered_peaks
+
 #FUNCTION -> calc confidences
 def calc_confidences(data:PeakInfo):
     pass
@@ -569,8 +569,6 @@ def run_template_extract(
     
 
     
-
-
 #FUNCTION -> main
 ################################# Main Function ####################################    
 # @log_time
