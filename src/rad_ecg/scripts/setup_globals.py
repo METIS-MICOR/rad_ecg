@@ -68,9 +68,9 @@ def load_chartdata(configs:dict, datafile:Path, logger:logging):
     inputdirs = os.listdir(configs["data_path"])
     if datafile.name in inputdirs:
         idx = inputdirs.index(datafile.name)
-        input_path = configs["data_path"] + "//" + datafile.name + "//" + inputdirs[idx]
+        input_path = PurePath(Path(configs["data_path"]), Path(datafile.name), Path(inputdirs[idx]))
         record = load_signal_data(input_path)
-    else:
+    else: 
         logger.warning(f"Input data for {datafile.name} not found")
         logger.warning("Make sure base waveform data is stored in the data/input folder")
         exit()

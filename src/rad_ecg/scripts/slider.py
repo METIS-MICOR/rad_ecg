@@ -707,6 +707,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ]
     ax_ecg.legend(handles=legend_elements, loc='upper left')
     plt.show()
+    
     #Print failures table
     failures = Counter(ecg_data['section_info']['fail_reason'])
     table = make_rich_table(failures)
