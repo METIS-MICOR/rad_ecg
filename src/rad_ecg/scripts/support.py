@@ -129,11 +129,6 @@ def mainspinner(console:Console, totalstops:int):
         jobtask (int): mainjob id for ecg extraction
     """
 
-    #BUG - MPL and Rich
-        #There seems to be an error when using the plotfft or plot_errors tags
-        #in the config file.  The progress bar seems to freeze which... 
-        #makes me think I might not be able to use it.  
-        
     my_progress_bar = Progress(
         TextColumn("{task.description}"),
         SpinnerColumn("aesthetic"),
@@ -185,6 +180,8 @@ class NumpyArrayEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, dict):
+            return obj.__dict__
         elif isinstance(obj, str):
             return str(obj)
         elif isinstance(obj, datetime.datetime):
@@ -204,36 +201,42 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     camname = configs["cam_name"]
     configs["last_run"] = current_date
     for x in ["peaks", "interior_peaks", "section_info"]:
-        #BUG Wrap this in a try block, just in case
         file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
         if x == "section_info":
             save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
         else:
             save_format = '%i, '*ecg_data[x].shape[1]
-
-        np.savetxt(
-            fname = file_path,
-            X = ecg_data[x], 
-            fmt = save_format,
-            delimiter=',',
-        )
-        logger.warning(f"Saved {x} to {file_path}")
-        
-        if tobucket:
-            gcp_path  = file_path[file_path.index(f"{current_date}"):]
-            bucket_name = configs["bucket_name"]
-            destination_gcp = f'gs://{bucket_name}/results/{camname}/{gcp_path}'
-            gsutil_command = ['gsutil', 'cp', file_path, destination_gcp]
-            try:
-                subprocess.run(gsutil_command, check=True)
-                logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
-            #Trapping FNF error specifically
-            except FileNotFoundError as e:
-                logger.warning(f"FileNotFound:\n{e}")
-                raise e
-            except Exception as e:
-                logger.warning(f"Exception:\n{e}\nType:{type(e)}")
-                raise e
+        try:
+            np.savetxt(
+                fname = file_path,
+                X = ecg_data[x], 
+                fmt = save_format,
+                delimiter=',',
+            )
+            logger.warning(f"Saved {x} to {file_path}")
+            
+            if tobucket:
+                gcp_path  = file_path[file_path.index(f"{current_date}"):]
+                bucket_name = configs["bucket_name"]
+                destination_gcp = f'gs://{bucket_name}/results/{camname}/{gcp_path}'
+                gsutil_command = ['gsutil', 'cp', file_path, destination_gcp]
+                try:
+                    subprocess.run(gsutil_command, check=True)
+                    logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
+                #Trapping FNF error specifically
+                except FileNotFoundError as e:
+                    logger.warning(f"FileNotFound:\n{e}")
+                    raise e
+                except Exception as e:
+                    logger.warning(f"Exception:\n{e}\nType:{type(e)}")
+                    raise e
+                
+        except FileNotFoundError as e:
+            logger.warning(f"{x}.csv file saving error {e}")
+            raise e
+        except Exception as e:
+            logger.warning(f"a general error has occured {e}")
+            raise e
 
     #Save configs
     save_configs(configs, "./src/rad_ecg/config.json")

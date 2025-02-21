@@ -532,12 +532,12 @@ def calc_confidences(data:PeakInfo):
 
 #FUNCTION -> run_extract
 def run_template_extract(
-    input_signal:np.array,         #Entire ECG
-    sampling_frequency:float,      #Samp freq
-    template_signal:np.array,      #Averaged signal
+    input_signal        :np.array, #Entire ECG
+    sampling_frequency  :float,    #Samp freq
+    template_signal     :np.array, #Averaged signal
     template_annotations:np.array, #List of R peaks from neurokit
-    template_rr:float,             #RR mean
-    tracking_points:list,          #List of template peaks/offsets
+    template_rr         :float,    #RR mean
+    tracking_points     :list,     #List of template peaks/offsets
     plot_steps:bool                #Whether to plot graph
     ):
 
@@ -560,8 +560,8 @@ def run_template_extract(
         data = calc_assets(wave, data)
         #Offload findings back to the template
         tracking_points = dump_dataclass(data)
-        confidences = calc_confidence(data)
         #BUG - Need a way to calculate the confidences. 
+        confidences = calc_confidence(data)
         return tracking_points, confidences
     
     else:
@@ -597,10 +597,3 @@ def run_template_extract(
 # if __name__ == '__main__':
 #     main()
             
-#TODO - Update main.py to Paolo iteration loop
-    # This main function needs a singular call to update one template at a time and not a list of templates. 
-        #Preferred inputs are in secret/inputs-for-paolo
-    # For delineation confidence,
-    #  we're looking at average std deviation of a segment measurment.  Easy
-    #  enough to pull from detector as its just the std dev for the template
-    #  section in the interior_peaks object.
