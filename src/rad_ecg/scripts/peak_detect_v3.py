@@ -18,250 +18,6 @@ from collections import deque
 from time import strftime
 from support import logger, console, DATE_JSON, log_time
 
-# @log_time
-# FUNCTION consecutive valid peaks
-def consecutive_valid_peaks(R_peaks:np.array, lookback:int=3500):
-    """Historical Data search function.  Scans back in time until it finds the lookback amount of continuous
-    validated R peaks.  
-
-    Args:
-        R_peaks (np.array): Array of the R peaks that have already been found
-        lookback (int): How long you want to lookback to find a consecutive chunk of validated R peaks
-    Returns:
-        last_keys : The last keys where all R peaks were valid for 20 seconds. 
-    """
-    arr = R_peaks[::-1].copy()
-    counts = []
-    for i in range(arr.shape[0]):
-        is_last = i + 1 >= arr.shape[0]
-        if arr[i, 1] == 1:
-            counts.append(i)
-        if is_last or arr[i, 1] == 0:
-            if is_last:
-                logger.critical(f'Unable to find valid peak window ')
-                return False
-            else:
-                counts = []
-        elif (arr[counts[0], 0] - arr[counts[-1], 0] > lookback):
-            logger.info(f'QRS lookback range {arr[counts[-1], 0]} to {arr[counts[0], 0]} at length {len(counts)}')
-            return arr[counts][::-1, 0]
-
-# FUNCTION STFT
-def STFT(
-    new_peaks_arr:np.array,
-    peak_info:np.array, 
-    rolled_med:np.array, 
-    st_fn:tuple, 
-    plot_fft:bool=False, 
-    *args
-):
-    """Takes in the new peaks found by scipy find_peaks.  Performs a STFT on
-    each of the Rpeak to Rpeak sections to look for high frequency noise. If the
-    STFT comes back with mostly low frequency data, the routine marks the peak
-    valid in the ecg_data['peaks'] container.
-
-    Rejects individual R_R sections
-
-    Args:
-        new_peaks_arr (np.array): Array of new peaks to be checked
-        peak_info (np.array): Peak height and prominence information
-        rolled_med (np.array): Rolling median of the new peaks array
-        st_fn (tuple): section, start and finish point.  
-        plot_fft (bool, optional): Whether to plot FFT. Defaults to False.
-
-    Returns:
-        T/F, new_peaks_arr (boolean, np.array): Returns the boolean of whether 
-        the wave chunks is valid.  As well as the new peaks array with the
-        updated peak validity.
-    """	
-    # Set globals 
-    global ecg_data, wave, fs
-
-    bad_sect_counter = 0
-    Rpeak_deque = deque(new_peaks_arr[:, 0])
-    currsect = st_fn[0]
-    start_point = st_fn[1]
-    end_point = st_fn[2]
-
-    if len(args) != 0:
-        wave = args[0]
-        fs = args[1]
-
-    #new_peaks_arr[:, 1]
-    # 0 = invalid peak
-    # 1 = Valid peak
-    # validation mask is set to 1 to start.  Sets to zero when finds
-    # high freq data 
-
-    # Quick check to make sure we have enough peaks to analyze
-    if new_peaks_arr.size < 4:
-        logger.warning(f'Not enough peaks found for STFT')
-        new_peaks_arr[:, 1] = 0
-        return False, new_peaks_arr
-
-    while len(Rpeak_deque) > 1:
-        p0 = Rpeak_deque.popleft()
-        p1 = Rpeak_deque[0] + 1
-        samp = wave[p0:p1]
-        fft_samp = np.abs(rfft(samp))
-        freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
-        freqs = fft_samp[0:int(len(samp)/2)]
-        # thres=15
-        #TODO - Retest at 12 Hz to satisfy Pan Tompkins Comparison
-        thres = np.where(freq_list < 18)[0][-1]
-        outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
-
-        if outs.size >= 2:
-            bad_sect_counter += 1
-            new_peaks_arr[np.where(new_peaks_arr[:, 0]==p0)[0], 1] = 0
-        else:
-            new_peaks_arr[np.where(new_peaks_arr[:, 0]==p0)[0], 1] = 1
-            
-    if plot_fft:
-        ##################### FULL ECG ######################
-        fig = plt.figure(figsize=(10, 9))
-        grid = plt.GridSpec(2, 2, hspace=0.7, height_ratios=[1.5, 1])
-        ax_ecg = fig.add_subplot(grid[0, :2])
-        ax_freq = fig.add_subplot(grid[1, :1])
-        ax_spec = fig.add_subplot(grid[1, 1:2])
-        ax_ecg.plot(range(start_point, end_point), wave[start_point:end_point])
-        ax_ecg.plot(range(start_point, end_point), rolled_med.flatten())
-        ax_ecg.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red')
-        for peak in range(new_peaks_arr.shape[0] - 1):
-            if new_peaks_arr[peak, 1]==0:
-                band_color = 'red'
-            else:
-                band_color = 'lightgreen'
-            rect = Rectangle(
-                xy=(new_peaks_arr[peak, 0], 0), 
-                width=new_peaks_arr[peak+1, 0]-new_peaks_arr[peak, 0], 
-                height=np.max(wave[new_peaks_arr[peak, 0]:new_peaks_arr[peak+1, 0]]), 
-                facecolor=band_color,
-                edgecolor="grey",
-                alpha=0.7)
-            ax_ecg.add_patch(rect)
-
-        ax_ecg.set_title(f'Full ECG waveform for section {currsect} indices {start_point}:{end_point}') 
-        ax_ecg.set_xlabel("Timesteps")
-        ax_ecg.set_ylabel("ECG mV")			
-        ax_ecg.legend(['Full ECG', 'Rolling Median', 'R peaks'])
-        ax_ecg.set_xticks(ax_ecg.get_xticks(), labels = utils.label_formatter(ax_ecg.get_xticks()) , rotation=-30)
-
-        # Frequency stem plot
-        # Initially graphs the last R to R range in the section. 
-        ##################### FFT ######################
-        p0 = new_peaks_arr[-2, 0]
-        p1 = new_peaks_arr[-1, 0]
-        samp = wave[p0:p1]
-        fft_samp = np.abs(rfft(samp))
-        freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
-        freqs = fft_samp[0:int(len(samp)/2)]
-        # thres = 15
-        thres = np.where(freq_list < 18)[0][-1]
-        outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
-        ax_freq.stem(freqs)
-        ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
-        ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
-        ax_freq.set_xlabel("Freq (Hz)")
-        ax_freq.set_ylabel("Power")
-        ax_freq.legend([f'first {thres} freq mean', 'Frequencies in Hz'])
-        ax_freq.scatter(outs+thres, fft_samp[thres:int(len(samp)/2)][outs], marker='o', color='red', s=80)
-
-        #arrow patch
-        mid = p0 + (p1 - p0)//2 
-
-        ##################### Spectogram ######################
-        ax_spec.specgram(
-            wave[start_point:end_point].flatten(),
-            NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
-            detrend="linear",
-            noverlap = 10,
-            Fs=fs
-        )
-
-        ax_spec.set_xlabel("Time (sec)")
-        ax_spec.set_ylabel("Freq, Hz")
-        ax_spec.set_title(f'Spectogram for peaks {new_peaks_arr[0,0]}:{new_peaks_arr[-1,0]}')
-
-        def onSpacebar(event):
-            """When scanning ECG's, hit the spacebar if keep the chart from closing. 
-
-            Args:
-                event (_type_): accepts the key event.  In this case its looking for the spacebar.
-            """	
-            if event.key == " ": 
-                timer_error.stop()
-                timer_error.remove_callback(timer_cid)
-                logger.warning(f'Timer stopped')
-
-        def onClick(event):
-            def get_rects():
-                rects = [i for i in ax_ecg.patches if isinstance(i, Rectangle)]
-                return rects
-        
-            def clear_freq_cht():
-                #clear all the data
-                ax_freq.cla()
-
-            def redraw_freq(p0:int, p1:int):
-                logger.warning(f'redrawing freq')
-                samp = wave[p0:p1]
-                fft_samp = np.abs(rfft(samp))
-                freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
-                freqs = fft_samp[0:int(len(samp)/2)]
-                # thres = 15
-                thres = np.where(freq_list < 18)[0][-1]
-                outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
-                ax_freq.stem(freqs)
-                ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
-                ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
-                ax_freq.set_xlabel("Freq (Hz)")
-                ax_freq.set_ylabel("Power")
-                ax_freq.legend([f'first {thres} freq mean', 'Frequencies in Hz'])
-                ax_freq.scatter(outs+thres, fft_samp[thres:int(len(samp)/2)][outs], marker='o', color='red', s=80)
-                
-            def redraw_spec(p0:int, p1:int):
-                logger.warning(f'redrawing spec')
-                ax_spec.specgram(
-                        wave[start_point:end_point].flatten(),
-                        NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
-                        noverlap = 10,
-                        Fs=fs)
-                ax_spec.set_xlabel("Time (sec)")
-                ax_spec.set_ylabel("Freq, Hz")
-                ax_spec.set_title(f'Spectogram for peaks {new_peaks_arr[0,0]}:{new_peaks_arr[-1,0]}')
-
-            if event.inaxes == ax_ecg:
-                rect_locs = get_rects()
-                for x, rect in enumerate(rect_locs):
-                    cont, ind = rect.contains(event)
-                    if cont:
-                        p0 = rect_locs[x]._x0
-                        p1 = p0 + rect_locs[x]._width
-                        clear_freq_cht()
-                        redraw_freq(p0, p1)
-                        #? Need redraw spect as well?
-                        fig.canvas.draw_idle()
-
-        a = 3000
-        b = 450 
-
-        fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
-        click_control = fig.canvas.mpl_connect("button_press_event", onClick)
-        spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-        timer_error = fig.canvas.new_timer(interval = 3000)
-        timer_error.single_shot = True
-        timer_cid = timer_error.add_callback(plt.close, fig)
-        timer_error.start()
-        plt.show()
-        plt.close()
-
-    # If more than 25% of the R to R FFT's are bad, mark the section rejected.
-    if bad_sect_counter >= (round(0.25 * new_peaks_arr.shape[0])):
-        logger.warning(f'Found {bad_sect_counter} bad sections out of {new_peaks_arr[:, 0].shape[0]} in section:{currsect}')
-        return False, new_peaks_arr
-    else:
-        return True, new_peaks_arr
 
 # FUNCTION section stats
 def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
@@ -308,6 +64,34 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             PNN50 = np.nan
 
         return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50)
+
+# @log_time
+# FUNCTION consecutive valid peaks
+def consecutive_valid_peaks(R_peaks:np.array, lookback:int=3500):
+    """Historical Data search function.  Scans back in time until it finds the lookback amount of continuous
+    validated R peaks.  
+
+    Args:
+        R_peaks (np.array): Array of the R peaks that have already been found
+        lookback (int): How long you want to lookback to find a consecutive chunk of validated R peaks
+    Returns:
+        last_keys : The last keys where all R peaks were valid for 20 seconds. 
+    """
+    arr = R_peaks[::-1].copy()
+    counts = []
+    for i in range(arr.shape[0]):
+        is_last = i + 1 >= arr.shape[0]
+        if arr[i, 1] == 1:
+            counts.append(i)
+        if is_last or arr[i, 1] == 0:
+            if is_last:
+                logger.critical(f'Unable to find valid peak window ')
+                return False
+            else:
+                counts = []
+        elif (arr[counts[0], 0] - arr[counts[-1], 0] > lookback):
+            logger.info(f'QRS lookback range {arr[counts[-1], 0]} to {arr[counts[0], 0]} at length {len(counts)}')
+            return arr[counts][::-1, 0]
 
 # FUNCTION peak validation check
 # @log_time
@@ -744,6 +528,223 @@ def peak_validation_check(
     
     return sect_valid, new_peaks_arr, low_counts, IQR_low_thresh
 
+# FUNCTION STFT
+def STFT(
+    new_peaks_arr:np.array,
+    peak_info:np.array, 
+    rolled_med:np.array, 
+    st_fn:tuple, 
+    plot_fft:bool=False, 
+    *args
+):
+    """Takes in the new peaks found by scipy find_peaks.  Performs a STFT on
+    each of the Rpeak to Rpeak sections to look for high frequency noise. If the
+    STFT comes back with mostly low frequency data, the routine marks the peak
+    valid in the ecg_data['peaks'] container.
+
+    Rejects individual R_R sections
+
+    Args:
+        new_peaks_arr (np.array): Array of new peaks to be checked
+        peak_info (np.array): Peak height and prominence information
+        rolled_med (np.array): Rolling median of the new peaks array
+        st_fn (tuple): section, start and finish point.  
+        plot_fft (bool, optional): Whether to plot FFT. Defaults to False.
+
+    Returns:
+        T/F, new_peaks_arr (boolean, np.array): Returns the boolean of whether 
+        the wave chunks is valid.  As well as the new peaks array with the
+        updated peak validity.
+    """	
+    # Set globals 
+    global ecg_data, wave, fs
+
+    bad_sect_counter = 0
+    Rpeak_deque = deque(new_peaks_arr[:, 0])
+    currsect = st_fn[0]
+    start_point = st_fn[1]
+    end_point = st_fn[2]
+
+    if len(args) != 0:
+        wave = args[0]
+        fs = args[1]
+
+    #new_peaks_arr[:, 1]
+    # 0 = invalid peak
+    # 1 = Valid peak
+    # validation mask is set to 1 to start.  Sets to zero when finds
+    # high freq data 
+
+    # Quick check to make sure we have enough peaks to analyze
+    if new_peaks_arr.size < 4:
+        logger.warning(f'Not enough peaks found for STFT')
+        new_peaks_arr[:, 1] = 0
+        return False, new_peaks_arr
+
+    while len(Rpeak_deque) > 1:
+        p0 = Rpeak_deque.popleft()
+        p1 = Rpeak_deque[0] + 1
+        samp = wave[p0:p1]
+        fft_samp = np.abs(rfft(samp))
+        freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
+        freqs = fft_samp[0:int(len(samp)/2)]
+        # thres=15
+        #TODO - Retest at 12 Hz to satisfy Pan Tompkins Comparison
+        thres = np.where(freq_list < 18)[0][-1]
+        outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
+
+        if outs.size >= 2:
+            bad_sect_counter += 1
+            new_peaks_arr[np.where(new_peaks_arr[:, 0]==p0)[0], 1] = 0
+        else:
+            new_peaks_arr[np.where(new_peaks_arr[:, 0]==p0)[0], 1] = 1
+            
+    if plot_fft:
+        ##################### FULL ECG ######################
+        fig = plt.figure(figsize=(10, 9))
+        grid = plt.GridSpec(2, 2, hspace=0.7, height_ratios=[1.5, 1])
+        ax_ecg = fig.add_subplot(grid[0, :2])
+        ax_freq = fig.add_subplot(grid[1, :1])
+        ax_spec = fig.add_subplot(grid[1, 1:2])
+        ax_ecg.plot(range(start_point, end_point), wave[start_point:end_point])
+        ax_ecg.plot(range(start_point, end_point), rolled_med.flatten())
+        ax_ecg.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red')
+        for peak in range(new_peaks_arr.shape[0] - 1):
+            if new_peaks_arr[peak, 1]==0:
+                band_color = 'red'
+            else:
+                band_color = 'lightgreen'
+            rect = Rectangle(
+                xy=(new_peaks_arr[peak, 0], 0), 
+                width=new_peaks_arr[peak+1, 0]-new_peaks_arr[peak, 0], 
+                height=np.max(wave[new_peaks_arr[peak, 0]:new_peaks_arr[peak+1, 0]]), 
+                facecolor=band_color,
+                edgecolor="grey",
+                alpha=0.7)
+            ax_ecg.add_patch(rect)
+
+        ax_ecg.set_title(f'Full ECG waveform for section {currsect} indices {start_point}:{end_point}') 
+        ax_ecg.set_xlabel("Timesteps")
+        ax_ecg.set_ylabel("ECG mV")			
+        ax_ecg.legend(['Full ECG', 'Rolling Median', 'R peaks'])
+        ax_ecg.set_xticks(ax_ecg.get_xticks(), labels = utils.label_formatter(ax_ecg.get_xticks()) , rotation=-30)
+
+        # Frequency stem plot
+        # Initially graphs the last R to R range in the section. 
+        ##################### FFT ######################
+        p0 = new_peaks_arr[-2, 0]
+        p1 = new_peaks_arr[-1, 0]
+        samp = wave[p0:p1]
+        fft_samp = np.abs(rfft(samp))
+        freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
+        freqs = fft_samp[0:int(len(samp)/2)]
+        # thres = 15
+        thres = np.where(freq_list < 18)[0][-1]
+        outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
+        ax_freq.stem(freqs)
+        ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
+        ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
+        ax_freq.set_xlabel("Freq (Hz)")
+        ax_freq.set_ylabel("Power")
+        ax_freq.legend([f'first {thres} freq mean', 'Frequencies in Hz'])
+        ax_freq.scatter(outs+thres, fft_samp[thres:int(len(samp)/2)][outs], marker='o', color='red', s=80)
+
+        #arrow patch
+        mid = p0 + (p1 - p0)//2 
+
+        ##################### Spectogram ######################
+        ax_spec.specgram(
+            wave[start_point:end_point].flatten(),
+            NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
+            detrend="linear",
+            noverlap = 10,
+            Fs=fs
+        )
+
+        ax_spec.set_xlabel("Time (sec)")
+        ax_spec.set_ylabel("Freq, Hz")
+        ax_spec.set_title(f'Spectogram for peaks {new_peaks_arr[0,0]}:{new_peaks_arr[-1,0]}')
+
+        def onSpacebar(event):
+            """When scanning ECG's, hit the spacebar if keep the chart from closing. 
+
+            Args:
+                event (_type_): accepts the key event.  In this case its looking for the spacebar.
+            """	
+            if event.key == " ": 
+                timer_error.stop()
+                timer_error.remove_callback(timer_cid)
+                logger.warning(f'Timer stopped')
+
+        def onClick(event):
+            def get_rects():
+                rects = [i for i in ax_ecg.patches if isinstance(i, Rectangle)]
+                return rects
+        
+            def clear_freq_cht():
+                #clear all the data
+                ax_freq.cla()
+
+            def redraw_freq(p0:int, p1:int):
+                logger.warning(f'redrawing freq')
+                samp = wave[p0:p1]
+                fft_samp = np.abs(rfft(samp))
+                freq_list = np.fft.rfftfreq(len(samp), d=1/fs) #fs is sampling rate
+                freqs = fft_samp[0:int(len(samp)/2)]
+                # thres = 15
+                thres = np.where(freq_list < 18)[0][-1]
+                outs = np.where(fft_samp[thres:int(len(samp)/2)] > fft_samp[0:thres].mean())[0]
+                ax_freq.stem(freqs)
+                ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
+                ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
+                ax_freq.set_xlabel("Freq (Hz)")
+                ax_freq.set_ylabel("Power")
+                ax_freq.legend([f'first {thres} freq mean', 'Frequencies in Hz'])
+                ax_freq.scatter(outs+thres, fft_samp[thres:int(len(samp)/2)][outs], marker='o', color='red', s=80)
+                
+            def redraw_spec(p0:int, p1:int):
+                logger.warning(f'redrawing spec')
+                ax_spec.specgram(
+                        wave[start_point:end_point].flatten(),
+                        NFFT= int(np.mean(np.diff(new_peaks_arr[:, 0]))),
+                        noverlap = 10,
+                        Fs=fs)
+                ax_spec.set_xlabel("Time (sec)")
+                ax_spec.set_ylabel("Freq, Hz")
+                ax_spec.set_title(f'Spectogram for peaks {new_peaks_arr[0,0]}:{new_peaks_arr[-1,0]}')
+
+            if event.inaxes == ax_ecg:
+                rect_locs = get_rects()
+                for x, rect in enumerate(rect_locs):
+                    cont, ind = rect.contains(event)
+                    if cont:
+                        p0 = rect_locs[x]._x0
+                        p1 = p0 + rect_locs[x]._width
+                        clear_freq_cht()
+                        redraw_freq(p0, p1)
+                        #? Need redraw spect as well?
+                        fig.canvas.draw_idle()
+
+        a = 3000
+        b = 450 
+
+        fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
+        click_control = fig.canvas.mpl_connect("button_press_event", onClick)
+        spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+        timer_error = fig.canvas.new_timer(interval = 3000)
+        timer_error.single_shot = True
+        timer_cid = timer_error.add_callback(plt.close, fig)
+        timer_error.start()
+        plt.show()
+        plt.close()
+
+    # If more than 25% of the R to R FFT's are bad, mark the section rejected.
+    if bad_sect_counter >= (round(0.25 * new_peaks_arr.shape[0])):
+        logger.warning(f'Found {bad_sect_counter} bad sections out of {new_peaks_arr[:, 0].shape[0]} in section:{currsect}')
+        return False, new_peaks_arr
+    else:
+        return True, new_peaks_arr
+
 # FUNCTION extract PQRST
 def extract_PQRST(
     st_fn:tuple, 
@@ -1119,7 +1120,6 @@ def extract_PQRST(
         temp_counter += 1
 
     return temp_arr
-
 
 # FUNCTION main peak search
 @log_time

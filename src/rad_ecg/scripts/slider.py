@@ -176,7 +176,6 @@ def load_graph_objects(datafile:str, outputf:str):
 
     # FUNCTION Create Overlay plot
     def overlay_r_peaks(main_p:bool=False):
-        
         reformat_axis()
         inner_grid = gridspec.GridSpecFromSubplotSpec(1, 2, gs[0, :2])
         global ax_ecg
@@ -707,7 +706,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ]
     ax_ecg.legend(handles=legend_elements, loc='upper left')
     plt.show()
-    
+
     #Print failures table
     failures = Counter(ecg_data['section_info']['fail_reason'])
     table = make_rich_table(failures)
@@ -725,9 +724,8 @@ def main():
 
     datafile = setup_globals.launch_tui(configs)
     global wave, fs
-    wave, fs, outputf = setup_globals.load_chartdata(configs, datafile, logger)
+    wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     graph = load_graph_objects(datafile, outputf)
-    # summarize_run()
 
 if __name__ == "__main__":
     main()

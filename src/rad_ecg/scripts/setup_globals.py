@@ -64,7 +64,7 @@ def load_signal_data(hea_path:str):
     return record
 
 #FUNCTION Load Chart Data
-def load_chartdata(configs:dict, datafile:Path, logger:logging):
+def load_chart_data(configs:dict, datafile:Path, logger:logging):
     inputdirs = os.listdir(configs["data_path"])
     if datafile.name in inputdirs:
         idx = inputdirs.index(datafile.name)
