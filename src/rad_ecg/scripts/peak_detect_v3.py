@@ -1202,7 +1202,7 @@ def main_peak_search(
                 distance = round(fs*(0.200)) #Can't have a heart rate faster than 200ms
             )  
 
-            # Set the section validity to False
+            # Set the section validity to False to start
             sect_valid = False
 
             # If the first wave section hasn't been found.
@@ -1251,17 +1251,14 @@ def main_peak_search(
                         # Add the R peaks to the interior_peaks container. 
                         int_peaks[:, 2] = new_peaks_arr[:, 0]
                         ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
-                        
-                        # TODO extract PQRST and section stats?  
-                            # Not sure i can do that with no historical data
-
+   
                 # In either case advance the section counter forward and keep looking
                 # for the first sign of a signal
                 section_counter += 1
                 continue
 
             else:
-                # WAVE FOUND BELOW
+                #################################### WAVE FOUND BELOW #####################################
                 # Shift the start point to match the wave indices
                 R_peaks_shifted = R_peaks + start_p
 
@@ -1416,22 +1413,7 @@ def main_peak_search(
 
     return ecg_data
 
-# Save ECG data to file and send confirmation email that the run is done. 
-# FUNCTION send notification email
-def send_email(log_path:str):
-    if os.getcwd().endswith('scripts'):
-        pass
-    else:
-        with open(log_path, 'r') as f:
-            line = f.readlines()[-1:][0]
-            peak_search_runtime = line.split("|")[4].strip("")
-
-        support.send_run_email(peak_search_runtime)
-        logger.warning("Runtime email sent")
-        logger.warning(f"{peak_search_runtime}")
-
 # NOTE START PROGRAM
-
 def main():
     # Load data
     global configs

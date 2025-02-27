@@ -340,3 +340,13 @@ def send_run_email(run_time:str):
         server.login(sender_email, password)		
         server.sendmail(sender_email, receiver_email, message.as_string())
 
+# FUNCTION send notification email
+def send_email(log_path:str):
+# Save ECG data to file and send confirmation email that the run is done. 
+    with open(log_path, 'r') as f:
+        line = f.readlines()[-1:][0]
+        peak_search_runtime = line.split("|")[4].strip("")
+
+    send_run_email(peak_search_runtime)
+    logger.warning("Runtime email sent")
+    logger.warning(f"{peak_search_runtime}")
