@@ -197,6 +197,8 @@ def u_wave_present() -> bool:
         
     #2.Signchanges
         #possibly look at sign changes in the post T peak area
+    
+    #3. Could use rolling median to approximate longer sign changes
 
 #FUNCTION -> T_regress
 def calc_T_regress(wave:np.array, T_peak:int, T_offset:int) -> int:
@@ -244,13 +246,9 @@ def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
     try:
         lil_wave = wave[slope_start:slope_end].flatten()
         lil_grads = np.gradient(lil_wave)
-        # shoulder = np.where(np.abs(lil_grads) <= np.mean(np.abs(lil_grads)))[0]
-        # np.argmax(lil_grads < threshold)
-        # shoulder[0] + 1  
-        # np.argmax(lil_grads)
-        # J_point = slope_start + shoulder[0]
         J_point = slope_start + np.argmin(lil_grads > threshold)
         logger.info(f"J point at {J_point}")
+
     except Exception as e:
         logger.warning(f'J point extraction Error = \n{e}')
         J_point = np.nan
@@ -282,8 +280,6 @@ def plot_results(
     """ 
     r_lb = r_bases[0]
     r_rb = r_bases[1]
-    # t_lb = t_bases[0]
-    # t_rb = t_bases[1]
 
     fig, ax = plt.subplots(ncols=1, nrows=1, figsize=(12, 8))
     ax.plot(range(wave.shape[0]), wave, label = "Template wave", color="black")
@@ -561,39 +557,14 @@ def run_template_extract(
         #Offload findings back to the template
         tracking_points = dump_dataclass(data)
         #BUG - Need a way to calculate the confidences. 
-        confidences = calc_confidence(data)
-        return tracking_points, confidences
+            #Current S&P software uses the neurokit std deviation for
+            #confidence. Being that this script only measures the averaged
+            #template, we won't have access to that information without running
+            #our own peak detection software.  Which we won't know if it matches
+            #up with neurokit's methodology for peak extraction. 
+            
+        # confidences = calc_confidence(data)
+        return tracking_points #, confidences
     
     else:
         raise ValueError("Too many R peaks discovered.\nChange parameters and run again")
-    
-
-    
-#FUNCTION -> main
-################################# Main Function ####################################    
-# @log_time
-# def main():
-#     #Path Setup
-#     run_date = datetime.now().strftime("%m-%d-%YT%H:%M:%S")
-#     fp = PurePath(Path.cwd(), Path(f"./data/original/adaptive_switched_v2.pickle"))
-
-#     # Load S&P Data
-#     if exists(fp):
-#         templates = support.pickle_load(fp)
-#         logger.info("Pickle data loaded")
-#     else:
-#         templates = []
-#         logger.warning("No historical data found")
-
-#     #Run extraction
-#     tp = run_template_extract(templates, PeakInfo)
-    
-#     #If data found, save it, otherwise log an error
-#     if tp:
-#         support.pickle_data(tp, "results")
-#     else:
-#         logger.warning("Retrieval malfunction.  Check logs")
-
-# if __name__ == '__main__':
-#     main()
-            
