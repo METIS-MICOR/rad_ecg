@@ -22,7 +22,7 @@ class PeakInfo():
     peaks_t:dict # dict of t_peak finds
     r_peaks:list # list of r peak indexes
     isoelectric:float
-    rr_means:float
+    rr_mean:float
     PR:float
     QRS:float
     ST:float
@@ -47,11 +47,15 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
         float: _description_
     """    
 
-    #Isolate P peaks at lower threshold.  Start by grabbing the Q peak.  Search for the P peaks at a lower threshold
+    #Isolate P peaks at lower threshold.  Start by grabbing the Q peak.  Search
+    #for the P peaks at a lower threshold
     data.Q_peak = data.peaks_r[1]["left_bases"].item()
     data.peaks_p = pull_other_peak(wave[:data.Q_peak].flatten(), data)
-    #Sometimes findpeaks returns more peaks than you expect for the P peak. (i think due to the mix of pos / negative numbers)
-    #this will ensure only the tallest peak get pulled back for P
+    
+    #Sometimes findpeaks returns more peaks than you expect for the P peak. (i
+    #think due to the mix of pos / negative numbers) this will ensure only the
+    #tallest peak get pulled back for P
+
     if data.peaks_p[0].shape[0] > 1:
         tallest = np.argsort(data.peaks_p[1]["peak_heights"])[::-1][0]
         data.P_peak = data.peaks_p[0][tallest].item()
@@ -76,6 +80,7 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
         lil_grads = np.gradient(np.gradient(lil_wave))
         shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
         data.Q_onset = slope_start + shoulder[0] + 1
+
     except Exception as e:
         logger.warning(f'Q onset extraction Error = \n{e}')
 
@@ -525,6 +530,12 @@ def dump_dataclass(data:PeakInfo):
 #FUNCTION -> calc confidences
 def calc_confidences(data:PeakInfo):
     pass
+    #BUG - Need a way to calculate the confidences. 
+        #Current S&P software uses the neurokit std deviation for
+        #confidence. Being that this script only measures the averaged
+        #template, we won't have access to that information without running
+        #our own peak detection software.  Which we won't know if it matches
+        #up with neurokit's methodology for peak extraction. 
 
 #FUNCTION -> run_extract
 def run_template_extract(
@@ -543,7 +554,7 @@ def run_template_extract(
     #Load template data - Original
     wave = template_signal
     data.r_peaks = template_annotations
-    data.rr_means = template_rr
+    data.rr_mean = template_rr
     data.fs = sampling_frequency
     data.plot_search = False
     
@@ -556,13 +567,6 @@ def run_template_extract(
         data = calc_assets(wave, data)
         #Offload findings back to the template
         tracking_points = dump_dataclass(data)
-        #BUG - Need a way to calculate the confidences. 
-            #Current S&P software uses the neurokit std deviation for
-            #confidence. Being that this script only measures the averaged
-            #template, we won't have access to that information without running
-            #our own peak detection software.  Which we won't know if it matches
-            #up with neurokit's methodology for peak extraction. 
-            
         # confidences = calc_confidence(data)
         return tracking_points #, confidences
     
