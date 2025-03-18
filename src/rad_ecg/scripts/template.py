@@ -27,7 +27,7 @@ class PeakInfo():
     QRS:float
     ST:float
     QT:float
-    fs:float
+    fs:float    #sampling freq
     plot_search:bool=False
     Q_onset:int=np.nan
     J_point:int=np.nan
@@ -61,7 +61,6 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
         data.P_peak = data.peaks_p[0][tallest].item()
         data.P_onset = data.peaks_p[1]["left_bases"][tallest].item()
         #BUG - P_offset misbehaving.  Probably needs to switch to the acceleration method here with limited range. 
-            #Mainly due to the multiple sign changes in between the P peak and Q peak.
         data.P_offset = data.peaks_p[1]["right_bases"][tallest].item()
 
     else:
@@ -459,6 +458,7 @@ def calc_assets(wave:np.array, data:PeakInfo)-> list:
     #TODO - S peak update
         # Add logic here that uses acceleration method to validate S peak location off the R peak.  Some cases exist where the S peak depression might be reduced. 
         # Consider upsampling technique for consistent elbow extraction.  
+
     data.S_peak = data.peaks_r[1]["right_bases"].item()
     wave_sub = wave[data.S_peak:]
 
@@ -546,7 +546,23 @@ def run_template_extract(
     tracking_points     :list,     #List of template peaks/offsets
     plot_steps          :bool      #Whether to plot graph
     ):
+    """Main function for template extraction
 
+    Args:
+        input_signal (np.array): _description_
+        input_signal        (np.array) - Entire ECG
+        sampling_frequency  (float)    - Samping frequency
+        template_signal     (np.array) - Averaged signal
+        template_annotations(np.array) - List of R peaks from neurokit
+        template_rr         (float)    - RR mean
+        tracking_points     (list)     - List of template peaks/offsets
+        plot_steps          (bool)     - to plot graph
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     #Create object to fill in.
     data = PeakInfo
 
