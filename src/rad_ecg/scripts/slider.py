@@ -35,7 +35,7 @@ LABELDICT = {
     "P":(0, 7),
     "Q":(-11, -4),
     "R":(10, -4),
-    "S":(-5, -15),
+    "S":(-5, 15),
     "T":(0, 5),
     "P_on":(0, -10),
     "Q_on":(-11, -4),
@@ -726,7 +726,7 @@ def main():
     global wave, fs
     wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     graph = load_graph_objects(datafile, outputf)
-
+ 
 if __name__ == "__main__":
     main()
 

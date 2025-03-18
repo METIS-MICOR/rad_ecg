@@ -85,7 +85,6 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
         logger.warning(f'Q onset extraction Error = \n{e}')
 
     #Because we always graph to check
-    #TODO - Check this during final review
     # fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize=(12,6))
     # iso_area = wave[:data.P_onset]
     #TODO - Add vertical lines of the max min of the iso area.  At the T peak height
@@ -100,13 +99,14 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
 
 #FUNCTION -> pull_R_peak
 def pull_R_peak(wave:np.array)-> list:
-    """R peak isolation through scipy find peaks.
+    """R peak isolation through scipy find_peaks method.  The difference between the two 
+    #searches is the height and promienence parameter.  
 
     Args:
         wave (np.array): Input template
 
     Returns:
-        list: return from ss.find_peaks.  [0] is the peak index, [1] is the peak information
+        rpeaks (list): return from ss.find_peaks.  [0] is the peak index, [1] is the peak information
     """
     r_peaks = ss.find_peaks(
         wave.flatten(), 
@@ -117,13 +117,12 @@ def pull_R_peak(wave:np.array)-> list:
 
 #FUNCTION -> pull_other_peak
 def pull_other_peak(wavesect:np.array, data:PeakInfo)-> list:
-    """T or P peak isolation through scipy find peaks.
-
+    """T or P peak isolation through scipy find_peaks method.  
     Args:
         wave (np.array): Input template
 
     Returns:
-        list: return from ss.find_peaks.  [0] is the peak index, [1] is the peak information
+        other_peaks (list): return from ss.find_peaks.  [0] is the peak index, [1] is the peak information
     """
     other_peaks = ss.find_peaks(
         wavesect.flatten(), 
@@ -142,15 +141,15 @@ def pull_other_peak(wavesect:np.array, data:PeakInfo)-> list:
 
 #FUNCTION -> T_onset
 def calc_T_onset(wave:np.array, srch_width:int, T_info: tuple) -> int:
-    """_summary_
+    """Calculates T onset using fastest rate of change leading up to the T peak.
 
     Args:
-        wave (np.array): _description_
-        srch_width (int): _description_
-        T_info (tuple): _description_
+        wave (np.array): Averaged template
+        srch_width (int): How far we want to look back
+        T_info (tuple): Resulting tuple peak information
 
     Returns:
-        int: _description_
+        T_onset (int): Index of the T_onset location
     """    
     slope_start = T_info[0] - srch_width
     slope_end = T_info[0] + 1
@@ -165,12 +164,12 @@ def calc_T_onset(wave:np.array, srch_width:int, T_info: tuple) -> int:
 
 #FUNCTION -> T_offset
 def calc_T_offset(wave:np.array, srch_width:int, T_info: tuple) -> int:
-    """_summary_
+    """Calculates T offset using fastest rate of change following the T peak.
 
     Args:
-        wave (np.array): _description_
-        srch_width (int): _description_
-        T_info (tuple): _description_
+        wave (np.array): Averaged template.
+        srch_width (int): How far we want to look ahead
+        T_info (tuple): Resulting tuple peak information
 
     Returns:
         int: _description_
@@ -207,15 +206,15 @@ def u_wave_present() -> bool:
 
 #FUNCTION -> T_regress
 def calc_T_regress(wave:np.array, T_peak:int, T_offset:int) -> int:
-    """_summary_
+    """For secondary method of verifying T_offset within the plot function.  This method calculates the slope and intercept off the T peak.
 
     Args:
-        wave (np.array): _description_
-        T_peak (int): _description_
-        T_offset (int): _description_
+        wave (np.array): Averaged template
+        T_peak (int): Index of T peak
+        T_offset (int): Index of T offset
 
     Returns:
-        int: _description_
+        tuple (float, float, float): Linear coefficients
     """    
     slope_start = T_peak
     slope_end =  T_offset
@@ -259,6 +258,7 @@ def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
         J_point = np.nan
 
     return J_point 
+    #BUG - Looking for ways to improve this function as its.... currently prety basic. 
 
 ################################ Plotting / Exporting ############################
 
@@ -272,7 +272,7 @@ def plot_results(
     t_bases:tuple,
     r_bases:tuple,
     ):
-    """_summary_
+    """Plot the template indices
 
     Args:
         wave (np.array): _description_
@@ -534,9 +534,8 @@ def calc_confidences(data:PeakInfo):
         #Current S&P software uses the neurokit std deviation for
         #confidence. Being that this script only measures the averaged
         #template, we won't have access to that information without running
-        #our own peak detection software.  Which we won't know if it matches
-        #up with neurokit's methodology for peak extraction. 
-
+        #our own peak detection software.  
+        
 #FUNCTION -> run_extract
 def run_template_extract(
     input_signal        :np.array, #Entire ECG
@@ -545,7 +544,7 @@ def run_template_extract(
     template_annotations:np.array, #List of R peaks from neurokit
     template_rr         :float,    #RR mean
     tracking_points     :list,     #List of template peaks/offsets
-    plot_steps:bool                #Whether to plot graph
+    plot_steps          :bool      #Whether to plot graph
     ):
 
     #Create object to fill in.
