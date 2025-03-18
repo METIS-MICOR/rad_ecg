@@ -233,7 +233,7 @@ def calc_T_regress(wave:np.array, T_peak:int, T_offset:int) -> int:
 
 #FUNCTION -> J_point
 def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
-    """Calculates the J point of the ECG by focusing on the S peak to T onset range.  Extracting the point of greatest acceleration change which should signify a shoulder.
+    """Calculates the J point of the ECG by focusing on the S peak to T onset range.  This looks for when the slope approaches zero and identifies the first point that qualifies as the J point.
 
     Args:
         wave (np.array): Template to be examined
