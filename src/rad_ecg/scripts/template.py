@@ -203,6 +203,8 @@ def u_wave_present() -> bool:
     
     #3. Could use rolling median to approximate longer sign changes
 
+    #4. Stumpy matrix profile for u wave detection.
+        
 #FUNCTION -> T_regress
 def calc_T_regress(wave:np.array, T_peak:int, T_offset:int) -> int:
     """For secondary method of verifying T_offset within the plot function.  This method calculates the slope and intercept off the T peak.
@@ -244,7 +246,7 @@ def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
     """    
     #Grab Speak and T peak... or T onset
     slope_start = data.S_peak + 1
-    slope_end = slope_start + data.QRS*2 #int((data.T_onset - slope_start)*.40)
+    slope_end = slope_start + data.QRS*2
 
     try:
         lil_wave = wave[slope_start:slope_end].flatten()
@@ -257,7 +259,10 @@ def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
         J_point = np.nan
 
     return J_point 
-    #BUG - Looking for ways to improve this function as its.... currently prety basic. 
+    #BUG - Looking for ways to improve this function.  
+        #1. Use shorter examination window
+        #2. find_peaks_cwt?
+        
 
 ################################ Plotting / Exporting ############################
 
