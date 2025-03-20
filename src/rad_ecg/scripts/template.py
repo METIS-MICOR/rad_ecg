@@ -262,7 +262,8 @@ def calc_J_point(wave:np.array, data:PeakInfo, threshold:float=0.005):
     #BUG - Looking for ways to improve this function.  
         #1. Use shorter examination window
         #2. find_peaks_cwt?
-        
+        #3. Kneedle library for shoulder detection. 
+            #This might be the best ooption.
 
 ################################ Plotting / Exporting ############################
 
