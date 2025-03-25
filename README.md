@@ -176,6 +176,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
   - [x] Review T onset extraction
   - [ ] Add J point discovery (Means I'll need a base container change as well)
     - Use same logic as Q onset.
+      - Use kneedle for concave test, then extract knee if not on straight line
   - [x] Add overall progbar with standard log output
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
 
