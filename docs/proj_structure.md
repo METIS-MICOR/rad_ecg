@@ -101,3 +101,4 @@ Will be using poetry to package, so distribution will be cleaner.
 | 12| Q_onset       | idx  | int32 |
 | 13| T_onset       | idx  | int32 |
 | 14| T_offset      | idx  | int32 |
+| 15| J_point       | idx  | int32 |

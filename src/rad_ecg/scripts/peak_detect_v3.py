@@ -15,6 +15,7 @@ from scipy.fft import rfft, rfftfreq, irfft
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from collections import deque
+import kneed
 from time import strftime
 from support import logger, console, DATE_JSON, log_time
 
@@ -1015,7 +1016,7 @@ def extract_PQRST(
         # Get Q Shoulder
         # Early terminate if not all valid PQRST present.
         if temp_arr[temp_counter, 5]==0:
-            logger.info(f'Cannot process segment data for R peak {R_peak}')
+            logger.info(f'Missing PQST, cannot process R peak {R_peak}')
             temp_counter += 1
             continue
 
@@ -1026,6 +1027,7 @@ def extract_PQRST(
         T_peak = temp_arr[temp_counter, 4].item()
         
         # Setup shoulder containers. 
+        #BUG Should these be lists?  These are all ints??
         P_onset, Q_onset, T_onset, T_offset = [], [], [], []
         
         # Get the width of the QRS for later. 
@@ -1060,6 +1062,8 @@ def extract_PQRST(
 
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        # MEAS J point
+
 
         # MEAS QRS Complex
         #TODO - update this to J point
@@ -1103,6 +1107,7 @@ def extract_PQRST(
             T_offset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 14] = T_offset
             #logger.info(f'Adding T offset')
+
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         
@@ -1116,6 +1121,11 @@ def extract_PQRST(
             # Add QT interval.  
             temp_arr[temp_counter, 10] = int(1000*((T_offset - Q_onset)/fs))
 
+        #TODO - Extract J Point here.  
+        #TODO - Modify interior_peaks to accept J point location
+        #TODO - Add more J point related logic to test for straight line vs if a curve is present. 
+        
+        
         # Shift the counter
         temp_counter += 1
 
