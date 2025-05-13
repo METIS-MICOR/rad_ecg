@@ -1113,23 +1113,23 @@ def extract_PQRST(
 
         try:
             #test for linearity through RSME, Rsqured, and slope postive 
-            X = range(slope_start, slope_end)
+            X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
             residuals = y - y_preds
             rmse = np.sqrt(np.mean(residuals**2))
             gate1 = slope > 0
-            gate2 = r_value**2 > 0.95
-            gate3 = rmse > 3
+            gate2 = r_value**2 < 0.95
+            gate3 = rmse < 1
             #If all gates met, section is linear and do not extract Jpoint
-            if (gate1 & gate2 & gate3):
-                logger.info("Q to T linear, skipping Jpoint extraction")
-            else:
-                knee = KneeLocator(X, lil_wave, S=1.0, curve="concave", direction="increasing")
-                J_point = knee.elbow()
+            if all([gate1, gate2, gate3]):
+                knee = KneeLocator(X, y, S=1.0, curve="concave", direction="increasing")
+                J_point = knee.elbow
                 temp_arr[temp_counter, 15] = J_point
-                #logger.info(f'Adding J point')
+                logger.info(f'J point added')
+            else:
+                logger.info("S to T linear, skipping Jpoint extraction")
 
         except Exception as e:
             logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
