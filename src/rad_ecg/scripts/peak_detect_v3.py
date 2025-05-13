@@ -13,6 +13,7 @@ import scipy.signal as ss
 from scipy import stats
 from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
+from kneed import KneeLocator
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from collections import deque
@@ -1111,12 +1112,12 @@ def extract_PQRST(
         slope_end = T_peak + 1
 
         try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            #test for linearity through RSME. 
-            X = range(lil_wave.shape[0])
-            slope, intercept, r_value, _, _ = stats.linregress(X, lil_wave) #p_value, std_err
+            #test for linearity through RSME, Rsqured, and slope postive 
+            X = range(slope_start, slope_end)
+            y = wave[slope_start:slope_end].flatten()
+            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
-            residuals = lil_wave - y_preds
+            residuals = y - y_preds
             rmse = np.sqrt(np.mean(residuals**2))
             gate1 = slope > 0
             gate2 = r_value**2 > 0.95
@@ -1125,14 +1126,13 @@ def extract_PQRST(
             if (gate1 & gate2 & gate3):
                 logger.info("Q to T linear, skipping Jpoint extraction")
             else:
-                
+                knee = KneeLocator(X, lil_wave, S=1.0, curve="concave", direction="increasing")
+                J_point = knee.elbow()
                 temp_arr[temp_counter, 15] = J_point
-            # lil_grads = np.gradient(np.gradient(lil_wave))
-            # P_onset = slope_start + np.argmax(lil_grads)
-            #logger.info(f'Adding J point')
+                #logger.info(f'Adding J point')
 
         except Exception as e:
-            logger.warning(f'P Onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
         # MEAS QRS Complex
         #TODO - update this to J point instead of the S peak.
