@@ -10,6 +10,7 @@ import os
 import logging
 import numpy as np
 import scipy.signal as ss
+from scipy import stats
 from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
 import matplotlib.pyplot as plt
@@ -777,6 +778,22 @@ def extract_PQRST(
 
         """		
         return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
+
+    def curve_line_dist(point:tuple, coef:tuple)->float:
+        """This function calculates the distance from every point
+        in our manufactured line, to the curve.  We use this to determine
+        where the elbow of a curve is at its maximal.
+
+        Args:
+            point (tuple): _description_
+            coef (tuple): _description_
+
+        Returns:
+            float: _description_
+        """			
+        d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
+        
+        return d
     
     # Set Globals
     global ecg_data, wave
@@ -870,23 +887,7 @@ def extract_PQRST(
         y_vals = f(x_vals) #cubic splines
         # line coefficients from first point to last point.
         coeffs = np.polyfit((x_vals[0], x_vals[-1]), (y_vals[0], y_vals[-1]), 1) #first/last point in x_vals
-        y_plot = coeffs[0]*x_vals + coeffs[1]
-
-        def curve_line_dist(point:tuple, coef:tuple)->float:
-            """This function calculates the distance from every point
-            in our manufactured line, to the curve.  We use this to determine
-            where the elbow of a curve is at its maximal.
-
-            Args:
-                point (tuple): _description_
-                coef (tuple): _description_
-
-            Returns:
-                float: _description_
-            """			
-            d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
-            
-            return d
+        # y_plot = coeffs[0]*x_vals + coeffs[1]
 
         p_dist = []
 
@@ -974,7 +975,7 @@ def extract_PQRST(
             temp_arr[temp_counter, 4] = 0
 
         # MEAS P Peak 
-        try:    
+        try:
             RR_second_half = SQ_med_reduced[(SQ_med_reduced.shape[0]//2):]
             peak_P_find = ss.find_peaks(RR_second_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
@@ -1062,14 +1063,6 @@ def extract_PQRST(
 
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-        # MEAS J point
-
-
-        # MEAS QRS Complex
-        #TODO - update this to J point
-        # Add the QRS time in ms if both the onsets exist.
-        if Q_onset and S_peak:
-            temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
 
         # PR Interval   
         slope_start = P_peak - int(srch_width)
@@ -1080,6 +1073,7 @@ def extract_PQRST(
             P_onset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 11] = P_onset
             #logger.info(f'Adding P onset')
+
         except Exception as e:
             logger.warning(f'P Onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
         
@@ -1088,8 +1082,6 @@ def extract_PQRST(
             # Add PR interval in ms
             temp_arr[temp_counter, 7] = int(1000*((Q_onset - P_onset)/fs))
         
-        # ST segments are suppressed in this case as the higher heart rate obliterates them. 
-
         # MEAS T Offset
         slope_start = T_peak 
         slope_end = T_peak + int(srch_width*1.25)
@@ -1110,6 +1102,43 @@ def extract_PQRST(
 
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+
+        #TODO - Extract J Point here.  
+        #TODO - Add more J point related logic to test for straight line vs if a curve is present. 
+
+        # MEAS J point
+        slope_start = S_peak
+        slope_end = T_peak + 1
+
+        try:
+            lil_wave = wave[slope_start:slope_end].flatten()
+            #test for linearity through RSME. 
+            X = range(lil_wave.shape[0])
+            slope, intercept, r_value, _, _ = stats.linregress(X, lil_wave) #p_value, std_err
+            y_preds = slope * X + intercept
+            residuals = lil_wave - y_preds
+            rmse = np.sqrt(np.mean(residuals**2))
+            gate1 = slope > 0
+            gate2 = r_value**2 > 0.95
+            gate3 = rmse > 3
+            #If all gates met, section is linear and do not extract Jpoint
+            if (gate1 & gate2 & gate3):
+                logger.info("Q to T linear, skipping Jpoint extraction")
+            else:
+                
+                temp_arr[temp_counter, 15] = J_point
+            # lil_grads = np.gradient(np.gradient(lil_wave))
+            # P_onset = slope_start + np.argmax(lil_grads)
+            #logger.info(f'Adding J point')
+
+        except Exception as e:
+            logger.warning(f'P Onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+
+        # MEAS QRS Complex
+        #TODO - update this to J point instead of the S peak.
+        # Add the QRS time in ms if both the onsets exist.
+        if Q_onset and S_peak:
+            temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
         
         # MEAS ST Segment
         if T_onset:
@@ -1121,9 +1150,6 @@ def extract_PQRST(
             # Add QT interval.  
             temp_arr[temp_counter, 10] = int(1000*((T_offset - Q_onset)/fs))
 
-        #TODO - Extract J Point here.  
-        #TODO - Modify interior_peaks to accept J point location
-        #TODO - Add more J point related logic to test for straight line vs if a curve is present. 
         
         
         # Shift the counter
