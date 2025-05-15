@@ -1112,19 +1112,33 @@ def extract_PQRST(
         slope_end = T_peak + 1
 
         try:
-            #test for linearity through RSME, Rsqured, and slope postive 
+            #test for linearity through RSME, Rsquared, and slope postive 
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
             residuals = y - y_preds
             rmse = np.sqrt(np.mean(residuals**2))
+            #BUG - Start point
+                #I'm not isolating the correct start point 
+                #because the S peak is located on the descent from the R peak
+                #I need to run the algorithm from the start the ascent to the T peak.
+                #But, the current method also works very well for when the S peak is sharp.
+
+                #Solution:
+                    #run a difference, calculate the slope change?
+                    #Write a test that looks for elongated S peaks.  
+                        #Double dips
+                        #general U shape
+                        #
+
+
             gate1 = slope > 0
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
             #If all gates met, section is linear and do not extract Jpoint
             if all([gate1, gate2, gate3]):
-                knee = KneeLocator(X, y, S=1.0, curve="concave", direction="increasing")
+                knee = KneeLocator(X, y, curve="concave", direction="increasing")
                 J_point = knee.elbow
                 temp_arr[temp_counter, 15] = J_point
                 logger.info(f'J point added')
@@ -1150,8 +1164,6 @@ def extract_PQRST(
             # Add QT interval.  
             temp_arr[temp_counter, 10] = int(1000*((T_offset - Q_onset)/fs))
 
-        
-        
         # Shift the counter
         temp_counter += 1
 
