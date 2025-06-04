@@ -304,8 +304,8 @@ def peak_validation_check(
             plt.legend(loc="upper left")
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
             
-            a = 3000
-            b = 450 
+            a = 0#3000
+            b = 0#450 
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -390,8 +390,8 @@ def peak_validation_check(
                 plt.legend()
                 plt.title(f'Bad rolling median for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
                 ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-                a = 3000
-                b = 450 
+                a = 0#3000
+                b = 0#450 
                 fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
@@ -459,8 +459,8 @@ def peak_validation_check(
             plt.legend()
             plt.title(f'Bad peak height for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-            a = 3000
-            b = 450 
+            a = 0#3000
+            b = 0#450 
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -514,8 +514,8 @@ def peak_validation_check(
             plt.legend()
             plt.title(f'Bad peak sep for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-            a = 3000
-            b = 450
+            a = 0#3000
+            b = 0#450
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -728,8 +728,8 @@ def STFT(
                         #? Need redraw spect as well?
                         fig.canvas.draw_idle()
 
-        a = 3000
-        b = 450 
+        a = 0#3000
+        b = 0#450 
 
         fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
         click_control = fig.canvas.mpl_connect("button_press_event", onClick)
@@ -1126,17 +1126,13 @@ def extract_PQRST(
                 #But, the current method also works very well for when the S peak is sharp.
 
                 #Solution:
-                    #run a difference, calculate the slope change?
-                    #Write a test that looks for elongated S peaks.  
-                        #Double dips
-                        #general U shape
-                        #
-
-
-            gate1 = slope > 0
+                    #1. Start from S peak, find greatest positive slope change before the T peak
+                    #2. Calculate sign change??
+                    
+            gate1 = slope > 0           
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
-            #If all gates met, section is linear and do not extract Jpoint
+            #If all gates met, section is non-linear and extract Jpoint
             if all([gate1, gate2, gate3]):
                 knee = KneeLocator(X, y, curve="concave", direction="increasing")
                 J_point = knee.elbow
