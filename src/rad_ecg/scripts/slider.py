@@ -422,23 +422,6 @@ def load_graph_objects(datafile:str, outputf:str):
         )
         remove_colorbar()
 
-        
-    # https://stackoverflow.com/questions/60445772/making-spanselector-wait-for-a-specific-keypress-event
-        #Directions for wave search. 
-
-        #1. When selected, activate the span selector somehow. 
-        #2. Then ask in terminal if this is the correct wave form to search for. 
-        #3. Erase main plot, redraw mainplot as two subplots.  
-        #4. subplots
-            #Subplot 1
-                #-will be the selected waveform highlighed in its section. 
-            #Subplot 2
-                #-Will be an overlay of the query search.  With the count
-                #of how many matches were found.  
-
-        #5. Export matrix profile with locations. 
-
-            
     def remove_colorbar():
         for artist in fig.axes:
             if artist._label == "<colorbar>":
@@ -536,7 +519,7 @@ def load_graph_objects(datafile:str, outputf:str):
         elif val == 'Show R Valid':
             Rpeaks = ecg_data['peaks'][(ecg_data['peaks'][:, 0] >= start_w) & (ecg_data['peaks'][:, 0] <= end_w), :]
             for peak in range(Rpeaks.shape[0]):
-                if Rpeaks[peak, 1]==0:
+                if Rpeaks[peak, 1] == 0:
                     band_color = 'red'
                 else:
                     band_color = 'lightgreen'
@@ -547,7 +530,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 facecolor=band_color,
                 edgecolor="grey",
                 alpha=0.7)
-            ax_ecg.add_patch(rect)
+                ax_ecg.add_patch(rect)
 
         elif 'Frequency' in val:
             configs["freq"] = True

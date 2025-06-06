@@ -60,8 +60,8 @@ def estimate_iso(wave:np.array, data:PeakInfo) -> float:
         tallest = np.argsort(data.peaks_p[1]["peak_heights"])[::-1][0]
         data.P_peak = data.peaks_p[0][tallest].item()
         data.P_onset = data.peaks_p[1]["left_bases"][tallest].item()
-        #BUG - P_offset misbehaving.  Probably needs to switch to the acceleration method here with limited range. 
         data.P_offset = data.peaks_p[1]["right_bases"][tallest].item()
+        #BUG - P_offset misbehaving.  Probably needs to switch to the acceleration method here with limited range. 
 
     else:
         data.P_peak = data.peaks_p[0][0].item()

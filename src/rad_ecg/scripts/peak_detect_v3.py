@@ -21,7 +21,6 @@ import kneed
 from time import strftime
 from support import logger, console, DATE_JSON, log_time
 
-
 # FUNCTION section stats
 def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
     """This function calculates the time domain stats for a given section. 
@@ -400,7 +399,6 @@ def peak_validation_check(
                 timer_error.start()
                 plt.show()
                 plt.close()
-            
 
     Rpeak_roll_diff = wave[last_keys][:,0] - ecg_data['rolling_med'][last_keys]
     #lower_bound = Rpeak_roll_diff.mean() - np.std(Rpeak_roll_diff)*3
@@ -817,7 +815,7 @@ def extract_PQRST(
         peak1 = peak_que[0]
 
         # Assign the R peaks to the temp array.
-        temp_arr[temp_counter, 2]  = peak0
+        temp_arr[temp_counter, 2] = peak0
         temp_arr[temp_counter + 1, 2] = peak1
 
         # First we go through and find the difference between each point.
@@ -874,11 +872,9 @@ def extract_PQRST(
         # Grab left peak
         slope_start = peak0
         # Select first third of R to R distance
-        slope_end = peak0 + int((peak1  - peak0)//3) # np_inflections[0] + 1
-
+        slope_end = peak0 + int((peak1  - peak0)//3) 
         # subset that portion of the wave
         lil_wave = wave[slope_start:slope_end].flatten()
-
         # Cubic splining routine for upsampling. 
         y_ut = lil_wave
         x_ut = np.arange(slope_start, slope_end)
@@ -1001,10 +997,10 @@ def extract_PQRST(
             missing_peak = np.where(temp_arr[temp_counter, :5]==0)[0]
             missing_peaks = [peak_dict[x] for x in missing_peak]
             logger.warning(f"Missing peak for {missing_peaks} in section {st_fn[0]}")
-            
+
         # Advance temp_arr counter
         temp_counter += 1
-        logger.info(f'finished interior peak extraction between peaks {peak0} and {peak1}')
+        logger.debug(f'Peak extraction complete: peaks {peak0} and {peak1}')
     
     
     # NOTE Segment Data  Extraction
@@ -1090,7 +1086,7 @@ def extract_PQRST(
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-            # TODO - Update TOffset heirarchy.
+            # TODO - Update TOffset heirarchy with s&p script
                 # If the acceleration method fails.  
                 # Add in another check to look at the slope after
                 # the T peak.  Draw a line down to the isoelectric line (0)
@@ -1105,8 +1101,6 @@ def extract_PQRST(
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
         #TODO - Extract J Point here.  
-        #TODO - Add more J point related logic to test for straight line vs if a curve is present. 
-
         # MEAS J point
         slope_start = S_peak
         slope_end = T_peak + 1
@@ -1127,19 +1121,38 @@ def extract_PQRST(
 
                 #Solution:
                     #1. Start from S peak, find greatest positive slope change before the T peak
-                    #2. Calculate sign change??
-                    
+                    #2. Find the minimum of the S peak.  
+                        # Fit a line from the R peak said min
+                        # Fit a line from the min to the T peak
+                        #1a
+                            # Fit a parabolic (quadratic) to the S to R peak
+                            # Compare the errors.  If the error 
+                            # is lower in the lines, its a V
+                            # if error is lower in the parabola, Its a U shape
+                            #BUG - 
+                            #That's going to include the upslope to the T peak though.  Ugh.  
+                            #So fitting any parabola is going to have larger resids.  
+                        #1b 
+                            #Or we could upspline from the minimum (or S peak) and 
+                            #fit it with a polynomial.  Looking at 
             gate1 = slope > 0           
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
+            
             #If all gates met, section is non-linear and extract Jpoint
             if all([gate1, gate2, gate3]):
+                logger.info("S to T linear, skipping Jpoint extraction")
+                #TODO - Will need a backup routine for linear estimation
+                # Could rely on the group estimation of the intersection of the
+                # rolling median with the signal as a makeshift J point
+
+            #Could also put the parabolic test here in the elif
+            
+            else:
                 knee = KneeLocator(X, y, curve="concave", direction="increasing")
                 J_point = knee.elbow
                 temp_arr[temp_counter, 15] = J_point
                 logger.info(f'J point added')
-            else:
-                logger.info("S to T linear, skipping Jpoint extraction")
 
         except Exception as e:
             logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -1450,7 +1463,6 @@ def main_peak_search(
                 else:
                     ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
                 
-
                 # Advance section tracker to next section
                 section_counter += 1
                 logger.info(f'Section counter at {section_counter}')
