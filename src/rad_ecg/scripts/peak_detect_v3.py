@@ -935,37 +935,6 @@ def extract_PQRST(
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
             # logger.info("adding T peak")
-            #BUG - Onset and offset updates
-                #TODO - Fix T onset, T offset
-                #Tonset
-                #It would seem the T onsets are getting triggered too early.  
-                #Going to switch to utilizing rolling median to look for
-                #flatline secitons that will allow for a better shoulder
-                #assignment of hte onset to the peak. Could use the tangent
-                #method on both onset and offset.
-
-                #TOffset
-                #On the T offset side.  it looks to be estimating the greastest 
-                #rate of acceleration change a little early.  So we need to combine a few 
-                #methods to agree on location of the T offset.  There are two standardized 
-                #ways to extract T offset. 
-
-                #1.Threshold method / Acceleration change. 
-                    # Finds the greatest rate of change to isolate the elbow of a curve
-                    # How neurokit and others do it. 
-                    # signal needs to be smooth. 
-                    # 
-                #2.Tangent method
-                    #Tried true method, but sometimes underestimates offset 
-                    #by 10ms or so.  (Mark notes)
-                    #
-                #Solution:
-                    # A combination logic of both methods. 
-                    # We calculate both, 
-                    # Establish a threshold for closeness.
-                    # If under, both agree and validated. 
-                    # if over, take the tangent method as that is board recommended.
-
             
         except Exception as e:
             logger.warning(f"T peak find error for {peak0}. Error message {e}")
@@ -977,7 +946,7 @@ def extract_PQRST(
             peak_P_find = ss.find_peaks(RR_second_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
             # Adds the P peak to the next R peaks data.  (as its the P of the next peaks PQRST)
-            temp_arr[temp_counter+1, 0] = peak0 + (samp_min - peak0) + top_P[0]
+            temp_arr[temp_counter + 1, 0] = peak0 + (samp_min - peak0) + top_P[0]
             #logger.info("adding P peak")
 
         except Exception as e:
@@ -1025,8 +994,8 @@ def extract_PQRST(
         T_peak = temp_arr[temp_counter, 4].item()
         
         # Setup shoulder containers. 
-        #BUG Should these be lists?  These are all ints??
-        P_onset, Q_onset, T_onset, T_offset = [], [], [], []
+        #BUG - Possible changed from lists 6/6/25
+        P_onset, Q_onset, T_onset, T_offset = "", "", "", ""
         
         # Get the width of the QRS for later. 
         srch_width = (S_peak - Q_peak)
@@ -1046,6 +1015,16 @@ def extract_PQRST(
             logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
         # MEAS T onset
+            #BUG - Onset and offset updates
+                #TODO - Fix T onset, T offset
+                #Tonset
+                #It would seem the T onsets are getting triggered too early.  
+                #Going to switch to utilizing rolling median to look for
+                #flatline secitons that will allow for a better shoulder
+                #assignment of hte onset to the peak. Could use the tangent
+                #method on both onset and offset.
+
+
         slope_start = samp_min_dict[R_peak]
         slope_end = T_peak + 1
         try:
@@ -1086,6 +1065,29 @@ def extract_PQRST(
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
+
+                #TOffset
+                #On the T offset side.  it looks to be estimating the greastest 
+                #rate of acceleration change a little early.  So we need to combine a few 
+                #methods to agree on location of the T offset.  There are two standardized 
+                #ways to extract T offset. 
+
+                #1.Threshold method / Acceleration change. 
+                    # Finds the greatest rate of change to isolate the elbow of a curve
+                    # How neurokit and others do it. 
+                    # signal needs to be smooth. 
+                    # 
+                #2.Tangent method
+                    #Tried true method, but sometimes underestimates offset 
+                    #by 10ms or so.  (Mark notes)
+                    #
+                #Solution:
+                    # A combination logic of both methods. 
+                    # We calculate both, 
+                    # Establish a threshold for closeness.
+                    # If under, both agree and validated. 
+                    # if over, take the tangent method as that is board recommended.
+
             # TODO - Update TOffset heirarchy with s&p script
                 # If the acceleration method fails.  
                 # Add in another check to look at the slope after
@@ -1101,22 +1103,16 @@ def extract_PQRST(
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
         #TODO - Extract J Point here.  
-        # MEAS J point
+        #MEAS J point
         slope_start = S_peak
         slope_end = T_peak + 1
 
         try:
-            #test for linearity through RSME, Rsquared, and slope postive 
-            X = np.array(range(slope_start, slope_end))
-            y = wave[slope_start:slope_end].flatten()
-            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
-            y_preds = slope * X + intercept
-            residuals = y - y_preds
-            rmse = np.sqrt(np.mean(residuals**2))
-            #BUG - Start point
-                #I'm not isolating the correct start point 
+            #BUG - SPeak widening
+                #I'm not isolating the correct start point for evaluating the J point. 
                 #because the S peak is located on the descent from the R peak
-                #I need to run the algorithm from the start the ascent to the T peak.
+                #I need to run the algorithm from the start of the ascent to the T peak.
+                #? I could 
                 #But, the current method also works very well for when the S peak is sharp.
 
                 #Solution:
@@ -1129,12 +1125,18 @@ def extract_PQRST(
                             # Compare the errors.  If the error 
                             # is lower in the lines, its a V
                             # if error is lower in the parabola, Its a U shape
-                            #BUG - 
                             #That's going to include the upslope to the T peak though.  Ugh.  
                             #So fitting any parabola is going to have larger resids.  
                         #1b 
                             #Or we could upspline from the minimum (or S peak) and 
                             #fit it with a polynomial.  Looking at 
+            #test for linearity through RSME, Rsquared, and slope postive 
+            X = np.array(range(slope_start, slope_end))
+            y = wave[slope_start:slope_end].flatten()
+            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
+            y_preds = slope * X + intercept
+            residuals = y - y_preds
+            rmse = np.sqrt(np.mean(residuals**2))
             gate1 = slope > 0           
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
@@ -1147,7 +1149,7 @@ def extract_PQRST(
                 # rolling median with the signal as a makeshift J point
 
             #Could also put the parabolic test here in the elif
-            
+
             else:
                 knee = KneeLocator(X, y, curve="concave", direction="increasing")
                 J_point = knee.elbow
@@ -1199,12 +1201,17 @@ def main_peak_search(
     Returns:
         ecg_data (dict): dictionary with full dataset on waveform
     """
+
+    # Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
+    @log_time
+    def peak_stack_test(new_peaks_arr:np.array):
+        return np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
+
     if len(args) != 0:
         global ecg_data, wave, fs
         ecg_data = args[0][0]
         wave = args[0][1]
         fs = args[0][2]
-        
 
     # section tracking + invalid section tracking
     section_counter, invalid_sect_counter = 0, 0
@@ -1213,14 +1220,10 @@ def main_peak_search(
     # Whether dynamic STFT is in a countdown
     stft_loop_on = False
     stft_count = 0
-    # Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
+
     # Round down to the nearest 100k
     stack_range = [x for x in range(0, int(np.round(np.floor(ecg_data["section_info"].shape[0]), -2)), 5_000)]
     # Stacking test for peak addition	
-    
-    @log_time
-    def peak_stack_test(new_peaks_arr:np.array):
-        return np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
 
     global IQR_low_thresh
     # Set IQR threshold and low count tracker
@@ -1296,7 +1299,11 @@ def main_peak_search(
                     # If you've found the wave and have sufficient num of peaks
                     if sect_valid and R_peaks.size > 10:
                         found_wave = True
-                        start_sect = section_counter #BUG Possible bug 
+                        start_sect = section_counter 
+                        #BUG Section Data Error
+                            #Program sometimes early terminates here if we haven't built up
+                            #enough sections.  Update to switch immediately back to STFT
+                            #if that is the case. 
                         ecg_data['section_info'][section_counter]['valid'] = 1
                         logger.critical(f'Wave found at {start_p}:{end_p} in section {start_sect}')
 
