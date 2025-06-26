@@ -865,7 +865,7 @@ def extract_PQRST(
             continue
 
         # MEAS Q peak
-        #logger.info("adding Q peak")
+        logger.debug("adding Q peak")
         temp_arr[temp_counter + 1, 1] = np_inflections[-1] + peak0
 
         # MEAS S peak
@@ -924,17 +924,17 @@ def extract_PQRST(
         # Do the same for the rolling median. 
         filt_rol_med = rolled_med[samp_min-st_fn[1]:temp_arr[temp_counter + 1, 1] - st_fn[1]]
 
+        # BUG - Why are you flattening this?
         # Subtract rolling median from wave to flatten it.
         SQ_med_reduced = SQ_range - filt_rol_med
-
-
+        
         # MEAS T Peak 
         try:
             RR_first_half = SQ_med_reduced[:(SQ_med_reduced.shape[0]//2)]
             peak_T_find = ss.find_peaks(RR_first_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
-            # logger.info("adding T peak")
+            logger.debug("adding T peak")
             
         except Exception as e:
             logger.warning(f"T peak find error for {peak0}. Error message {e}")
@@ -947,7 +947,7 @@ def extract_PQRST(
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
             # Adds the P peak to the next R peaks data.  (as its the P of the next peaks PQRST)
             temp_arr[temp_counter + 1, 0] = peak0 + (samp_min - peak0) + top_P[0]
-            #logger.info("adding P peak")
+            logger.debug("adding P peak")
 
         except Exception as e:
             logger.warning(f"P peak find error at {peak1}", )
@@ -1115,7 +1115,7 @@ def extract_PQRST(
                 #? I could 
                 #But, the current method also works very well for when the S peak is sharp.
 
-                #Solution:
+                #Solution 1:
                     #1. Start from S peak, find greatest positive slope change before the T peak
                     #2. Find the minimum of the S peak.  
                         # Fit a line from the R peak said min
@@ -1130,7 +1130,14 @@ def extract_PQRST(
                         #1b 
                             #Or we could upspline from the minimum (or S peak) and 
                             #fit it with a polynomial.  Looking at 
-            #test for linearity through RSME, Rsquared, and slope postive 
+                            #test for linearity through RSME, Rsquared, and slope postive 
+
+                #Solution 2
+                    #1. Isolate global minima from S to T peak. 
+                    #1b. Isolate what type of shape it is... might not need this if i can isolate the 
+                        #section before the J point. 
+
+
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err

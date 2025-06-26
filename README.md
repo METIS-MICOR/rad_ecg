@@ -170,21 +170,20 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 
 ### Short term
 - peak_detect_v3.py
-  - [x] Extension for S&P
-    - Build the ability to submit a template avg to extract relevant metrics.  
-    - Build in new py file
-  - [x] Review T onset extraction
-  - [ ] Add J point discovery
+  - [x] Add J point discovery
     - Use same logic as Q onset.
       - Use kneedle for concave test, then extract knee if not on straight line
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
+  - [ ] Anomaly detection
+      - Possible paths 
+      1. Stumpy discord search.  
+        - Working on GPU so far.  Unable to run on simultaneous CPU/ GPU with the detector running
+      2. LLM discord search
+        - Embed the sections of good data and use thsoe to ask the LLM for any disturbances surrounding or precluding that event.
 
 - slider.py
   - Anomaly Detection
     - [x] Add stumpy wave search for anomaly detection
-    - IDEA
-      - What if...  instead of searching the anomalous sections.  We do a discord / shapelet search on the valid sections ....
-      - This might be informative to find anomalous waveforms in good section data. 
   - Functionality
     - [ ] Re-examine distribution threshold of QRS window.
 
