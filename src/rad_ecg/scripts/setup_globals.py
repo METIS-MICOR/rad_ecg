@@ -9,13 +9,8 @@ from google.cloud import storage
 from support import logger, console
 from pathlib import PurePath, Path
 from rich import print
-from rich.logging import RichHandler
-from rich.table import Table
-from rich.console import Console
 from rich.tree import Tree
 from rich.markup import escape
-from rich.text import Text
-from rich.table import Table
 from pathlib import Path, PurePath
 
 ################################# Custom INIT / Loading functions ############################################

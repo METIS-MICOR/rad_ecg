@@ -179,8 +179,8 @@ This repo is under active development, so if something is malfunctioning.  Pleas
       1. Stumpy discord search.  
         - Working on GPU so far.  Unable to run on simultaneous CPU/ GPU with the detector running
       2. LLM discord search
-        - Embed the sections of good data and use thsoe to ask the LLM for any disturbances surrounding or precluding that event.
-
+        - Embed the sections of good data and use those to ask the LLM for any disturbances surrounding or precluding that event.
+        - Build a RAG to store the signals.  
 - slider.py
   - Anomaly Detection
     - [x] Add stumpy wave search for anomaly detection

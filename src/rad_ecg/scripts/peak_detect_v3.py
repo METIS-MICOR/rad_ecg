@@ -793,7 +793,70 @@ def extract_PQRST(
         d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
         
         return d
-    
+
+    # MEAS Q onset
+    def calc_Q_onset(Q_peak:int, P_peak:int):
+
+        slope_start = Q_peak - int((Q_peak - P_peak)*.70)
+        slope_end = Q_peak + 1
+
+        try:
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
+            Q_onset = slope_start + shoulder[0] + 1
+            temp_arr[temp_counter, 12] = Q_onset
+            #logger.info(f'Adding Q onset')
+            return Q_onset
+        
+        except Exception as e:
+            logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+
+    # MEAS T onset
+    def calc_T_onset(R_peak:int, T_peak:int):
+        slope_start = samp_min_dict[R_peak]
+        slope_end = T_peak + 1
+        try:
+            lil_wave = wave[slope_start:slope_end].flatten()
+            med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+            ecg_greater_med = np.where(lil_wave < med_sect)[0]
+            groups = grouper(ecg_greater_med)
+            first_group = groups[0]
+            T_onset = slope_start + first_group[-1]
+            temp_arr[temp_counter, 13] = T_onset
+            #logger.info('Adding T onset')
+
+        except Exception as e:
+            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+
+    # #FUNCTION -> estimate_iso
+    # def estimate_iso(Q_peak:int, P_peak:int) -> float:
+    #     P_peaks = ss.find_peaks(
+    #         wavesect.flatten(), 
+    #         prominence = np.percentile(wavesect, 60), 
+    #         height = np.percentile(wavesect, 40),
+    #     )
+
+    #     #Sometimes findpeaks returns more peaks than you expect for the P peak. (i
+    #     #think due to the mix of pos / negative numbers) this will ensure only the
+    #     #tallest peak get pulled back for P
+
+    #     if data.peaks_p[0].shape[0] > 1:
+    #         tallest = np.argsort(data.peaks_p[1]["peak_heights"])[::-1][0]
+    #         data.P_peak = data.peaks_p[0][tallest].item()
+    #         data.P_onset = data.peaks_p[1]["left_bases"][tallest].item()
+    #         data.P_offset = data.peaks_p[1]["right_bases"][tallest].item()
+    #         #BUG - P_offset misbehaving.  Probably needs to switch to the acceleration method here with limited range. 
+
+    #     else:
+    #         data.P_peak = data.peaks_p[0][0].item()
+    #         data.P_onset = data.peaks_p[1]["left_bases"][0].item()
+    #         data.P_offset = data.peaks_p[1]["right_bases"][0].item()
+
+    #     isoelectric = np.nanmean(wave[:data.P_onset])
+
+    #     return isoelectric
+
     # Set Globals
     global ecg_data, wave
     peak_que = deque(new_peaks_arr[:, 0])
@@ -971,22 +1034,18 @@ def extract_PQRST(
         temp_counter += 1
         logger.debug(f'Peak extraction complete: peaks {peak0} and {peak1}')
     
-    
     # NOTE Segment Data  Extraction
-    # The earlier iteration was looping between each R_peak to get its
-    # consitutient peak values. This iteration moves on each individual peak.  
+    #Iterate through each peak, and calculate its onset/offset attributes
     peak_que = deque(new_peaks_arr[:, 0])
     temp_counter = 0
     while len(peak_que) > 0:
-        
         R_peak = peak_que.popleft()
-        # Get Q Shoulder
         # Early terminate if not all valid PQRST present.
         if temp_arr[temp_counter, 5]==0:
             logger.info(f'Missing PQST, cannot process R peak {R_peak}')
             temp_counter += 1
             continue
-
+        
         # Get all the surrounding peaks for each R peak
         P_peak = temp_arr[temp_counter, 0].item()
         Q_peak = temp_arr[temp_counter, 1].item()
@@ -994,25 +1053,13 @@ def extract_PQRST(
         T_peak = temp_arr[temp_counter, 4].item()
         
         # Setup shoulder containers. 
-        #BUG - Possible changed from lists 6/6/25
         P_onset, Q_onset, T_onset, T_offset = "", "", "", ""
         
         # Get the width of the QRS for later. 
         srch_width = (S_peak - Q_peak)
 
-        # MEAS Q onset
-        slope_start = Q_peak - int((Q_peak - P_peak)*.70)
-        slope_end = Q_peak + 1
-
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
-            Q_onset = slope_start + shoulder[0] + 1
-            temp_arr[temp_counter, 12] = Q_onset
-            #logger.info(f'Adding Q onset')
-        except Exception as e:
-            logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        Q_onset = calc_Q_onset(P_peak, S_peak)
+        T_onset = calc_T_onset()
 
         # MEAS T onset
             #BUG - Onset and offset updates
@@ -1020,27 +1067,9 @@ def extract_PQRST(
                 #Tonset
                 #It would seem the T onsets are getting triggered too early.  
                 #Going to switch to utilizing rolling median to look for
-                #flatline secitons that will allow for a better shoulder
-                #assignment of hte onset to the peak. Could use the tangent
-                #method on both onset and offset.
-
-
-        slope_start = samp_min_dict[R_peak]
-        slope_end = T_peak + 1
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
-            ecg_greater_med = np.where(lil_wave < med_sect)[0]
-            groups = grouper(ecg_greater_med)
-            first_group = groups[0]
-            T_onset = slope_start + first_group[-1]
-            temp_arr[temp_counter, 13] = T_onset
-            #logger.info('Adding T onset')
-
-        except Exception as e:
-            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-
-        # PR Interval   
+                #flatline sections that will allow for a better shoulder
+                #assignment of the onset to the peak. 
+        # MEAS P Onset 
         slope_start = P_peak - int(srch_width)
         slope_end = P_peak + 1
         try:
@@ -1059,55 +1088,63 @@ def extract_PQRST(
             temp_arr[temp_counter, 7] = int(1000*((Q_onset - P_onset)/fs))
         
         # MEAS T Offset
-        slope_start = T_peak 
+        slope_start = T_peak
         slope_end = T_peak + int(srch_width*1.25)
+        #? Possibly bump this out a bit farther
 
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-
-                #TOffset
-                #On the T offset side.  it looks to be estimating the greastest 
-                #rate of acceleration change a little early.  So we need to combine a few 
-                #methods to agree on location of the T offset.  There are two standardized 
-                #ways to extract T offset. 
-
-                #1.Threshold method / Acceleration change. 
-                    # Finds the greatest rate of change to isolate the elbow of a curve
-                    # How neurokit and others do it. 
-                    # signal needs to be smooth. 
-                    # 
-                #2.Tangent method
-                    #Tried true method, but sometimes underestimates offset 
-                    #by 10ms or so.  (Mark notes)
-                    #
-                #Solution:
-                    # A combination logic of both methods. 
-                    # We calculate both, 
-                    # Establish a threshold for closeness.
-                    # If under, both agree and validated. 
-                    # if over, take the tangent method as that is board recommended.
-
-            # TODO - Update TOffset heirarchy with s&p script
-                # If the acceleration method fails.  
-                # Add in another check to look at the slope after
-                # the T peak.  Draw a line down to the isoelectric line (0)
-                # Use that marker as your time marker for QT. 
-                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
-
             T_offset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 14] = T_offset
             #logger.info(f'Adding T offset')
 
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        
+        # TODO - Update TOffset secondary method from s&p script
+        finally:
+            baseline = estimate_iso()
+            T_offset = T_offset_backup_method()
+            logger.warning("Attempt secondary Toffset method")
 
-        #TODO - Extract J Point here.  
+            #TOffset
+            #On the T offset side.  it looks to be estimating the greastest 
+            #rate of acceleration change a little early.  So we need to combine a few 
+            #methods to agree on location of the T offset.  There are two standardized 
+            #ways to extract T offset. 
+
+            #1.Threshold method / Acceleration change. 
+                # Finds the greatest rate of change to isolate the elbow of a curve
+                # How neurokit and others do it. 
+                # signal needs to be smooth. 
+                # 
+            #2.Tangent method
+                #Tried true method, but sometimes underestimates offset 
+                #by 10ms or so.  (Mark notes)
+                #
+            #Solution:
+                # A combination logic of both methods. 
+                # We calculate both, 
+                # Establish a threshold for closeness.
+                # If under, both agree and validated. 
+                # if over, take the tangent method as that is board recommended.
+
+            # If the acceleration method fails.  
+            # Add in another check to look at the slope after
+            # the T peak.  Draw a line down to the isoelectric line (0)
+            # Use that marker as your time marker for QT. 
+            # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+
+
+
         #MEAS J point
         slope_start = S_peak
         slope_end = T_peak + 1
 
         try:
+        #TODO - Update J point extraction
+
             #BUG - SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
                 #because the S peak is located on the descent from the R peak
