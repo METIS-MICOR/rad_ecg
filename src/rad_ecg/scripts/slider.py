@@ -717,8 +717,3 @@ if __name__ == "__main__":
         #Could run it in the slider.py file.
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
-    #TODO 
-        #Add FFT / stumpy to main option button layout
-        #have it reframe the layout the same way.  
-        #In the distirbution plot below.  Maybe have the ability to refocus the main
-        #chart based on the other area's.  (Think second slider below once vertical splits)
