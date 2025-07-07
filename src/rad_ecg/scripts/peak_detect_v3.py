@@ -760,8 +760,9 @@ def extract_PQRST(
         rolled_med (np.array): _description_
 
     Returns:
-        np.array: _description_
+        np.array: temp array with relevant peaks, onsets and offsets
     """
+    # FUNCTION Grouper
     def grouper(arr):
         """Mini function for splitting and grouping arrays where the
         differences between values are not equal to 1, split the array at that
@@ -775,7 +776,8 @@ def extract_PQRST(
 
         """		
         return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
-
+    
+    # FUNCTION Curve Line Distance
     def curve_line_dist(point:tuple, coef:tuple)->float:
         """This function calculates the distance from every point
         in our manufactured line, to the curve.  We use this to determine
@@ -794,15 +796,14 @@ def extract_PQRST(
 
     # FUNCTION P onset
     def calc_P_onset():
-        slope_start = P_peak - int(srch_width*1.25)
-        slope_end = P_peak + 1
-
         try:
+            slope_start = P_peak - int(srch_width*1.25)
+            slope_end = P_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             P_onset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 11] = P_onset
-            # logger.debug(f'Adding P onset')
+            logger.debug(f'Adding P onset')
             return P_onset
         
         except Exception as e:
@@ -810,16 +811,15 @@ def extract_PQRST(
 
     # FUNCTION Q onset
     def calc_Q_onset():
-        slope_start = Q_peak - int((Q_peak - P_peak)*.70)
-        slope_end = Q_peak + 1
-
         try:
+            slope_start = Q_peak - int((Q_peak - P_peak)*.70)
+            slope_end = Q_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
             Q_onset = slope_start + shoulder[0] + 1
             temp_arr[temp_counter, 12] = Q_onset
-            # logger.debug(f'Adding Q onset')
+            logger.debug(f'Adding Q onset')
             return Q_onset
         
         except Exception as e:
@@ -827,9 +827,9 @@ def extract_PQRST(
 
     # FUNCTION T Onset
     def calc_T_onset():
-        slope_start = samp_min_dict[R_peak]
-        slope_end = T_peak + 1
         try:
+            slope_start = samp_min_dict.get(R_peak, "")
+            slope_end = T_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
             med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
             ecg_greater_med = np.where(lil_wave < med_sect)[0]
@@ -837,8 +837,8 @@ def extract_PQRST(
             first_group = groups[0]
             T_onset = slope_start + first_group[-1]
             temp_arr[temp_counter, 13] = T_onset
+            logger.debug('Adding T onset')
             return T_onset
-            #logger.info('Adding T onset')
 
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -853,14 +853,13 @@ def extract_PQRST(
             lil_grads = np.gradient(np.gradient(lil_wave))
             T_offset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 14] = T_offset
+            logger.debug(f'Adding T offset')
             return T_offset
-            #logger.debug(f'Adding T offset')
+            
 
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-
-        finally:
-            logger.warning("Attempting secondary T_offset extraction")
+            logger.debug("Attempting secondary T_offset extraction")
             slope_start = T_peak
             slope_end =  T_offset
             try:
@@ -871,10 +870,11 @@ def extract_PQRST(
                 T_cross = np.abs(y_tans - isoelectric.argmin())
                 T_offset = x_tans[T_cross]
                 temp_arr[temp_counter, 14] = T_offset
+                logger.debug(f'Adding T offset backup')
                 return T_offset
 
             except Exception as e:
-                logger.warning(f'T regression extraction error = \n{e}')
+                logger.warning(f'T Offset regression extraction error = \n{e}')
                 return None
             
             #TOffset
@@ -937,9 +937,8 @@ def extract_PQRST(
 
         except Exception as e:
             logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
-        finally:
-            #TODO - Add current method as backup (grouper func)
-            pass
+
+
 
             #NOTE- SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
@@ -972,14 +971,35 @@ def extract_PQRST(
 
     # FUNCTION -> estimate_iso
     def estimate_iso() -> float:
-        isoelectric = np.nanmean(wave[new_peaks_arr[0]:new_peaks_arr[-1]])
+        iso = []
+        for idx, R_valid in enumerate(temp_arr[:, 5]): #MIght need to stop at 2nd to last peak
+            if R_valid:
+                try:
+                    T_pe = temp_arr[idx, 4]
+                    P_pe = temp_arr[idx + 1, 0]
+                    start = T_pe
+                    end = P_pe
+                    lil_wave = wave[start:end].flatten()
+                    lil_grads = np.gradient(np.gradient(lil_wave))
+                    T_off = start + np.argmax(lil_grads[:lil_grads.shape[0]//2])
+                    P_on = end + np.argmax(lil_grads[lil_grads.shape[0]//2:])
+                    iso.append(np.nanmean(wave[T_off:P_on]))
+                except Exception as e:
+                    logger.warning(f'Iso extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        isoelectric = np.nanmean(iso)
         return isoelectric
-        
+         
         #NOTE.
             # Need to figure out how to far back to look. 
             # Can't be farther than the previous T peak. 
             # Measuring from the last T offset to the current Ponset.
         #? Maybe i estimate the iso of the whole section?
+
+        #What if you divide the P to T section in half.  
+        #Find the greastest shoulder offest for each. 
+        #Use that as your iso. 
+            #Do we also use that for your T offset and P onset...  I'd argue no.
+
         #TODO - Update to only focus on T - P sections of ECG.
 
     # Set Globals
@@ -989,14 +1009,12 @@ def extract_PQRST(
     temp_counter = 0
     samp_min_dict = {x:int for x in new_peaks_arr[:, 0]}
 
-    #BUG Why is this first if statement here.  Originally an early reject if there isn't a signal to analyze
-    if ecg_data['interior_peaks'].shape[0] == 0:
-        pass
-    elif ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
-        # Load the values from the last interior peak into the temp array
-        temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
-        # remove the last row
-        ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
+    if ecg_data['interior_peaks'].shape[0] != 0:
+        if ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
+            # Load the values from the last interior peak into the temp array
+            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
+            # remove the last row
+            ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
     
     # NOTE Main Peak Extraction
     while len(peak_que) > 1:
@@ -1055,8 +1073,8 @@ def extract_PQRST(
             continue
 
         # MEAS Q peak
-        # logger.debug("adding Q peak")
         temp_arr[temp_counter + 1, 1] = np_inflections[-1] + peak0
+        logger.debug("adding Q peak")
 
         # MEAS S peak
         # Grab first R peak
@@ -1113,9 +1131,9 @@ def extract_PQRST(
 
         # Do the same for the rolling median. 
         filt_rol_med = rolled_med[samp_min-st_fn[1]:temp_arr[temp_counter + 1, 1] - st_fn[1]]
-
-        # BUG - Why are you flattening this?
+        
         # Subtract rolling median from wave to flatten it.
+        # BUG - Why are you flattening this?
         SQ_med_reduced = SQ_range - filt_rol_med
 
         # MEAS T Peak 
@@ -1160,6 +1178,9 @@ def extract_PQRST(
         # Advance temp_arr counter
         temp_counter += 1
         logger.debug(f'Peak extraction complete: peaks {peak0} and {peak1}')
+
+    #NOTE Estimate ISO
+    isoelectric = estimate_iso()
 
     # NOTE Offset/Onset Extraction
     # Iterate through each peak and calculate its onset/offset attributes
