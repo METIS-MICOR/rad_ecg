@@ -856,7 +856,6 @@ def extract_PQRST(
             logger.debug(f'Adding T offset')
             return T_offset
             
-
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
             logger.debug("Attempting secondary T_offset extraction")
@@ -864,40 +863,19 @@ def extract_PQRST(
             slope_end =  T_offset
             try:
                 m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
-                # x_intercept = -b / m
+                x_intercept = -b / m
+                isoelectric = isoelectric if isoelectric is not None else x_intercept
                 x_tans = np.linspace(T_peak, T_offset, 100)
                 y_tans = m * x_tans + b
-                T_cross = np.abs(y_tans - isoelectric.argmin())
+                T_cross = np.abs(y_tans - isoelectric)
                 T_offset = x_tans[T_cross]
                 temp_arr[temp_counter, 14] = T_offset
-                logger.debug(f'Adding T offset backup')
+                logger.info(f'Adding T offset backup')
                 return T_offset
 
             except Exception as e:
                 logger.warning(f'T Offset regression extraction error = \n{e}')
                 return None
-            
-            #TOffset
-            #On the T offset side.  it looks to be estimating the greastest 
-            #rate of acceleration change a little early.  So we need to combine a few 
-            #methods to agree on location of the T offset.  There are two standardized 
-            #ways to extract T offset. 
-
-            #1.Threshold method / Acceleration change. 
-                # Finds the greatest rate of change to isolate the elbow of a curve
-                # How neurokit and others do it. 
-                # signal needs to be smooth. 
-                # 
-            #2.Tangent method
-                #Tried true method, but sometimes underestimates offset 
-                #by 10ms or so.  (Mark notes)
-                #
-            #Solution:
-                # A combination logic of both methods. 
-                # We calculate both, 
-                # Establish a threshold for closeness.
-                # If under, both agree and validated. 
-                # if over, take the tangent method as that is board recommended.
 
             # If the acceleration method fails.  
             # Add in another check to look at the slope after
@@ -969,7 +947,7 @@ def extract_PQRST(
                     #1b. Isolate what type of shape it is... might not need this if i can isolate the 
                         #section before the J point. 
 
-    # FUNCTION -> estimate_iso
+    # FUNCTION estimate_iso
     def estimate_iso() -> float:
         iso = []
         for idx, R_valid in enumerate(temp_arr[:, 5]): #MIght need to stop at 2nd to last peak
@@ -986,22 +964,13 @@ def extract_PQRST(
                     iso.append(np.nanmean(wave[T_off:P_on]))
                 except Exception as e:
                     logger.warning(f'Iso extraction Error = \n{e} for Rpeak {R_peak:_d}')
-        isoelectric = np.nanmean(iso)
-        return isoelectric
-         
-        #NOTE.
-            # Need to figure out how to far back to look. 
-            # Can't be farther than the previous T peak. 
-            # Measuring from the last T offset to the current Ponset.
-        #? Maybe i estimate the iso of the whole section?
-
-        #What if you divide the P to T section in half.  
-        #Find the greastest shoulder offest for each. 
-        #Use that as your iso. 
-            #Do we also use that for your T offset and P onset...  I'd argue no.
-
-        #TODO - Update to only focus on T - P sections of ECG.
-
+        if iso:
+            isoelectric = np.nanmean(iso)
+            ecg_data["section_info"][st_fn[0]]["isoelectric"] = isoelectric
+            return isoelectric
+        else:
+            return None
+        
     # Set Globals
     global ecg_data, wave
     peak_que = deque(new_peaks_arr[:, 0])
@@ -1060,7 +1029,6 @@ def extract_PQRST(
         prominences = peak_info['prominences']
         avg_prom = np.mean(prominences)
         threshold = 0.30
-        
         reject_limit = threshold * avg_prom
 
         if std_dev_SQ < reject_limit:
@@ -1220,11 +1188,14 @@ def extract_PQRST(
         # Add the QRS time in ms
         if Q_onset and J_point:
             temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
-        # If Jpoint not extracted, use the S peak as a backup
-        # TODO - Confirm with MH 
+            logger.debug("Added Jpoint")
+            # TODO - Confirm with MH 
+                # If Jpoint not extracted, use the S peak as a backup
+
         elif Q_onset and S_peak:
             temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
-
+            logger.debug("Added backup Jpoint")
+        
         # MEAS ST Segment
         if T_onset and S_peak:
             # Add ST interval.  

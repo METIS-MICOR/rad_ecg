@@ -81,7 +81,8 @@ Will be using poetry to package, so distribution will be cleaner.
 |7 | STD HR                         | float32 |
 |8 | NN50                           | float32 |
 |9 | PNN50                          | float32 |
-|10| Section failure encoding       | str |
+|10| Section failure encoding       | str     |
+|11| Section Isoelectric            | float32 |
 
 <font size=5> <h1 style="text-align: left;">interior_peaks</h1></font>
 |col idx | col name | val type | data type |

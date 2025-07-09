@@ -159,7 +159,8 @@ def load_structures(source:str, datafile:Path):
         ('max_HR_diff' , 'f4'), 
         ('RMSSD'       , 'f4'),
         ('NN50'        , 'f4'),
-        ('PNN50'       , 'f4')
+        ('PNN50'       , 'f4'), 
+        ('isoelectric' , 'f4')
     ]
 
     #Base data container keys
