@@ -2,21 +2,19 @@
 import utils        #from rad_ecg.scripts # 
 import support      #from rad_ecg.scripts # 
 import setup_globals#from rad_ecg.scripts # 
-from support import log_time, logger
 
 #################################  Main libraries ####################################
-import logging
 import numpy as np
+from numpy.polynomial import polynomial as P
+import kneed
+from kneed import KneeLocator
 import scipy.signal as ss
 from scipy import stats
 from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
-from kneed import KneeLocator
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from collections import deque
-import kneed
-from time import strftime
 from support import logger, console, DATE_JSON, log_time
 
 # FUNCTION section stats
@@ -247,7 +245,7 @@ def peak_validation_check(
         if np_inflections.size > 0:
                 leftbases.append(lookback + np_inflections[-1])
         else:
-            logging.warning(f"Left base missed on R peak {RP}")
+            logger.warning(f"Left base missed on R peak {RP}")
 
     if len(leftbases) == len(RPeaks):
         slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
@@ -255,7 +253,7 @@ def peak_validation_check(
         upper_bound = np.mean(slopes) * 3
         peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
     else:
-        logging.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
+        logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
         fail_reas = "slope"
         peak_slope_check = False
         sect_valid = False
@@ -859,8 +857,6 @@ def extract_PQRST(
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
             logger.debug("Attempting secondary T_offset extraction")
-            slope_start = T_peak
-            slope_end =  T_offset
             try:
                 m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
                 x_intercept = -b / m
@@ -900,27 +896,71 @@ def extract_PQRST(
                 return True
             else:
                 return False
-        def v_test(X:np.array, y:np.array)->bool:
-            pass
-        def w_test(X:np.array, y:np.array)->bool:
-            pass
+            
+        def shape_test(X:np.array, y:np.array)->str:
+            y_savg = utils.smooth_signal(y)
+            dy = np.gradient(y_savg)
+            ddy = np.gradient(dy)
+            rsme_thres = 0.2
+            length = len(X)
+            shape = "unknown"
+
+            #Fit for U shape. 
+            U_coeffs = np.polyfit(X, y_savg, 2)
+            U_y_fit = np.polyval(U_coeffs, X)
+            resids = y_savg - U_y_fit
+            U_rmse = utils.calc_rmse(y_savg, U_y_fit)
+
+            #Fit for W shape with 4th degree polynomial
+            if length > 5:
+                W_coeffs = np.polyfit(X, y_savg, 4)
+                W_y_fit = P.Polynomial(W_coeffs[::-1])
+                W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+            
+            #Test for U shape.
+                #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+            if U_coeffs[0] > 0 and U_rmse < rsme_thres:
+                if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
+                    shape = "U"
+            
+            # Test for V shape. 
+                # Here we're looking for a sharpe change in the first
+                # derivative. 
+            
+
+            #What if opposed to the T peak you take this to 
+            #where the rolling median crosses.. the signal
+            #Use the grouper function to isolate where that is
+            #
         slope_start = S_peak
         slope_end = T_peak + 1
+        #TODO - Update range to grouper endpoint. 
+            #from old codebase
+            #Also might want to take the zero crossing point of 
+            #descent off the R peak to the S.  Using the S will
+            #start at a lower point which may be undesirable. 
         X = np.array(range(slope_start, slope_end))
         y = wave[slope_start:slope_end].flatten()
-            
         linear = linear_test(X, y)
         if linear:
             logger.debug("S to T linear, skipping Jpoint extraction")
-
-        v_shaped = v_test(X, y)
-        w_shaped = w_test(X, y)
+            return None
         
-        knee = KneeLocator(X, y, curve="concave", direction="increasing")
-        J_point = knee.elbow
-        temp_arr[temp_counter, 15] = J_point
-        logger.debug(f'J point added')
-        return J_point
+        else:
+            shape = shape_test(X, y)
+            match shape:
+                case "U":
+                    pass
+                case "V":
+                    pass
+                case "W":
+                    pass
+                
+            knee = KneeLocator(X, y, curve="concave", direction="increasing")
+            J_point = knee.elbow
+            temp_arr[temp_counter, 15] = J_point
+            logger.debug(f'J point added')
+            return J_point
 
         # except Exception as e:
         #     logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -1090,8 +1130,7 @@ def extract_PQRST(
         # where the true minimum is to evaluate the J point. 
         samp_min = np.argmin(wave[peak0:peak0 + (peak1-peak0)//3])
 
-        # If the sample min is not in the first 5 minimums of that transition, 
-        # Let me know.  Could be a sign of signal instability. 
+        # If the sample min is not in the first 7 minimums of that transition, 
         if (wave[peak0+samp_min].item() < rolled_med[samp_min]) & (samp_min in np_inflections[:6]): 
             samp_min = samp_min + peak0
             logger.debug(f'Samp min for peak {peak0:_d}:{peak1:_d} in first 7')
@@ -1197,8 +1236,8 @@ def extract_PQRST(
             temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
             logger.debug("Added Jpoint")
             # TODO - Confirm with MH 
-                # If Jpoint not extracted, use the S peak as a backup
 
+        # If Jpoint not extracted, use the S peak as a backup
         elif Q_onset and S_peak:
             temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
             logger.debug("Added backup Jpoint")

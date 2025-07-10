@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.signal import savgol_filter
 
 #Dev note:Functions are organized most to least important
 
@@ -198,3 +199,30 @@ def signaltonoise(a, axis=0, ddof=0):
     m = a.mean(axis)
     sd = a.std(axis=axis, ddof=ddof)
     return np.where(sd == 0, 0, m/sd)
+
+#FUNCTION Savitzky-Golay
+def smooth_signal(y:np.array, window_length:int=15, polyorder:int=3):
+    """Applies a Savitzky-Golay filter for smoothing."""
+    # window_length must be odd and polyorder < window_length
+    if window_length % 2 == 0:
+        window_length += 1 # Ensure odd
+    if polyorder >= window_length:
+        polyorder = window_length - 1 # Ensure polyorder < window_length
+        if polyorder < 1: polyorder = 1 # Minimum polyorder of 1 for basic smoothing
+
+    # Handle edge case where window_length is too large for the data
+    if len(y) < window_length:
+        # Fallback to a simpler smoothing or just return original if not enough data
+        if len(y) > 3: # Can still do a basic polyfit if at least 3 points
+            window_length = len(y) if len(y) % 2 != 0 else len(y) - 1
+            if window_length < 3: window_length = 3 # Minimum for savgol
+            polyorder = min(polyorder, window_length - 1)
+        else:
+            return y # Cannot apply SG filter meaningfully
+
+    return savgol_filter(y, window_length, polyorder)
+
+def calc_rmse(y_true, y_predicted)->float:
+    """Calculates the Root Mean Squared Error between true and predicted values."""
+    residuals = y_true - y_predicted
+    return np.sqrt(np.mean(residuals**2))
