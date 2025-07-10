@@ -795,7 +795,7 @@ def extract_PQRST(
         return d
 
     # FUNCTION P onset
-    def calc_P_onset():
+    def find_P_onset():
         try:
             slope_start = P_peak - int(srch_width*1.25)
             slope_end = P_peak + 1
@@ -810,7 +810,7 @@ def extract_PQRST(
             logger.warning(f'P onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
     # FUNCTION Q onset
-    def calc_Q_onset():
+    def find_Q_onset():
         try:
             slope_start = Q_peak - int((Q_peak - P_peak)*.70)
             slope_end = Q_peak + 1
@@ -826,7 +826,7 @@ def extract_PQRST(
             logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
     # FUNCTION T Onset
-    def calc_T_onset():
+    def find_T_onset():
         try:
             slope_start = samp_min_dict.get(R_peak, "")
             slope_end = T_peak + 1
@@ -844,7 +844,7 @@ def extract_PQRST(
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
     # FUNCTION T Offset
-    def calc_T_offset():
+    def find_T_offset():
         slope_start = T_peak
         slope_end = T_peak + int(srch_width*1.25)
 
@@ -884,13 +884,9 @@ def extract_PQRST(
             # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
 
     #FUNCTION J point
-    def calc_J_point():
+    def find_J_point():
         #NOTE - Use the T_onset here as your marker instead of the T peak
-        slope_start = S_peak
-        slope_end = T_peak + 1
-        try:
-            X = np.array(range(slope_start, slope_end))
-            y = wave[slope_start:slope_end].flatten()
+        def linear_test(X:np.array, y:np.array)->bool:
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
             residuals = y - y_preds
@@ -899,24 +895,35 @@ def extract_PQRST(
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
 
-            #If all gates met, section is non-linear and extract Jpoint
+            #If all gates met, section is linear and cannot extract Jpoint
             if all([gate1, gate2, gate3]):
-                logger.info("S to T linear, skipping Jpoint extraction")
-                #TODO - Will need a backup routine for linear estimation
-                    # Could rely on the group estimation of the intersection of the
-                    # rolling median with the signal as a makeshift J point
-
+                return True
             else:
-                knee = KneeLocator(X, y, curve="concave", direction="increasing")
-                J_point = knee.elbow
-                temp_arr[temp_counter, 15] = J_point
-                logger.debug(f'J point added')
-                return J_point
+                return False
+        def v_test(X:np.array, y:np.array)->bool:
+            pass
+        def w_test(X:np.array, y:np.array)->bool:
+            pass
+        slope_start = S_peak
+        slope_end = T_peak + 1
+        X = np.array(range(slope_start, slope_end))
+        y = wave[slope_start:slope_end].flatten()
+            
+        linear = linear_test(X, y)
+        if linear:
+            logger.debug("S to T linear, skipping Jpoint extraction")
 
-        except Exception as e:
-            logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        v_shaped = v_test(X, y)
+        w_shaped = w_test(X, y)
+        
+        knee = KneeLocator(X, y, curve="concave", direction="increasing")
+        J_point = knee.elbow
+        temp_arr[temp_counter, 15] = J_point
+        logger.debug(f'J point added')
+        return J_point
 
-
+        # except Exception as e:
+        #     logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
             #NOTE- SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
@@ -1173,11 +1180,11 @@ def extract_PQRST(
         
         # Get the width of the QRS for later. 
         srch_width = (S_peak - Q_peak)
-        P_onset    = calc_P_onset()
-        Q_onset    = calc_Q_onset()
-        T_onset    = calc_T_onset()
-        T_offset   = calc_T_offset()
-        J_point    = calc_J_point()
+        P_onset    = find_P_onset()
+        Q_onset    = find_Q_onset()
+        T_onset    = find_T_onset()
+        T_offset   = find_T_offset()
+        J_point    = find_J_point()
 
         # MEAS PR Interval
         if Q_onset and P_onset:
