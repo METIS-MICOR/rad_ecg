@@ -881,12 +881,10 @@ def extract_PQRST(
 
     #FUNCTION J point
     def find_J_point():
-        #NOTE - Use the T_onset here as your marker instead of the T peak
         def linear_test(X:np.array, y:np.array)->bool:
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
-            residuals = y - y_preds
-            rmse = np.sqrt(np.mean(residuals**2))
+            rmse = utils.calc_rmse(y, y_preds)
             gate1 = slope > 0           
             gate2 = r_value**2 < 0.95
             gate3 = rmse < 1
@@ -908,7 +906,6 @@ def extract_PQRST(
             #Fit for U shape. 
             U_coeffs = np.polyfit(X, y_savg, 2)
             U_y_fit = np.polyval(U_coeffs, X)
-            resids = y_savg - U_y_fit
             U_rmse = utils.calc_rmse(y_savg, U_y_fit)
 
             #Fit for W shape with 4th degree polynomial
@@ -923,18 +920,33 @@ def extract_PQRST(
                 if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
                     shape = "U"
             
-            # Test for V shape. 
-                # Here we're looking for a sharpe change in the first
-                # derivative. 
-            
+            #Test for W shape
+            if len(dy) > 1:
+                dy_signch = np.diff(np.sign(dy))
+                local_mins = np.where(dy_signch > 0)[0] + 1
+                local_maxs = np.where(dy_signch < 0)[0] + 1
+                if len(local_mins) >= 2 and len(local_maxs) >= 1:
+                    if local_mins[0] < local_maxs[0] and local_maxs[0] < local_min_idxs[-1]:
+                        shape = "W"
 
-            #What if opposed to the T peak you take this to 
-            #where the rolling median crosses.. the signal
-            #Use the grouper function to isolate where that is
-            #
+            # Test for V shape. 
+            # Here we're looking for a sharp change in the first derivative. 
+            if not shape:
+                min_y_idx = np.argmin(y_savg)
+                
+                if min_y_idx > 0 and min_y_idx < length - 1:
+                    mean_slope_before = np.mean(dy[:min_y_idx])
+                    mean_slope_after = np.mean(dy[min_y_idx:])
+                    
+                    if mean_slope_before < -0.1 and mean_slope_after > 0.1:
+                        if U_rmse > threshold:
+                            if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
+                                shape = "V"
+
+            
         slope_start = S_peak
         slope_end = T_peak + 1
-        #TODO - Update range to grouper endpoint. 
+        #TODO - Update slope_end to grouper endpoint. 
             #from old codebase
             #Also might want to take the zero crossing point of 
             #descent off the R peak to the S.  Using the S will
