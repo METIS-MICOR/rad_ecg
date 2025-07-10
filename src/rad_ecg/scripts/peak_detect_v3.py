@@ -901,7 +901,7 @@ def extract_PQRST(
             ddy = np.gradient(dy)
             rsme_thres = 0.2
             length = len(X)
-            shape = "unknown"
+            shape = None
 
             #Fit for U shape. 
             U_coeffs = np.polyfit(X, y_savg, 2)
@@ -926,14 +926,13 @@ def extract_PQRST(
                 local_mins = np.where(dy_signch > 0)[0] + 1
                 local_maxs = np.where(dy_signch < 0)[0] + 1
                 if len(local_mins) >= 2 and len(local_maxs) >= 1:
-                    if local_mins[0] < local_maxs[0] and local_maxs[0] < local_min_idxs[-1]:
+                    if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
                         shape = "W"
 
             # Test for V shape. 
             # Here we're looking for a sharp change in the first derivative. 
             if not shape:
                 min_y_idx = np.argmin(y_savg)
-                
                 if min_y_idx > 0 and min_y_idx < length - 1:
                     mean_slope_before = np.mean(dy[:min_y_idx])
                     mean_slope_after = np.mean(dy[min_y_idx:])
@@ -942,40 +941,48 @@ def extract_PQRST(
                         if U_rmse > threshold:
                             if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
                                 shape = "V"
-
-            
-        slope_start = S_peak
-        slope_end = T_peak + 1
-        #TODO - Update slope_end to grouper endpoint. 
-            #from old codebase
-            #Also might want to take the zero crossing point of 
-            #descent off the R peak to the S.  Using the S will
-            #start at a lower point which may be undesirable. 
-        X = np.array(range(slope_start, slope_end))
-        y = wave[slope_start:slope_end].flatten()
-        linear = linear_test(X, y)
-        if linear:
-            logger.debug("S to T linear, skipping Jpoint extraction")
-            return None
+            return shape
         
-        else:
-            shape = shape_test(X, y)
-            match shape:
-                case "U":
-                    pass
-                case "V":
-                    pass
-                case "W":
-                    pass
-                
-            knee = KneeLocator(X, y, curve="concave", direction="increasing")
-            J_point = knee.elbow
-            temp_arr[temp_counter, 15] = J_point
-            logger.debug(f'J point added')
-            return J_point
+        slope_start = S_peak
+        #TODO update startpoint
+        # Also might want to take the zero crossing point of 
+        #descent off the R peak to the S.  Using the S will
+        #start at a lower point which may be undesirable. 
 
-        # except Exception as e:
-        #     logger.warning(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+        ecg_greater_med = np.where(lil_wave < med_sect)[0]
+        groups = grouper(ecg_greater_med)
+        first_group = groups[0]
+        slope_end = slope_start + first_group[-1]
+
+        try:
+            X = np.array(range(slope_start, slope_end))
+            y = wave[slope_start:slope_end].flatten()
+            linear = linear_test(X, y)
+            if linear:
+                logger.debug("S to T linear, skipping Jpoint extraction")
+                return None
+            
+            else:
+                shape = shape_test(X, y)
+                match shape:
+                    case "U":
+                        pass
+                    case "V":
+                        pass
+                    case "W":
+                        pass
+                    case _:
+                        logger.debug("No shape found")
+
+                knee = KneeLocator(X, y, curve="concave", direction="increasing")
+                J_point = knee.elbow
+                temp_arr[temp_counter, 15] = J_point
+                logger.debug(f'J point added')
+                return J_point
+
+        except Exception as e:
+            logger.debug(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
             #NOTE- SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
