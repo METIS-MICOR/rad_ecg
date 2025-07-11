@@ -3,7 +3,7 @@
     "plot_errors": false,
     "live_term"  : false,
     "porcine"    : false,
-    "slider"     : false,
+    "slider"     : true,
     "batch"      : false,
     "samp_freq"  : "",
     "data_path"  : "./src/rad_ecg/data/inputdata",

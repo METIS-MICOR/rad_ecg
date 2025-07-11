@@ -136,6 +136,7 @@ dmypy.json
 /.venv
 /.vscode
 /backups
+/poster
 
 .Rhistory
 .DS_Store

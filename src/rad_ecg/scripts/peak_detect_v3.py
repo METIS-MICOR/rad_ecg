@@ -826,6 +826,7 @@ def extract_PQRST(
     # FUNCTION T Onset
     def find_T_onset():
         try:
+            #TODO - Will need to update this to similar to P onset
             slope_start = samp_min_dict.get(R_peak, "")
             slope_end = T_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
@@ -844,7 +845,7 @@ def extract_PQRST(
     # FUNCTION T Offset
     def find_T_offset():
         slope_start = T_peak
-        slope_end = T_peak + int(srch_width*1.25)
+        slope_end = T_peak + int(srch_width*1.5)
 
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
@@ -873,26 +874,19 @@ def extract_PQRST(
                 logger.warning(f'T Offset regression extraction error = \n{e}')
                 return None
 
-            # If the acceleration method fails.  
-            # Add in another check to look at the slope after
-            # the T peak.  Draw a line down to the isoelectric line (0)
-            # Use that marker as your time marker for QT. 
-            # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+            # If the acceleration method fails.  Add in another check to look at
+            # the slope after the T peak.  Draw a line down to the isoelectric
+            # line (0) Use that marker as your time marker for QT. 
+                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
     
     #FUNCTION J point
     def find_J_point():
-            
-
-        
-        #TODO update startpoint
-        # Also might want to take the zero crossing point of 
-        #descent off the R peak to the S.  Using the S will
-        #start at a lower point which may be undesirable. 
-        med_sect = rolled_med[S_peak - st_fn[1]:T_peak - st_fn[1]].flatten()
+        #Starting at where the signal crosses 
+        slope_start = np.where(wave[R_peak:S_peak] < 0)[0]
+        med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
         ecg_greater_med = np.where(lil_wave < med_sect)[0]
         groups = grouper(ecg_greater_med)
         first_group = groups[0]
-        slope_start = S_peak
         slope_end = slope_start + first_group[-1]
 
         try:
@@ -1219,6 +1213,7 @@ def extract_PQRST(
         logger.debug(f'Peak extraction complete: peaks {peak0} and {peak1}')
 
     #NOTE Estimate ISO
+        #variable used in find_T_offset function
     isoelectric = estimate_iso()
 
     # NOTE Offset/Onset Extraction
@@ -1228,7 +1223,7 @@ def extract_PQRST(
     while len(peak_que) > 0:
         R_peak = peak_que.popleft()
         # Early terminate if not all valid PQRST present.
-        if temp_arr[temp_counter, 5]==0:
+        if temp_arr[temp_counter, 5] == 0:
             logger.info(f'Missing PQST, cannot process R peak {R_peak}')
             temp_counter += 1
             continue
@@ -1239,7 +1234,7 @@ def extract_PQRST(
         S_peak = temp_arr[temp_counter, 3].item()
         T_peak = temp_arr[temp_counter, 4].item()
         
-        # Setup shoulder containers. 
+        # Setup shoulder containers.
         P_onset, Q_onset, T_onset, T_offset, J_point = "", "", "", "", ""
         
         # Calc the width of the QRS.  Will be used for searching offsets. 
