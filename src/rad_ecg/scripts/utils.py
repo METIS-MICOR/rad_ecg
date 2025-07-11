@@ -205,15 +205,19 @@ def smooth_signal(y:np.array, window_length:int=15, polyorder:int=3):
     """Applies a Savitzky-Golay filter for smoothing."""
     # window_length must be odd and polyorder < window_length
     if window_length % 2 == 0:
-        window_length += 1 # Ensure odd
+        # Ensure odd
+        window_length += 1 
     if polyorder >= window_length:
-        polyorder = window_length - 1 # Ensure polyorder < window_length
-        if polyorder < 1: polyorder = 1 # Minimum polyorder of 1 for basic smoothing
+        # Ensure polyorder < window_length
+        polyorder = window_length - 1
+        # Minimum polyorder of 1 for basic smoothing
+        if polyorder < 1: polyorder = 1 
 
     # Handle edge case where window_length is too large for the data
     if len(y) < window_length:
         # Fallback to a simpler smoothing or just return original if not enough data
-        if len(y) > 3: # Can still do a basic polyfit if at least 3 points
+        if len(y) > 3:
+            # Can still do a basic polyfit if at least 3 points
             window_length = len(y) if len(y) % 2 != 0 else len(y) - 1
             if window_length < 3: window_length = 3 # Minimum for savgol
             polyorder = min(polyorder, window_length - 1)

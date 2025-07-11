@@ -878,81 +878,21 @@ def extract_PQRST(
             # the T peak.  Draw a line down to the isoelectric line (0)
             # Use that marker as your time marker for QT. 
             # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
-
+    
     #FUNCTION J point
     def find_J_point():
-        def linear_test(X:np.array, y:np.array)->bool:
-            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
-            y_preds = slope * X + intercept
-            rmse = utils.calc_rmse(y, y_preds)
-            gate1 = slope > 0           
-            gate2 = r_value**2 < 0.95
-            gate3 = rmse < 1
-
-            #If all gates met, section is linear and cannot extract Jpoint
-            if all([gate1, gate2, gate3]):
-                return True
-            else:
-                return False
             
-        def shape_test(X:np.array, y:np.array)->str:
-            y_savg = utils.smooth_signal(y)
-            dy = np.gradient(y_savg)
-            ddy = np.gradient(dy)
-            rsme_thres = 0.2
-            length = len(X)
-            shape = None
 
-            #Fit for U shape. 
-            U_coeffs = np.polyfit(X, y_savg, 2)
-            U_y_fit = np.polyval(U_coeffs, X)
-            U_rmse = utils.calc_rmse(y_savg, U_y_fit)
-
-            #Fit for W shape with 4th degree polynomial
-            if length > 5:
-                W_coeffs = np.polyfit(X, y_savg, 4)
-                W_y_fit = P.Polynomial(W_coeffs[::-1])
-                W_rmse = utils.calc_rmse(y_savg, W_y_fit)
-            
-            #Test for U shape.
-                #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
-            if U_coeffs[0] > 0 and U_rmse < rsme_thres:
-                if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
-                    shape = "U"
-            
-            #Test for W shape
-            if len(dy) > 1:
-                dy_signch = np.diff(np.sign(dy))
-                local_mins = np.where(dy_signch > 0)[0] + 1
-                local_maxs = np.where(dy_signch < 0)[0] + 1
-                if len(local_mins) >= 2 and len(local_maxs) >= 1:
-                    if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
-                        shape = "W"
-
-            # Test for V shape. 
-            # Here we're looking for a sharp change in the first derivative. 
-            if not shape:
-                min_y_idx = np.argmin(y_savg)
-                if min_y_idx > 0 and min_y_idx < length - 1:
-                    mean_slope_before = np.mean(dy[:min_y_idx])
-                    mean_slope_after = np.mean(dy[min_y_idx:])
-                    
-                    if mean_slope_before < -0.1 and mean_slope_after > 0.1:
-                        if U_rmse > threshold:
-                            if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
-                                shape = "V"
-            return shape
         
-        slope_start = S_peak
         #TODO update startpoint
         # Also might want to take the zero crossing point of 
         #descent off the R peak to the S.  Using the S will
         #start at a lower point which may be undesirable. 
-
-        med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+        med_sect = rolled_med[S_peak - st_fn[1]:T_peak - st_fn[1]].flatten()
         ecg_greater_med = np.where(lil_wave < med_sect)[0]
         groups = grouper(ecg_greater_med)
         first_group = groups[0]
+        slope_start = S_peak
         slope_end = slope_start + first_group[-1]
 
         try:
@@ -1013,6 +953,70 @@ def extract_PQRST(
                     #1b. Isolate what type of shape it is... might not need this if i can isolate the 
                         #section before the J point. 
 
+    #FUNCTION Linear Test
+    def linear_test(X:np.array, y:np.array)->bool:
+        slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
+        y_preds = slope * X + intercept
+        rmse = utils.calc_rmse(y, y_preds)
+        gate1 = slope > 0           
+        gate2 = r_value**2 < 0.95
+        gate3 = rmse < 1
+
+        #If all gates met, section is linear and cannot extract Jpoint
+        if all([gate1, gate2, gate3]):
+            return True
+        else:
+            return False
+    
+    #FUNCTION Shape test
+    def shape_test(X:np.array, y:np.array)->str:
+        y_savg = utils.smooth_signal(y)
+        dy = np.gradient(y_savg)
+        ddy = np.gradient(dy)
+        rsme_thres = 0.2
+        length = len(X)
+        shape = None
+
+        #Fit for U shape. 
+        U_coeffs = np.polyfit(X, y_savg, 2)
+        U_y_fit = P.Polynomial(U_coeffs[::-1])
+        U_rmse = utils.calc_rmse(y_savg, U_y_fit)
+
+        #Fit for W shape with 4th degree polynomial
+        if length > 5:
+            W_coeffs = np.polyfit(X, y_savg, 4)
+            W_y_fit = P.Polynomial(W_coeffs[::-1])
+            W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+        
+        #Test for U shape.
+            #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+        if U_coeffs[0] > 0 and U_rmse < rsme_thres:
+            if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
+                shape = "U"
+        
+        #Test for W shape
+        if len(dy) > 1:
+            dy_signch = np.diff(np.sign(dy))
+            local_mins = np.where(dy_signch > 0)[0] + 1
+            local_maxs = np.where(dy_signch < 0)[0] + 1
+            if len(local_mins) >= 2 and len(local_maxs) >= 1:
+                if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
+                    shape = "W"
+
+        # Test for V shape. 
+        # Here we're looking for a sharp change in the first derivative. 
+        if not shape:
+            min_y_idx = np.argmin(y_savg)
+            if min_y_idx > 0 and min_y_idx < length - 1:
+                mean_slope_before = np.mean(dy[:min_y_idx])
+                mean_slope_after = np.mean(dy[min_y_idx:])
+                
+                if mean_slope_before < -0.1 and mean_slope_after > 0.1:
+                    if U_rmse > threshold:
+                        if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
+                            shape = "V"
+        return shape
+
     # FUNCTION estimate_iso
     def estimate_iso() -> float:
         iso = []
@@ -1025,13 +1029,15 @@ def extract_PQRST(
                     end = P_pe
                     lil_wave = wave[start:end].flatten()
                     lil_grads = np.gradient(np.gradient(lil_wave))
-                    T_off = start + np.argmax(lil_grads[:lil_grads.shape[0]//2])
-                    P_on = end + np.argmax(lil_grads[lil_grads.shape[0]//2:])
+                    half = lil_grads.shape[0]//2
+                    T_off = start + np.argmax(lil_grads[:half])
+                    P_on = start + half + np.argmax(lil_grads[half:])
                     iso.append(np.nanmean(wave[T_off:P_on]))
+
                 except Exception as e:
                     logger.warning(f'Iso extraction Error = \n{e} for Rpeak {R_peak:_d}')
         if iso:
-            isoelectric = np.nanmean(iso)
+            isoelectric = np.round(np.nanmean(iso), 6)
             ecg_data["section_info"][st_fn[0]]["isoelectric"] = isoelectric
             return isoelectric
         else:
@@ -1236,8 +1242,8 @@ def extract_PQRST(
         # Setup shoulder containers. 
         P_onset, Q_onset, T_onset, T_offset, J_point = "", "", "", "", ""
         
-        # Get the width of the QRS for later. 
-        srch_width = (S_peak - Q_peak)
+        # Calc the width of the QRS.  Will be used for searching offsets. 
+        srch_width = (S_peak - Q_peak) * 2
         P_onset    = find_P_onset()
         Q_onset    = find_Q_onset()
         T_onset    = find_T_onset()
