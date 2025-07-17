@@ -899,31 +899,31 @@ def extract_PQRST(
     
     #FUNCTION J point
     def find_J_point():
-        #Starting at where the signal crosses 
-        slope_start = np.where(wave[R_peak:S_peak] < 0)[0][0]
-        med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
-        ecg_greater_med = np.where(lil_wave < med_sect)[0]
-        groups = grouper(ecg_greater_med)
-        first_group = groups[0]
-        slope_end = slope_start + first_group[-1]
-
         try:
+            diffs = S_peak - R_peak
+            slope_start = R_peak + (diffs // 2)
+            lil_wave = wave[slope_start:T_peak].flatten()
+            med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
+            ecg_greater_med = np.where(lil_wave < med_sect)[0]
+            groups = grouper(ecg_greater_med)
+            first_group = groups[0]
+            slope_end = slope_start + first_group[-1]
+
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
-            shape = shape_test(X, y)
+            shape, sl_start = shape_test(X, y)
             # logger.debug(f"shape {shape}")
             match shape:
                 case "linear":
                     logger.debug("transition linear, Jpoint extraction unavailable")
-                case "V":
-                    pass
-                case "U":
-                    pass
-                case "W":
-                    pass
-                case _:
+                    return None
+                case "V"|"U"|"W":
+                    slope_start = sl_start
+                case _: 
                     logger.debug("No shape found")
-
+                    return None
+            X = np.array(range(slope_start, slope_end))
+            y = wave[slope_start:slope_end]
             knee = KneeLocator(X, y, curve="concave", direction="increasing")
             J_point = knee.elbow
             temp_arr[temp_counter, 15] = J_point
@@ -963,7 +963,7 @@ def extract_PQRST(
                         #section before the J point. 
 
     #FUNCTION Shape test
-    def shape_test(X:np.array, y:np.array)->str:
+    def shape_test(X:np.array, y:np.array):
         slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
         y_preds = slope * X + intercept
         rmse = utils.calc_rmse(y, y_preds)
@@ -974,8 +974,7 @@ def extract_PQRST(
         #If all gates met, section is linear and cannot extract Jpoint
         if all([gate1, gate2, gate3]):
             shape = "linear"
-            logger.debug("S to T linear, skipping Jpoint extraction")
-            return shape
+            return shape, None
 
         y_savg = utils.smooth_signal(y)
         dy = np.gradient(y_savg)
@@ -983,6 +982,7 @@ def extract_PQRST(
         rsme_thres = 0.2
         length = len(X)
         shape = None
+        start = None
 
         #Fit for U shape. 
         U_coeffs = np.polyfit(X, y_savg, 2)
@@ -1000,6 +1000,7 @@ def extract_PQRST(
         if U_coeffs[0] > 0 and U_rmse < rsme_thres:
             if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
                 shape = "U"
+                start = X[np.argmin(y_savg)]
         
         #Test for W shape
         if len(dy) > 1:
@@ -1009,6 +1010,7 @@ def extract_PQRST(
             if len(local_mins) >= 2 and len(local_maxs) >= 1:
                 if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
                     shape = "W"
+                    start = local_mins[-1]
 
         # Test for V shape. 
         # Here we're looking for a sharp change in the first derivative. 
@@ -1022,7 +1024,9 @@ def extract_PQRST(
                     if U_rmse > threshold:
                         if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
                             shape = "V"
-        return shape
+                            start = X[min_y_idx]
+
+        return shape, start
 
     # FUNCTION estimate_iso
     def estimate_iso() -> float:
@@ -1042,7 +1046,7 @@ def extract_PQRST(
                     iso.append(np.nanmean(wave[T_off:P_on]))
 
                 except Exception as e:
-                    logger.warning(f'Iso extraction Error = \n{e} for Rpeak {R_peak:_d}')
+                    logger.warning(f'Iso extraction Error = \n{e} for Rpeak {temp_arr[idx, 5]:_d}')
         if iso:
             isoelectric = np.round(np.nanmean(iso), 6)
             ecg_data["section_info"][st_fn[0]]["isoelectric"] = isoelectric

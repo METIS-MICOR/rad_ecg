@@ -76,7 +76,7 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     #Frequency
     fs = record.fs
 
-    return wave, fs, os.listdir(f"{configs['save_path']}\{datafile.name}")
+    return wave, fs, os.listdir(PurePath(Path(configs["save_path"], Path(datafile.name))))
 
 #FUNCTION Load Structures
 def load_structures(source:str, datafile:Path):
