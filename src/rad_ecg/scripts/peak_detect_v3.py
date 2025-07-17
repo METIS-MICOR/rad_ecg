@@ -795,7 +795,7 @@ def extract_PQRST(
     # FUNCTION P onset
     def find_P_onset():
         try:
-            slope_start = P_peak - int(srch_width*1.25)
+            slope_start = P_peak - int(srch_width*1.5)
             slope_end = P_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
@@ -826,18 +826,36 @@ def extract_PQRST(
     # FUNCTION T Onset
     def find_T_onset():
         try:
-            #TODO - Will need to update this to similar to P onset
-            slope_start = samp_min_dict.get(R_peak, "")
+            # slope_start = T_peak - int(srch_width*1.25)
+            #slope_start will be from the first point where the rolling median is greater than the ECG in the S to T section
+                #essentially right after the Jpoint but we haven't calculated that yet. 
+            slope_st = samp_min_dict.get(R_peak, "")
             slope_end = T_peak + 1
-            lil_wave = wave[slope_start:slope_end].flatten()
-            med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+            lil_wave = wave[slope_st:slope_end].flatten()
+            med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
             ecg_greater_med = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_greater_med)
             first_group = groups[0]
-            T_onset = slope_start + first_group[-1]
+            slope_start = slope_st + first_group[-1]
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            T_onset = slope_start + np.argmax(lil_grads)
             temp_arr[temp_counter, 13] = T_onset
-            logger.debug('Adding T onset')
+            logger.debug(f'Adding T onset')
             return T_onset
+
+            # Old way
+            # slope_start = samp_min_dict.get(R_peak, "")
+            # slope_end = T_peak + 1
+            # lil_wave = wave[slope_start:slope_end].flatten()
+            # med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+            # ecg_greater_med = np.where(lil_wave < med_sect)[0]
+            # groups = grouper(ecg_greater_med)
+            # first_group = groups[0]
+            # T_onset = slope_start + first_group[-1]
+            # temp_arr[temp_counter, 13] = T_onset
+            # logger.debug('Adding T onset')
+            # return T_onset
 
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -871,7 +889,7 @@ def extract_PQRST(
                 return T_offset
 
             except Exception as e:
-                logger.warning(f'T Offset regression extraction error = \n{e}')
+                logger.warning(f'T Offset backup extraction error = \n{e}')
                 return None
 
             # If the acceleration method fails.  Add in another check to look at
@@ -882,7 +900,7 @@ def extract_PQRST(
     #FUNCTION J point
     def find_J_point():
         #Starting at where the signal crosses 
-        slope_start = np.where(wave[R_peak:S_peak] < 0)[0]
+        slope_start = np.where(wave[R_peak:S_peak] < 0)[0][0]
         med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
         ecg_greater_med = np.where(lil_wave < med_sect)[0]
         groups = grouper(ecg_greater_med)
@@ -892,28 +910,25 @@ def extract_PQRST(
         try:
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
-            linear = linear_test(X, y)
-            if linear:
-                logger.debug("S to T linear, skipping Jpoint extraction")
-                return None
-            
-            else:
-                shape = shape_test(X, y)
-                match shape:
-                    case "U":
-                        pass
-                    case "V":
-                        pass
-                    case "W":
-                        pass
-                    case _:
-                        logger.debug("No shape found")
+            shape = shape_test(X, y)
+            # logger.debug(f"shape {shape}")
+            match shape:
+                case "linear":
+                    logger.debug("transition linear, Jpoint extraction unavailable")
+                case "V":
+                    pass
+                case "U":
+                    pass
+                case "W":
+                    pass
+                case _:
+                    logger.debug("No shape found")
 
-                knee = KneeLocator(X, y, curve="concave", direction="increasing")
-                J_point = knee.elbow
-                temp_arr[temp_counter, 15] = J_point
-                logger.debug(f'J point added')
-                return J_point
+            knee = KneeLocator(X, y, curve="concave", direction="increasing")
+            J_point = knee.elbow
+            temp_arr[temp_counter, 15] = J_point
+            logger.debug(f'J point added')
+            return J_point
 
         except Exception as e:
             logger.debug(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
@@ -947,8 +962,8 @@ def extract_PQRST(
                     #1b. Isolate what type of shape it is... might not need this if i can isolate the 
                         #section before the J point. 
 
-    #FUNCTION Linear Test
-    def linear_test(X:np.array, y:np.array)->bool:
+    #FUNCTION Shape test
+    def shape_test(X:np.array, y:np.array)->str:
         slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
         y_preds = slope * X + intercept
         rmse = utils.calc_rmse(y, y_preds)
@@ -958,12 +973,10 @@ def extract_PQRST(
 
         #If all gates met, section is linear and cannot extract Jpoint
         if all([gate1, gate2, gate3]):
-            return True
-        else:
-            return False
-    
-    #FUNCTION Shape test
-    def shape_test(X:np.array, y:np.array)->str:
+            shape = "linear"
+            logger.debug("S to T linear, skipping Jpoint extraction")
+            return shape
+
         y_savg = utils.smooth_signal(y)
         dy = np.gradient(y_savg)
         ddy = np.gradient(dy)
