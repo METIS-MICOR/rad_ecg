@@ -900,15 +900,18 @@ def extract_PQRST(
     #FUNCTION J point
     def find_J_point():
         try:
-            diffs = S_peak - R_peak
-            slope_start = R_peak + (diffs // 2)
+            slope_start = S_peak
             lil_wave = wave[slope_start:T_peak].flatten()
             med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
             ecg_greater_med = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_greater_med)
-            first_group = groups[0]
-            slope_end = slope_start + first_group[-1]
+            if len(groups) == 1:
+                group = groups[0]
+                
+            else:
+                group = groups[1]
 
+            slope_end = slope_start + group[-1]
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
@@ -916,7 +919,7 @@ def extract_PQRST(
             match shape:
                 case "linear":
                     logger.debug("transition linear, Jpoint extraction unavailable")
-                    return None
+                    slope_start = X[np.argmin(y)]
                 case "V"|"U"|"W":
                     slope_start = sl_start
                 case _: 
@@ -986,13 +989,15 @@ def extract_PQRST(
 
         #Fit for U shape. 
         U_coeffs = np.polyfit(X, y_savg, 2)
-        U_y_fit = P.Polynomial(U_coeffs[::-1])
+        U_poly = P.Polynomial(U_coeffs[::-1])
+        U_y_fit = U_poly(X)
         U_rmse = utils.calc_rmse(y_savg, U_y_fit)
 
         #Fit for W shape with 4th degree polynomial
         if length > 5:
             W_coeffs = np.polyfit(X, y_savg, 4)
-            W_y_fit = P.Polynomial(W_coeffs[::-1])
+            W_poly = P.Polynomial(W_coeffs[::-1])
+            W_y_fit = W_poly(X)
             W_rmse = utils.calc_rmse(y_savg, W_y_fit)
         
         #Test for U shape.
@@ -1167,6 +1172,10 @@ def extract_PQRST(
         samp_min = np.argmin(wave[peak0:peak0 + (peak1-peak0)//3])
 
         # If the sample min is not in the first 7 minimums of that transition, 
+        #BUG Code Rot
+            #This eval ... isn't really necessary.  You're no longer using hte 
+            # Samp min dict in the ensuing extractions. Consider removal and / or simplification
+
         if (wave[peak0+samp_min].item() < rolled_med[samp_min]) & (samp_min in np_inflections[:6]): 
             samp_min = samp_min + peak0
             logger.debug(f'Samp min for peak {peak0:_d}:{peak1:_d} in first 7')
@@ -1272,7 +1281,6 @@ def extract_PQRST(
         if Q_onset and J_point:
             temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
             logger.debug("Added Jpoint")
-            # TODO - Confirm with MH 
 
         # If Jpoint not extracted, use the S peak as a backup
         elif Q_onset and S_peak:

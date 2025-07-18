@@ -75,8 +75,10 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     
     #Frequency
     fs = record.fs
-
-    return wave, fs, os.listdir(PurePath(Path(configs["save_path"], Path(datafile.name))))
+    
+    #folder return 
+    folderp = os.listdir(PurePath(Path(configs["save_path"], Path(datafile.name))))
+    return wave, fs, folderp
 
 #FUNCTION Load Structures
 def load_structures(source:str, datafile:Path):
@@ -96,8 +98,8 @@ def load_structures(source:str, datafile:Path):
         #Check output folder for existence
         test_sp = os.path.join(configs["save_path"], datafile.name)
         if os.path.exists(test_sp):
-            logger.warning(f"{datafile.name} output folder already exists")
-            logger.warning("Do you want to overwrite results?")
+            logger.critical(f"{datafile.name} output folder already exists")
+            logger.critical("Do you want to overwrite results?")
             overwrite = input("(y/n)?")
             if overwrite.lower() == "n":
                 exit()
@@ -144,7 +146,7 @@ def load_structures(source:str, datafile:Path):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:1000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:10_000]
     #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [

@@ -29,7 +29,8 @@ PEAKDICT_EXT = {
     11:('P_on', 'purple'),
     12:('Q_on', 'darkgoldenrod'), 
     13:('T_on', 'teal'), 
-    14:('T_off', 'orange')
+    14:('T_off', 'orange'),
+    15:('J_poi', 'dodgerblue')
 }
 LABELDICT = {
     "P":(0, 7),
@@ -41,6 +42,7 @@ LABELDICT = {
     "Q_on":(-11, -4),
     "T_on":(10, 0),
     "T_off":(10, 10),
+    "J_poi":(-10, 15),
 }
 
 #FUNCTION Make rich table
@@ -207,7 +209,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 Line2D([0], [0], marker='o', color='w', label='Q Peak', markerfacecolor=PEAKDICT[1][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='R Peak', markerfacecolor=PEAKDICT[2][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='S Peak', markerfacecolor=PEAKDICT[3][1], markersize=15),
-                Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15)
+                Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15),
             ]
 
         else:
@@ -215,6 +217,7 @@ def load_graph_objects(datafile:str, outputf:str):
             Q_onset = inners[np.nonzero(inners[:, 12])[0], 12]
             T_onset = inners[np.nonzero(inners[:, 13])[0], 13]
             T_offset = inners[np.nonzero(inners[:, 14])[0], 14]
+            J_point = inners[np.nonzero(inners[:, 15])[0], 15]
 
             for idx, Rpeak in enumerate(R_peaks):
                 ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
@@ -222,12 +225,13 @@ def load_graph_objects(datafile:str, outputf:str):
                 ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color=PEAKDICT_EXT[12][1])
                 ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color=PEAKDICT_EXT[13][1])
                 ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color=PEAKDICT_EXT[14][1])
-
+                ax_over.scatter((J_point[idx] - Rpeak) + RR_diffs , wave[J_point[idx]], label='J point', s = 60, color=PEAKDICT_EXT[15][1])
             legend_elements = [
                 Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor=PEAKDICT_EXT[11][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor=PEAKDICT_EXT[12][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='T Onset', markerfacecolor=PEAKDICT_EXT[13][1], markersize=15),
-                Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor=PEAKDICT_EXT[14][1], markersize=15)
+                Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor=PEAKDICT_EXT[14][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='J point', markerfacecolor=PEAKDICT_EXT[15][1], markersize=15)
             ]
         ax_over.set_ylabel('Voltage (mV)')
         ax_over.set_xlabel('ECG index')
@@ -609,7 +613,7 @@ def load_graph_objects(datafile:str, outputf:str):
     ecg_data = {
         "peaks": np.genfromtxt(fpath+"_peaks.csv", delimiter=",", dtype=np.int32, usecols=(0, 1)),
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
-        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(15)))
+        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)))
     }
 
     #Draw main plot inititally and set params

@@ -128,7 +128,6 @@ def mainspinner(console:Console, totalstops:int):
         my_progress_bar (Progress): Progress bar for tracking overall progress
         jobtask (int): mainjob id for ecg extraction
     """
-
     my_progress_bar = Progress(
         TextColumn("{task.description}"),
         SpinnerColumn("aesthetic"),
