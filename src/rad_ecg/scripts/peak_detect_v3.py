@@ -828,15 +828,20 @@ def extract_PQRST(
         try:
             # slope_start = T_peak - int(srch_width*1.25)
             #slope_start will be from the first point where the rolling median is greater than the ECG in the S to T section
-                #essentially right after the Jpoint but we haven't calculated that yet. 
+                #essentially right after the Jpoint which we haven't calculated yet. 
             slope_st = samp_min_dict.get(R_peak, "")
             slope_end = T_peak + 1
             lil_wave = wave[slope_st:slope_end].flatten()
             med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
             ecg_greater_med = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_greater_med)
-            first_group = groups[0]
-            slope_start = slope_st + first_group[-1]
+            if len(groups) == 1:
+                first_group = groups[0]
+                slope_start = slope_st + first_group[-1]
+            else:
+                last_group = groups[-1]
+                slope_start = slope_st + last_group[0]
+            
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             T_onset = slope_start + np.argmax(lil_grads)
@@ -906,12 +911,12 @@ def extract_PQRST(
             ecg_greater_med = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_greater_med)
             if len(groups) == 1:
-                group = groups[0]
-                
+                first_group = groups[0]
+                slope_start = slope_start + first_group[-1]
             else:
-                group = groups[1]
+                last_group = groups[-1]
+                slope_start = slope_start + last_group[0]
 
-            slope_end = slope_start + group[-1]
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
@@ -919,7 +924,7 @@ def extract_PQRST(
             match shape:
                 case "linear":
                     logger.debug("transition linear, Jpoint extraction unavailable")
-                    slope_start = X[np.argmin(y)]
+                    slope_start = X[np.argmin(y)] 
                 case "V"|"U"|"W":
                     slope_start = sl_start
                 case _: 
@@ -1063,7 +1068,7 @@ def extract_PQRST(
     global ecg_data, wave
     peak_que = deque(new_peaks_arr[:, 0])
     temp_arr = np.zeros(shape=(new_peaks_arr.shape[0], 15), dtype=np.int32)
-    temp_counter = 0
+    temp_counter = 0    
     samp_min_dict = {x:int for x in new_peaks_arr[:, 0]}
 
     if ecg_data['interior_peaks'].shape[0] != 0:
@@ -1277,13 +1282,13 @@ def extract_PQRST(
             temp_arr[temp_counter, 7] = int(1000*((Q_onset - P_onset)/fs))
 
         # MEAS QRS Complex
-        # Add the QRS time in ms
         if Q_onset and J_point:
+            # Add the QRS time in ms
             temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
             logger.debug("Added Jpoint")
 
-        # If Jpoint not extracted, use the S peak as a backup
         elif Q_onset and S_peak:
+            # If Jpoint not extracted, use the S peak as a backup
             temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
             logger.debug("Added backup Jpoint")
         
@@ -1595,7 +1600,7 @@ def main_peak_search(
                 # Advance section tracker to next section
                 section_counter += 1
                 logger.info(f'Section counter at {section_counter}')
-
+    
     return ecg_data
 
 # NOTE START PROGRAM
@@ -1612,7 +1617,7 @@ def main():
         (ecg_data, wave, fs)
     )
     # Save logs, results, send update email
-    #send_email(log_path)
+    # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
     has_bucket_name = len(configs.get("bucket_name")) > 0
     configs["log_path"] = f"src/rad_ecg/data/logs/{DATE_JSON}.log"
