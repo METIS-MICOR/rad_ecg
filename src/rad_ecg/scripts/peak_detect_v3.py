@@ -880,12 +880,13 @@ def extract_PQRST(
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
-            # logger.debug(f"shape {shape}")
+            logger.info(f"Shape {shape}")
             match shape:
                 case "linear":
-                    logger.debug("transition linear, Jpoint extraction unavailable")
+                    logger.debug("transition linear, taking sample min")
                     slope_start = X[np.argmin(y)] 
                 case "V"|"U"|"W":
+                    logger.debug(f"Rpeak {R_peak} shape is {shape} ")
                     slope_start = sl_start
                 case _: 
                     logger.debug("No shape found")
@@ -1012,21 +1013,21 @@ def extract_PQRST(
         U_rmse = utils.calc_rmse(y_savg, U_y_fit)
 
         #Fit for W shape with 4th degree polynomial
-        if length > 5:
-            W_coeffs = np.polyfit(X, y_savg, 4)
-            W_poly = P.Polynomial(W_coeffs[::-1])
-            W_y_fit = W_poly(X)
-            W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+        # if length > 5: #Not sure i Need this
+        W_coeffs = np.polyfit(X, y_savg, 4)
+        W_poly = P.Polynomial(W_coeffs[::-1])
+        W_y_fit = W_poly(X)
+        W_rmse = utils.calc_rmse(y_savg, W_y_fit)
         
         #Test for U shape.
-            #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+        #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
         if U_coeffs[0] > 0 and U_rmse < rsme_thres:
             if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
                 shape = "U"
                 start = X[np.argmin(y_savg)]
-        
+                logger.critical(f"Shape is {shape}")
         #Test for W shape
-        if len(dy) > 1:
+        if len(dy) > 1 and W_rmse < rsme_thres:
             dy_signch = np.diff(np.sign(dy))
             local_mins = np.where(dy_signch > 0)[0] + 1
             local_maxs = np.where(dy_signch < 0)[0] + 1
@@ -1034,21 +1035,19 @@ def extract_PQRST(
                 if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
                     shape = "W"
                     start = local_mins[-1]
-
         # Test for V shape. 
-        # Here we're looking for a sharp change in the first derivative. 
+        # Here we're looking for a sharp change in the first derivative
         if not shape:
             min_y_idx = np.argmin(y_savg)
-            if min_y_idx > 0 and min_y_idx < length - 1:
+            if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
                 mean_slope_before = np.mean(dy[:min_y_idx])
                 mean_slope_after = np.mean(dy[min_y_idx:])
-                
                 if mean_slope_before < -0.1 and mean_slope_after > 0.1:
                     if U_rmse > threshold:
-                        if np.mean(np.abs(ddy[max(0, min_y_idx-5) : min(length, min_y_idx+5)])) < 0.1:
+                        if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
                             shape = "V"
                             start = X[min_y_idx]
-
+                            
         return shape, start
 
     # FUNCTION estimate_iso
@@ -1299,7 +1298,7 @@ def extract_PQRST(
         if Q_onset and J_point:
             # Add the QRS time in ms
             temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
-            logger.debug("Added Jpoint")
+            # logger.debug("Added Jpoint")
 
         elif Q_onset and S_peak:
             # If Jpoint not extracted, use the S peak as a backup
@@ -1310,11 +1309,13 @@ def extract_PQRST(
         if T_onset and S_peak:
             # Add ST interval.  
             temp_arr[temp_counter, 9] = int(1000*((T_onset - S_peak)/fs))
+            # logger.debug("Added ST")
 
         # MEAS QT Interval
         if T_offset and Q_onset:
             # Add QT interval.  
             temp_arr[temp_counter, 10] = int(1000*((T_offset - Q_onset)/fs))
+            # logger.debug("Added QT")
 
         # Shift the counter
         temp_counter += 1
