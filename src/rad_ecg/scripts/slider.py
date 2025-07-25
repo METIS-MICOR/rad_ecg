@@ -190,6 +190,7 @@ def load_graph_objects(datafile:str, outputf:str):
         inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
         R_peaks = inners[np.nonzero(inners[:, 2])[0], 2]
         RR_diffs = int(np.mean(np.diff(R_peaks))//2)
+        #If its the main peaks
         if main_p:
             P_peak = inners[np.nonzero(inners[:, 0])[0], 0]
             Q_peak = inners[np.nonzero(inners[:, 1])[0], 1]
@@ -211,7 +212,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 Line2D([0], [0], marker='o', color='w', label='S Peak', markerfacecolor=PEAKDICT[3][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15),
             ]
-
+        #If its the interior plots
         else:
             P_onset = inners[np.nonzero(inners[:, 11])[0], 11]
             Q_onset = inners[np.nonzero(inners[:, 12])[0], 12]
@@ -225,7 +226,9 @@ def load_graph_objects(datafile:str, outputf:str):
                 ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color=PEAKDICT_EXT[12][1])
                 ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color=PEAKDICT_EXT[13][1])
                 ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color=PEAKDICT_EXT[14][1])
-                ax_over.scatter((J_point[idx] - Rpeak) + RR_diffs , wave[J_point[idx]], label='J point', s = 60, color=PEAKDICT_EXT[15][1])
+                if J_point.shape[0] != 0:
+                    ax_over.scatter((J_point[idx] - Rpeak) + RR_diffs , wave[J_point[idx]], label='J point', s = 60, color=PEAKDICT_EXT[15][1])
+                    
             legend_elements = [
                 Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor=PEAKDICT_EXT[11][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor=PEAKDICT_EXT[12][1], markersize=15),
@@ -556,33 +559,28 @@ def load_graph_objects(datafile:str, outputf:str):
 
     #FUNCTION Slide forward invalid
     def move_slider_forward(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         next_sect = np.where(ecg_data['section_info']['valid'][curr_sect+1:]==0)[0][0] + curr_sect+1
         sect_slider.set_val(next_sect)
     
     #FUNCTION Slide forward one
     def move_slider_sing_forward(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect+1)
 
     #FUNCTION Slide back invalid
     def move_slider_back(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         prev_sect = np.where(ecg_data['section_info']['valid'][:curr_sect]==0)[0][-1]
         sect_slider.set_val(prev_sect)
 
     #FUNCTION Slide back one
     def move_slider_sing_back(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect-1)
 
     #FUNCTION Slide to section
     def jump_slider_to_sect(v1):
-        #TODO add docstrings
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
@@ -613,7 +611,7 @@ def load_graph_objects(datafile:str, outputf:str):
     ecg_data = {
         "peaks": np.genfromtxt(fpath+"_peaks.csv", delimiter=",", dtype=np.int32, usecols=(0, 1)),
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
-        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)))
+        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
 
     #Draw main plot inititally and set params

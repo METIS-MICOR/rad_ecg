@@ -3,15 +3,16 @@
   "plot_errors": false,
   "live_term": false,
   "porcine": false,
-  "slider": true,
+  "slider": false,
   "batch": false,
   "samp_freq": 170.667,
   "data_path": "./src/rad_ecg/data/inputdata",
   "save_path": "./src/rad_ecg/data/output",
   "gcp_bucket": false,
   "bucket_name": "",
+  "run_anomalyd":"",
   "cam": "",
-  "last_run": "07-17-2025",
-  "log_path": "src/rad_ecg/data/logs/07-17-2025_17-29-15.log",
-  "cam_name": "YTS7F-8VAT6"
+  "last_run": "",
+  "log_path": "",
+  "cam_name": ""
 }

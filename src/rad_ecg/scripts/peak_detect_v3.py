@@ -299,8 +299,8 @@ def peak_validation_check(
             plt.legend(loc="upper left")
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
             
-            a = 0#3000
-            b = 0#450 
+            a = 0 #3000
+            b = 0 #450 
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -795,7 +795,7 @@ def extract_PQRST(
     # FUNCTION P onset
     def find_P_onset():
         try:
-            slope_start = P_peak - int(srch_width*1.5)
+            slope_start = P_peak - int(srch_width*2)
             slope_end = P_peak + 1
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
@@ -823,52 +823,10 @@ def extract_PQRST(
         except Exception as e:
             logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
-    # FUNCTION T Onset
-    def find_T_onset():
-        try:
-            # slope_start = T_peak - int(srch_width*1.25)
-            #slope_start will be from the first point where the rolling median is greater than the ECG in the S to T section
-                #essentially right after the Jpoint which we haven't calculated yet. 
-            slope_st = samp_min_dict.get(R_peak, "")
-            slope_end = T_peak + 1
-            lil_wave = wave[slope_st:slope_end].flatten()
-            med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
-            ecg_greater_med = np.where(lil_wave < med_sect)[0]
-            groups = grouper(ecg_greater_med)
-            if len(groups) == 1:
-                first_group = groups[0]
-                slope_start = slope_st + first_group[-1]
-            else:
-                last_group = groups[-1]
-                slope_start = slope_st + last_group[0]
-            
-            lil_wave = wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            T_onset = slope_start + np.argmax(lil_grads)
-            temp_arr[temp_counter, 13] = T_onset
-            logger.debug(f'Adding T onset')
-            return T_onset
-
-            # Old way
-            # slope_start = samp_min_dict.get(R_peak, "")
-            # slope_end = T_peak + 1
-            # lil_wave = wave[slope_start:slope_end].flatten()
-            # med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
-            # ecg_greater_med = np.where(lil_wave < med_sect)[0]
-            # groups = grouper(ecg_greater_med)
-            # first_group = groups[0]
-            # T_onset = slope_start + first_group[-1]
-            # temp_arr[temp_counter, 13] = T_onset
-            # logger.debug('Adding T onset')
-            # return T_onset
-
-        except Exception as e:
-            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-
     # FUNCTION T Offset
     def find_T_offset():
         slope_start = T_peak
-        slope_end = T_peak + int(srch_width*1.5)
+        slope_end = T_peak + int(srch_width*2) 
 
         try:
             lil_wave = wave[slope_start:slope_end].flatten()
@@ -881,6 +839,11 @@ def extract_PQRST(
         except Exception as e:
             logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
             logger.debug("Attempting secondary T_offset extraction")
+            # NOTE backup T_offset extract
+                # If the acceleration method fails.  Add in another check to look at
+                # the slope after the T peak.  Draw a line down to the isoelectric
+                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+
             try:
                 m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
                 x_intercept = -b / m
@@ -896,27 +859,24 @@ def extract_PQRST(
             except Exception as e:
                 logger.warning(f'T Offset backup extraction error = \n{e}')
                 return None
-
-            # If the acceleration method fails.  Add in another check to look at
-            # the slope after the T peak.  Draw a line down to the isoelectric
-            # line (0) Use that marker as your time marker for QT. 
-                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
     
     #FUNCTION J point
     def find_J_point():
         try:
+            #Looks between S peak and T peak.  Pulls back the last point where the ECG is less than the rolling median. 
+            #In most ECG's the rolling median will be higher and cross near or directly after the J point.  
+            #The size of the rolling window will affect that.  Keep that in mind. 
             slope_start = S_peak
             lil_wave = wave[slope_start:T_peak].flatten()
             med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
-            ecg_greater_med = np.where(lil_wave < med_sect)[0]
-            groups = grouper(ecg_greater_med)
+            ecg_less_median = np.where(lil_wave < med_sect)[0]
+            groups = grouper(ecg_less_median)
+            #TODO - Refactor this in next iteration
             if len(groups) == 1:
-                first_group = groups[0]
-                slope_start = slope_start + first_group[-1]
+                last_group = groups[0]
             else:
                 last_group = groups[-1]
-                slope_start = slope_start + last_group[0]
-
+            slope_start = slope_start + last_group[-1]
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
@@ -941,7 +901,7 @@ def extract_PQRST(
         except Exception as e:
             logger.debug(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
-            #NOTE- SPeak widening
+            #NOTE SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
                 #because the S peak is located on the descent from the R peak
                 #I need to run the algorithm from the start of the ascent to the T peak.
@@ -969,6 +929,58 @@ def extract_PQRST(
                     #1. Isolate global minima from S to T peak. 
                     #1b. Isolate what type of shape it is... might not need this if i can isolate the 
                         #section before the J point. 
+    # FUNCTION T Onset
+    def find_T_onset():
+        try:
+            # slope_start = T_peak - int(srch_width*1.25)
+            #First check if there is a J point
+                #If there is use the J point as your start search index.  
+                #If there isn't use the 2*search_width looking backwards.  
+            if J_point:
+                # slope_st = samp_min_dict.get(R_peak, "")
+                slope_st = J_point
+            else:
+                slope_st = T_peak - int(srch_width*2)
+            
+            slope_end = T_peak + 1
+            lil_wave = wave[slope_st:slope_end].flatten()
+            med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
+            ecg_less_median = np.where(lil_wave < med_sect)[0]
+            groups = grouper(ecg_less_median)
+            #If there's only one group (lil wave <)
+                #sometimes there's a double dip in the J_point which causes
+                #early crossing.  That is why if there's mutliple groups select
+                #the last one.  
+            if len(groups) == 1:
+                first_group = groups[0]
+                slope_start = slope_st + first_group[-1]
+            else:
+                last_group = groups[-1]
+                slope_start = slope_st + last_group[-1]
+
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            T_onset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 13] = T_onset
+            logger.debug(f'Adding T onset')
+            return T_onset
+
+        except Exception as e:
+            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            
+            # Old way
+            # slope_start = samp_min_dict.get(R_peak, "")
+            # slope_end = T_peak + 1
+            # lil_wave = wave[slope_start:slope_end].flatten()
+            # med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+            # ecg_greater_med = np.where(lil_wave < med_sect)[0]
+            # groups = grouper(ecg_greater_med)
+            # first_group = groups[0]
+            # T_onset = slope_start + first_group[-1]
+            # temp_arr[temp_counter, 13] = T_onset
+            # logger.debug('Adding T onset')
+            # return T_onset
+
 
     #FUNCTION Shape test
     def shape_test(X:np.array, y:np.array):
@@ -983,7 +995,8 @@ def extract_PQRST(
         if all([gate1, gate2, gate3]):
             shape = "linear"
             return shape, None
-
+        
+        # Apply Savitzky-Golay filter
         y_savg = utils.smooth_signal(y)
         dy = np.gradient(y_savg)
         ddy = np.gradient(dy)
@@ -992,7 +1005,7 @@ def extract_PQRST(
         shape = None
         start = None
 
-        #Fit for U shape. 
+        #Fit for U shape
         U_coeffs = np.polyfit(X, y_savg, 2)
         U_poly = P.Polynomial(U_coeffs[::-1])
         U_y_fit = U_poly(X)
@@ -1270,11 +1283,12 @@ def extract_PQRST(
         
         # Calc the width of the QRS.  Will be used for searching offsets. 
         srch_width = (S_peak - Q_peak) * 2
+        # Grab each necessary onset/offset relevant to basic metrics
         P_onset    = find_P_onset()
         Q_onset    = find_Q_onset()
-        T_onset    = find_T_onset()
         T_offset   = find_T_offset()
         J_point    = find_J_point()
+        T_onset    = find_T_onset()
 
         # MEAS PR Interval
         if Q_onset and P_onset:
@@ -1424,7 +1438,9 @@ def main_peak_search(
                     )
 
                     # If you've found the wave and have sufficient num of peaks
-                    if sect_valid and R_peaks.size > 10:
+                    if sect_valid and R_peaks.size > 10: 
+                        #BUG - You need a way to tie the number of R peaks to the section window size so it 
+                        # makes sense.  having a static number here is dangerous. 
                         found_wave = True
                         start_sect = section_counter 
                         #BUG Section Data Error
@@ -1492,8 +1508,9 @@ def main_peak_search(
                     )
                     logger.info(f'Building up time for historical data Section:{section_counter}')			
                 
-                # Still need a quick peak count check. Found 1 edge case that got through
-                # and messed up a 2 hour section. 
+                # BUG 
+                    # Still need a quick peak count check. Found 1 edge case that got through
+                    # and messed up a 2 hour section. 
                 elif new_peaks_arr.shape[0] < 4:
                     sect_valid = False
                     fail_reas = "Not enough peaks"
@@ -1616,6 +1633,10 @@ def main():
         configs["plot_errors"],
         (ecg_data, wave, fs)
     )
+
+
+    #NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
+
     # Save logs, results, send update email
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
