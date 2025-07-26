@@ -6,7 +6,6 @@ import setup_globals#from rad_ecg.scripts #
 #################################  Main libraries ####################################
 import numpy as np
 from numpy.polynomial import polynomial as P
-import kneed
 from kneed import KneeLocator
 import scipy.signal as ss
 from scipy import stats
@@ -795,8 +794,9 @@ def extract_PQRST(
     # FUNCTION P onset
     def find_P_onset():
         try:
-            slope_start = P_peak - int(srch_width*2)
             slope_end = P_peak + 1
+            slope_start = slope_end - int(srch_width*2)
+            
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             P_onset = slope_start + np.argmax(lil_grads)
@@ -862,6 +862,7 @@ def extract_PQRST(
     
     #FUNCTION J point
     def find_J_point():
+        #TODO - Refactor this in next iteration
         try:
             #Looks between S peak and T peak.  Pulls back the last point where the ECG is less than the rolling median. 
             #In most ECG's the rolling median will be higher and cross near or directly after the J point.  
@@ -871,36 +872,39 @@ def extract_PQRST(
             med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
             ecg_less_median = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_less_median)
-            #TODO - Refactor this in next iteration
-            if len(groups) == 1:
-                last_group = groups[0]
-            else:
-                last_group = groups[-1]
-            slope_start = slope_start + last_group[-1]
+            
+            # if len(groups) == 1:
+            last_group = groups[0]
+            slope_end = slope_start + last_group[-1]
+            # else:
+            #     last_group = groups[-1]
+            #     slope_end = slope_start + last_group[0]
+
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
-            logger.info(f"Shape {shape}")
+            logger.info(f"Shape is {shape}")
             match shape:
                 case "linear":
                     logger.debug("transition linear, taking sample min")
-                    slope_start = X[np.argmin(y)] 
+                    slope_start = S_peak
                 case "V"|"U"|"W":
                     logger.debug(f"Rpeak {R_peak} shape is {shape} ")
                     slope_start = sl_start
                 case _: 
-                    logger.debug("No shape found")
-                    return None
+                    logger.info("No shape found")
+                    slope_start = X[np.argmin(y)] 
+                
             X = np.array(range(slope_start, slope_end))
-            y = wave[slope_start:slope_end]
+            y = wave[slope_start:slope_end].flatten()
             knee = KneeLocator(X, y, curve="concave", direction="increasing")
             J_point = knee.elbow
             temp_arr[temp_counter, 15] = J_point
-            logger.debug(f'J point added')
+            logger.info(f'J point added. X shape {X.shape}')
             return J_point
 
         except Exception as e:
-            logger.debug(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.info(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
 
             #NOTE SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
@@ -930,34 +934,35 @@ def extract_PQRST(
                     #1. Isolate global minima from S to T peak. 
                     #1b. Isolate what type of shape it is... might not need this if i can isolate the 
                         #section before the J point. 
+
     # FUNCTION T Onset
     def find_T_onset():
         try:
+            # slope_st = samp_min_dict.get(R_peak, "")
             # slope_start = T_peak - int(srch_width*1.25)
-            #First check if there is a J point
-                #If there is use the J point as your start search index.  
-                #If there isn't use the 2*search_width looking backwards.  
-            if J_point:
-                # slope_st = samp_min_dict.get(R_peak, "")
-                slope_st = J_point
-            else:
-                slope_st = T_peak - int(srch_width*2)
-            
+            #If there is use the J point as your start search index.  
+            #If there isn't use the samp min from the init R peak search
             slope_end = T_peak + 1
-            lil_wave = wave[slope_st:slope_end].flatten()
-            med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
-            ecg_less_median = np.where(lil_wave < med_sect)[0]
-            groups = grouper(ecg_less_median)
-            #If there's only one group (lil wave <)
-                #sometimes there's a double dip in the J_point which causes
-                #early crossing.  That is why if there's mutliple groups select
-                #the last one.  
-            if len(groups) == 1:
+            
+            if J_point:
+                slope_start = J_point
+                
+            else:
+                slope_st = samp_min_dict.get(R_peak, "")
+                lil_wave = wave[slope_st:slope_end].flatten()
+                med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
+                ecg_less_median = np.where(lil_wave < med_sect)[0]
+                groups = grouper(ecg_less_median)
+                #If there's only one group (lil wave <)
+                    #sometimes there's a double dip in the J_point which causes
+                    #early crossing.  That is why if there's mutliple groups select
+                    #the last one.  
+                # if len(groups) == 1:
                 first_group = groups[0]
                 slope_start = slope_st + first_group[-1]
-            else:
-                last_group = groups[-1]
-                slope_start = slope_st + last_group[-1]
+                # else:
+                #     last_group = groups[-1]
+                #     slope_start = slope_st + last_group[0]
 
             lil_wave = wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
@@ -965,10 +970,9 @@ def extract_PQRST(
             temp_arr[temp_counter, 13] = T_onset
             logger.debug(f'Adding T onset')
             return T_onset
-
+        
         except Exception as e:
             logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-            
             # Old way
             # slope_start = samp_min_dict.get(R_peak, "")
             # slope_end = T_peak + 1
@@ -982,14 +986,13 @@ def extract_PQRST(
             # logger.debug('Adding T onset')
             # return T_onset
 
-
     #FUNCTION Shape test
     def shape_test(X:np.array, y:np.array):
         slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
         y_preds = slope * X + intercept
         rmse = utils.calc_rmse(y, y_preds)
         gate1 = slope > 0           
-        gate2 = r_value**2 < 0.95
+        gate2 = r_value**2 > 0.95
         gate3 = rmse < 1
 
         #If all gates met, section is linear and cannot extract Jpoint
@@ -1006,48 +1009,57 @@ def extract_PQRST(
         shape = None
         start = None
 
-        #Fit for U shape
-        U_coeffs = np.polyfit(X, y_savg, 2)
-        U_poly = P.Polynomial(U_coeffs[::-1])
-        U_y_fit = U_poly(X)
-        U_rmse = utils.calc_rmse(y_savg, U_y_fit)
+        try:
+            #Fit for U shape
+            U_coeffs = np.polyfit(X, y_savg, 2)
+            U_poly = P.Polynomial(U_coeffs[::-1])
+            U_y_fit = U_poly(X)
+            U_rmse = utils.calc_rmse(y_savg, U_y_fit)
 
-        #Fit for W shape with 4th degree polynomial
-        # if length > 5: #Not sure i Need this
-        W_coeffs = np.polyfit(X, y_savg, 4)
-        W_poly = P.Polynomial(W_coeffs[::-1])
-        W_y_fit = W_poly(X)
-        W_rmse = utils.calc_rmse(y_savg, W_y_fit)
-        
-        #Test for U shape.
-        #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
-        if U_coeffs[0] > 0 and U_rmse < rsme_thres:
-            if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
-                shape = "U"
-                start = X[np.argmin(y_savg)]
-                logger.critical(f"Shape is {shape}")
-        #Test for W shape
-        if len(dy) > 1 and W_rmse < rsme_thres:
-            dy_signch = np.diff(np.sign(dy))
-            local_mins = np.where(dy_signch > 0)[0] + 1
-            local_maxs = np.where(dy_signch < 0)[0] + 1
-            if len(local_mins) >= 2 and len(local_maxs) >= 1:
-                if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
-                    shape = "W"
-                    start = local_mins[-1]
-        # Test for V shape. 
-        # Here we're looking for a sharp change in the first derivative
-        if not shape:
-            min_y_idx = np.argmin(y_savg)
-            if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
-                mean_slope_before = np.mean(dy[:min_y_idx])
-                mean_slope_after = np.mean(dy[min_y_idx:])
-                if mean_slope_before < -0.1 and mean_slope_after > 0.1:
-                    if U_rmse > threshold:
-                        if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
-                            shape = "V"
-                            start = X[min_y_idx]
-                            
+            #Test for U shape.
+            #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+            if U_coeffs[0] > 0 and U_rmse < rsme_thres:
+                if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
+                    shape = "U"
+                    start = X[np.argmin(y_savg)]
+
+            
+            #     #Fit for W shape with 4th degree polynomial
+            #     if length > 5:
+            #         W_coeffs = np.polyfit(X, y_savg, 4)
+            #         W_poly = P.Polynomial(W_coeffs[::-1])
+            #         W_y_fit = W_poly(X)
+            #         W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+
+            # except Exception as e:
+            #     logger.debug(f'W fit error = \n{e} for Rpeak {R_peak:_d}')
+
+            # #Test for W shape
+            # if len(dy) > 1: #and W_rmse < rsme_thres:
+            #     dy_signch = np.diff(np.sign(dy))
+            #     local_mins = np.where(dy_signch > 0)[0] + 1
+            #     local_maxs = np.where(dy_signch < 0)[0] + 1
+            #     if len(local_mins) >= 2 and len(local_maxs) >= 1:
+            #         if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
+            #             shape = "W"
+            #             start = local_mins[-1]
+
+            # Test for V shape. 
+            # Here we're looking for a sharp change in the first derivative
+            if not shape:
+                min_y_idx = np.argmin(y_savg)
+                if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
+                    mean_slope_before = np.mean(dy[:min_y_idx])
+                    mean_slope_after = np.mean(dy[min_y_idx:])
+                    if mean_slope_before < -0.1 and mean_slope_after > 0.1:
+                        if U_rmse > threshold:
+                            if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
+                                shape = "V"
+                                start = X[min_y_idx]
+
+        except Exception as e:
+            logger.debug(f'Shape Error \n{e} for Rpeak {R_peak:_d}')
+
         return shape, start
 
     # FUNCTION estimate_iso
@@ -1069,24 +1081,25 @@ def extract_PQRST(
 
                 except Exception as e:
                     logger.warning(f'Iso extraction Error = \n{e} for Rpeak {temp_arr[idx, 5]:_d}')
+
         if iso:
             isoelectric = np.round(np.nanmean(iso), 6)
             ecg_data["section_info"][st_fn[0]]["isoelectric"] = isoelectric
             return isoelectric
         else:
             return None
-        
+
     # Set Globals
     global ecg_data, wave
     peak_que = deque(new_peaks_arr[:, 0])
-    temp_arr = np.zeros(shape=(new_peaks_arr.shape[0], 15), dtype=np.int32)
+    temp_arr = np.zeros(shape=(new_peaks_arr.shape[0], 16), dtype=np.int32)
     temp_counter = 0    
     samp_min_dict = {x:int for x in new_peaks_arr[:, 0]}
 
     if ecg_data['interior_peaks'].shape[0] != 0:
         if ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
             # Load the values from the last interior peak into the temp array
-            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
+            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1, :]
             # remove the last row
             ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
     
@@ -1267,7 +1280,7 @@ def extract_PQRST(
         R_peak = peak_que.popleft()
         # Early terminate if not all valid PQRST present.
         if temp_arr[temp_counter, 5] == 0:
-            logger.info(f'Missing PQST, cannot process R peak {R_peak}')
+            logger.debug(f'Missing PQST, cannot process R peak {R_peak}')
             temp_counter += 1
             continue
         
@@ -1455,7 +1468,7 @@ def main_peak_search(
                         ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
 
                         # Make temp container for interior peaks
-                        int_peaks = np.zeros(shape=(new_peaks.shape[0], 15), dtype=np.int32)
+                        int_peaks = np.zeros(shape=(new_peaks.shape[0], 16), dtype=np.int32)
                         # Add the R peaks to the interior_peaks container. 
                         int_peaks[:, 2] = new_peaks_arr[:, 0]
                         ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
@@ -1637,7 +1650,6 @@ def main():
 
 
     #NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
-
     # Save logs, results, send update email
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")

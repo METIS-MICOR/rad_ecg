@@ -170,7 +170,7 @@ def load_structures(source:str, datafile:Path):
         'peaks': np.zeros(shape=(0, 2), dtype=np.int32),
         'rolling_med': np.zeros(shape=(wave.shape[0]), dtype=np.float32),
         'section_info': np.zeros(shape=(wave_sections.shape[0]), dtype=wave_sect_dtype),
-        'interior_peaks': np.zeros(shape=(0, 15), dtype=np.int32)
+        'interior_peaks': np.zeros(shape=(0, 16), dtype=np.int32)
     }
 
     ecg_data['section_info']['wave_section'] = np.arange(0, wave_sections.shape[0], 1)

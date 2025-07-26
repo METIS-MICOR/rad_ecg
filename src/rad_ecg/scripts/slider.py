@@ -16,7 +16,6 @@ import matplotlib.gridspec as gridspec
 import utils # from rad_ecg.scripts
 import setup_globals # from rad_ecg.scripts 
 from support import logger, console, log_time
-import support
 
 PEAKDICT = {
     0:('P', 'green'),
@@ -73,7 +72,7 @@ def make_rich_table(failures:dict) -> Table:
     return error_table
 
 def load_graph_objects(datafile:str, outputf:str):
-    #Ugh, i have to rewrite all of this.  
+
     #FUNCTION Add chart labels
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
@@ -317,6 +316,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 label=f'Frequency Range (Hz)',
                 location='left')
             logger.info("")
+    
     #FUNCTION Wavesearch
     @log_time
     def wavesearch():
@@ -584,7 +584,6 @@ def load_graph_objects(datafile:str, outputf:str):
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
-    
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
         ('wave_section', 'i4'),
@@ -600,6 +599,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
+
     for fname in outputf:
         if fname.endswith("_section_info.csv"):
             fpath = datafile._str + "\\" + fname.split("_section_info")[0]
@@ -688,7 +688,8 @@ def load_graph_objects(datafile:str, outputf:str):
     #Make a custom legend. 
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', label=val[0], markerfacecolor=val[1], markersize=10) for val in PEAKDICT.values()
-        ]
+    ]
+    
     ax_ecg.legend(handles=legend_elements, loc='upper left')
     plt.show()
 
@@ -706,15 +707,13 @@ def main():
     configs = setup_globals.load_config()
     configs["freq"], configs["stump"] =  False, False
     configs["slider"], configs["overlay"] = True, False
-
     datafile = setup_globals.launch_tui(configs)
     global wave, fs
     wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     graph = load_graph_objects(datafile, outputf)
- 
+
 if __name__ == "__main__":
     main()
-
     #IDEA - Larger section clustering of smaller groups.  Or motif shifts
         #Could run it in the slider.py file.
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
