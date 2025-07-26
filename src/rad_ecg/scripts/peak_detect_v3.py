@@ -805,7 +805,7 @@ def extract_PQRST(
             return P_onset
         
         except Exception as e:
-            logger.warning(f'P onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.warning(f'P onset extraction Error for Rpeak {R_peak:_d}\n{e}')
 
     # FUNCTION Q onset
     def find_Q_onset():
@@ -821,7 +821,7 @@ def extract_PQRST(
             return Q_onset
         
         except Exception as e:
-            logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.warning(f'Q onset extraction Error for Rpeak {R_peak:_d}\n{e}')
 
     # FUNCTION T Offset
     def find_T_offset():
@@ -837,7 +837,7 @@ def extract_PQRST(
             return T_offset
             
         except Exception as e:
-            logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.warning(f'T Offset extraction Error for Rpeak {R_peak:_d}\n{e}')
             logger.debug("Attempting secondary T_offset extraction")
             # NOTE backup T_offset extract
                 # If the acceleration method fails.  Add in another check to look at
@@ -883,28 +883,29 @@ def extract_PQRST(
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
             shape, sl_start = shape_test(X, y)
-            logger.info(f"Shape is {shape}")
+            logger.debug(f"Shape is {shape}")
             match shape:
                 case "linear":
-                    logger.debug("transition linear, taking sample min")
-                    slope_start = S_peak
+                    logger.debug(f"transition linear, starting from S peak{S_peak}")
+                    slope_start = X[np.argmin(y)]
                 case "V"|"U"|"W":
                     logger.debug(f"Rpeak {R_peak} shape is {shape} ")
                     slope_start = sl_start
                 case _: 
-                    logger.info("No shape found")
+                    logger.debug("No shape found")
                     slope_start = X[np.argmin(y)] 
                 
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
-            knee = KneeLocator(X, y, curve="concave", direction="increasing")
-            J_point = knee.elbow
-            temp_arr[temp_counter, 15] = J_point
-            logger.info(f'J point added. X shape {X.shape}')
-            return J_point
+            if X.shape[0] > 5:
+                knee = KneeLocator(X, y, curve="concave", direction="increasing")
+                J_point = knee.elbow + 1
+                temp_arr[temp_counter, 15] = J_point
+                logger.info(f'J point added. X shape {X.shape}')
+                return J_point
 
         except Exception as e:
-            logger.info(f'J point extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.info(f'J point extraction Error for Rpeak {R_peak:_d}\n{e}')
 
             #NOTE SPeak widening
                 #I'm not isolating the correct start point for evaluating the J point. 
@@ -972,7 +973,7 @@ def extract_PQRST(
             return T_onset
         
         except Exception as e:
-            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+            logger.warning(f'T onset extraction Error for Rpeak {R_peak:_d}\n{e}')
             # Old way
             # slope_start = samp_min_dict.get(R_peak, "")
             # slope_end = T_peak + 1
@@ -988,42 +989,45 @@ def extract_PQRST(
 
     #FUNCTION Shape test
     def shape_test(X:np.array, y:np.array):
-        slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
-        y_preds = slope * X + intercept
-        rmse = utils.calc_rmse(y, y_preds)
-        gate1 = slope > 0           
-        gate2 = r_value**2 > 0.95
-        gate3 = rmse < 1
+        try:
+            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
+            y_preds = slope * X + intercept
+            rmse = utils.calc_rmse(y, y_preds)
+            gate1 = slope > 0           
+            gate2 = r_value**2 > 0.95
+            gate3 = rmse < 1
 
-        #If all gates met, section is linear and cannot extract Jpoint
-        if all([gate1, gate2, gate3]):
-            shape = "linear"
-            return shape, None
-        
-        # Apply Savitzky-Golay filter
-        y_savg = utils.smooth_signal(y)
-        dy = np.gradient(y_savg)
-        ddy = np.gradient(dy)
-        rsme_thres = 0.2
-        length = len(X)
-        shape = None
-        start = None
+            #If all gates met, section is linear and cannot extract Jpoint
+            if all([gate1, gate2, gate3]):
+                shape = "linear"
+                return shape, None
+            
+        except Exception as e:
+            logger.debug(f'Linear Regression error for Rpeak {R_peak:_d}\n{e}')
 
         try:
+            # Apply Savitzky-Golay filter
+            y_savg = utils.smooth_signal(y)
+            dy = np.gradient(y_savg)
+            ddy = np.gradient(dy)
+            rsme_thres = 0.2
+            length = len(X)
+            shape = None
+            start = None
             #Fit for U shape
-            U_coeffs = np.polyfit(X, y_savg, 2)
-            U_poly = P.Polynomial(U_coeffs[::-1])
-            U_y_fit = U_poly(X)
-            U_rmse = utils.calc_rmse(y_savg, U_y_fit)
+            if length > 5:
+                U_coeffs = np.polyfit(X, y_savg, 2)
+                U_poly = P.Polynomial(U_coeffs[::-1])
+                U_y_fit = U_poly(X)
+                U_rmse = utils.calc_rmse(y_savg, U_y_fit)
 
-            #Test for U shape.
-            #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
-            if U_coeffs[0] > 0 and U_rmse < rsme_thres:
-                if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
-                    shape = "U"
-                    start = X[np.argmin(y_savg)]
+                #Test for U shape.
+                #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+                if U_coeffs[0] > 0 and U_rmse < rsme_thres:
+                    if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
+                        shape = "U"
+                        start = X[np.argmin(y_savg)]
 
-            
             #     #Fit for W shape with 4th degree polynomial
             #     if length > 5:
             #         W_coeffs = np.polyfit(X, y_savg, 4)
@@ -1058,7 +1062,7 @@ def extract_PQRST(
                                 start = X[min_y_idx]
 
         except Exception as e:
-            logger.debug(f'Shape Error \n{e} for Rpeak {R_peak:_d}')
+            logger.debug(f'Shape Error for Rpeak {R_peak:_d}\n{e}')
 
         return shape, start
 
@@ -1080,7 +1084,7 @@ def extract_PQRST(
                     iso.append(np.nanmean(wave[T_off:P_on]))
 
                 except Exception as e:
-                    logger.warning(f'Iso extraction Error = \n{e} for Rpeak {temp_arr[idx, 5]:_d}')
+                    logger.warning(f'Iso extraction Error for Rpeak {temp_arr[idx, 5]:_d}\n{e} ')
 
         if iso:
             isoelectric = np.round(np.nanmean(iso), 6)
@@ -1099,7 +1103,7 @@ def extract_PQRST(
     if ecg_data['interior_peaks'].shape[0] != 0:
         if ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
             # Load the values from the last interior peak into the temp array
-            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1, :]
+            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
             # remove the last row
             ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
     

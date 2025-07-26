@@ -3,7 +3,7 @@
   "plot_errors": false,
   "live_term": false,
   "porcine": false,
-  "slider": true,
+  "slider": false,
   "batch": false,
   "samp_freq": 170.667,
   "data_path": "./src/rad_ecg/data/inputdata",
@@ -11,8 +11,8 @@
   "gcp_bucket": false,
   "bucket_name": "",
   "run_anomalyd": "",
-  "cam": "",
-  "last_run": "",
-  "log_path": "",
-  "cam_name": ""
+  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\inputdata\\HTM1Y-VF305\\HTM1Y-VF305",
+  "last_run": "07-26-2025",
+  "log_path": "src/rad_ecg/data/logs/07-26-2025_00-24-57.log",
+  "cam_name": "HTM1Y-VF305"
 }
