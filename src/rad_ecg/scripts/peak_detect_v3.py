@@ -245,17 +245,20 @@ def peak_validation_check(
                 leftbases.append(lookback + np_inflections[-1])
         else:
             logger.warning(f"Left base missed on R peak {RP}")
-
-    if len(leftbases) == len(RPeaks):
-        slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
-        lower_bound = np.mean(slopes) * 0.20 #started at .51 
-        upper_bound = np.mean(slopes) * 3
-        peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
-    else:
-        logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
-        fail_reas = "slope"
-        peak_slope_check = False
-        sect_valid = False
+    try:
+        if len(leftbases) == len(RPeaks):
+            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
+            lower_bound = np.mean(slopes) * 0.20 #started at .51 
+            upper_bound = np.mean(slopes) * 3
+            peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
+        else:
+            logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
+            fail_reas = "slope"
+            peak_slope_check = False
+            sect_valid = False
+            
+    except Exception as e:
+        logger.warning(f'Slope calc error for /n{e}')
 
     if peak_slope_check:
         logger.warning(f'Bad Slope in section {cur_sect}')
@@ -882,7 +885,8 @@ def extract_PQRST(
 
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
-            shape, sl_start = shape_test(X, y)
+            shape = None
+            # shape, sl_start = shape_test(X, y)
             logger.debug(f"Shape is {shape}")
             match shape:
                 case "linear":
@@ -1005,16 +1009,16 @@ def extract_PQRST(
         except Exception as e:
             logger.debug(f'Linear Regression error for Rpeak {R_peak:_d}\n{e}')
 
+        # Apply Savitzky-Golay filter
+        y_savg = utils.smooth_signal(y)
+        dy = np.gradient(y_savg)
+        ddy = np.gradient(dy)
+        rsme_thres = 0.2
+        length = len(X)
+        shape = None
+        start = None
+        #Fit for U shape
         try:
-            # Apply Savitzky-Golay filter
-            y_savg = utils.smooth_signal(y)
-            dy = np.gradient(y_savg)
-            ddy = np.gradient(dy)
-            rsme_thres = 0.2
-            length = len(X)
-            shape = None
-            start = None
-            #Fit for U shape
             if length > 5:
                 U_coeffs = np.polyfit(X, y_savg, 2)
                 U_poly = P.Polynomial(U_coeffs[::-1])
@@ -1027,6 +1031,9 @@ def extract_PQRST(
                     if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
                         shape = "U"
                         start = X[np.argmin(y_savg)]
+
+        except Exception as e:
+            logger.debug(f'Shape Error for Rpeak {R_peak:_d}\n{e}')
 
             #     #Fit for W shape with 4th degree polynomial
             #     if length > 5:
@@ -1060,9 +1067,6 @@ def extract_PQRST(
                             if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
                                 shape = "V"
                                 start = X[min_y_idx]
-
-        except Exception as e:
-            logger.debug(f'Shape Error for Rpeak {R_peak:_d}\n{e}')
 
         return shape, start
 
@@ -1238,7 +1242,7 @@ def extract_PQRST(
             logger.debug("adding T peak")
             
         except Exception as e:
-            logger.warning(f"T peak extraction error for {peak0}. Error message {e}")
+            logger.info(f"T peak extraction error for {peak0}. Error message {e}")
             temp_arr[temp_counter, 4] = 0
 
         # MEAS P Peak 
@@ -1266,7 +1270,7 @@ def extract_PQRST(
             }
             missing_peak = np.where(temp_arr[temp_counter, :5]==0)[0]
             missing_peaks = [peak_dict[x] for x in missing_peak]
-            logger.warning(f"Missing peak for {missing_peaks} in section {st_fn[0]}")
+            logger.info(f"Missing peak for {missing_peaks} in section {st_fn[0]}")
 
         # Advance temp_arr counter
         temp_counter += 1
@@ -1526,14 +1530,11 @@ def main_peak_search(
                     )
                     logger.info(f'Building up time for historical data Section:{section_counter}')			
                 
-                # BUG 
-                    # Still need a quick peak count check. Found 1 edge case that got through
-                    # and messed up a 2 hour section. 
                 elif new_peaks_arr.shape[0] < 4:
                     sect_valid = False
                     fail_reas = "Not enough peaks"
                     ecg_data['section_info'][section_counter]['fail_reason'] = fail_reas
-                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                    logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
                     new_peaks_arr[:, 1] = 0
 
                 elif stft_loop_on:
@@ -1554,7 +1555,7 @@ def main_peak_search(
                     # Make sure to mark the section as invalid due to FFT. 
                     if not sect_valid:
                         ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
+                        logger.warning(f'STFT Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
 
                 # Checking our bad section counter. More than 10 and we switch back to STFT.  
                 elif invalid_sect_counter > 10:
@@ -1571,18 +1572,21 @@ def main_peak_search(
 
                     if not sect_valid:
                         ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
+                        logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
                 else:
                     # Set the section validity for Peak Validation
                     PV_sect_valid = False
                     # Grab the last consecutive peaks that are marked as valid
                     last_keys = consecutive_valid_peaks(ecg_data['peaks'])
-                    # Run Peak validation check based oh historical avgs
-                    PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
-
+                    if not isinstance(last_keys, bool):
+                        # Run Peak validation check based oh historical avgs
+                        PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
+                    else:
+                        ecg_data['section_info'][section_counter]['fail_reason'] = "historical"
+                        
                     if not PV_sect_valid: 
                         fail_reas = ecg_data['section_info'][section_counter]['fail_reason']
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                        logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
                         sect_valid = False
                     else:
                         sect_valid = True
