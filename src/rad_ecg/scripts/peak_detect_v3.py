@@ -1031,38 +1031,39 @@ def extract_PQRST(
         except Exception as e:
             logger.debug(f'Shape Error for Rpeak {R_peak:_d}\n{e}')
 
-            #     #Fit for W shape with 4th degree polynomial
-            #     if length > 5:
-            #         W_coeffs = np.polyfit(X, y_savg, 4)
-            #         W_poly = P.Polynomial(W_coeffs[::-1])
-            #         W_y_fit = W_poly(X)
-            #         W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+        try:
+            #Fit for W shape with 4th degree polynomial
+            if length > 5:
+                W_coeffs = np.polyfit(X, y_savg, 4)
+                W_poly = P.Polynomial(W_coeffs[::-1])
+                W_y_fit = W_poly(X)
+                W_rmse = utils.calc_rmse(y_savg, W_y_fit)
 
-            # except Exception as e:
-            #     logger.debug(f'W fit error = \n{e} for Rpeak {R_peak:_d}')
+        except Exception as e:
+            logger.debug(f'W fit error = \n{e} for Rpeak {R_peak:_d}')
 
-            # #Test for W shape
-            # if len(dy) > 1: #and W_rmse < rsme_thres:
-            #     dy_signch = np.diff(np.sign(dy))
-            #     local_mins = np.where(dy_signch > 0)[0] + 1
-            #     local_maxs = np.where(dy_signch < 0)[0] + 1
-            #     if len(local_mins) >= 2 and len(local_maxs) >= 1:
-            #         if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
-            #             shape = "W"
-            #             start = local_mins[-1]
+        #Test for W shape
+        if len(dy) > 1: #and W_rmse < rsme_thres:
+            dy_signch = np.diff(np.sign(dy))
+            local_mins = np.where(dy_signch > 0)[0] + 1
+            local_maxs = np.where(dy_signch < 0)[0] + 1
+            if len(local_mins) >= 2 and len(local_maxs) >= 1:
+                if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
+                    shape = "W"
+                    start = local_mins[-1]
 
-            # Test for V shape. 
-            # Here we're looking for a sharp change in the first derivative
-            if not shape:
-                min_y_idx = np.argmin(y_savg)
-                if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
-                    mean_slope_before = np.mean(dy[:min_y_idx])
-                    mean_slope_after = np.mean(dy[min_y_idx:])
-                    if mean_slope_before < -0.1 and mean_slope_after > 0.1:
-                        if U_rmse > threshold:
-                            if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
-                                shape = "V"
-                                start = X[min_y_idx]
+        # Test for V shape. 
+        # Here we're looking for a sharp change in the first derivative
+        if not shape:
+            min_y_idx = np.argmin(y_savg)
+            if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
+                mean_slope_before = np.mean(dy[:min_y_idx])
+                mean_slope_after = np.mean(dy[min_y_idx:])
+                if mean_slope_before < -0.1 and mean_slope_after > 0.1:
+                    if U_rmse > threshold:
+                        if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
+                            shape = "V"
+                            start = X[min_y_idx]
 
         return shape, start
 
