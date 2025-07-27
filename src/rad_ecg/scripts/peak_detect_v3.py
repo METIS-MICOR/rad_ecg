@@ -876,12 +876,8 @@ def extract_PQRST(
             ecg_less_median = np.where(lil_wave < med_sect)[0]
             groups = grouper(ecg_less_median)
             
-            # if len(groups) == 1:
             last_group = groups[0]
             slope_end = slope_start + last_group[-1]
-            # else:
-            #     last_group = groups[-1]
-            #     slope_end = slope_start + last_group[0]
 
             X = np.array(range(slope_start, slope_end))
             y = wave[slope_start:slope_end].flatten()
