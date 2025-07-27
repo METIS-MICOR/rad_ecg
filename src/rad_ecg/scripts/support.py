@@ -66,11 +66,11 @@ def get_logger(console:Console, log_dir:Path)->logging.Logger:
     logger.setLevel(logging.INFO)
     #Load file handler for how to format the log file.
     file_handler = get_file_handler(log_dir)
-    file_handler.setLevel(logging.WARNING)
+    file_handler.setLevel(logging.INFO)
     logger.addHandler(file_handler)
     #Load rich handler for how to display the log in the console
     rich_handler = get_rich_handler(console)
-    rich_handler.setLevel(logging.WARNING)
+    rich_handler.setLevel(logging.CRITICAL)
     logger.addHandler(rich_handler)
     logger.propagate = False
     return logger
@@ -128,7 +128,6 @@ def mainspinner(console:Console, totalstops:int):
         my_progress_bar (Progress): Progress bar for tracking overall progress
         jobtask (int): mainjob id for ecg extraction
     """
-
     my_progress_bar = Progress(
         TextColumn("{task.description}"),
         SpinnerColumn("aesthetic"),
@@ -203,7 +202,7 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     for x in ["peaks", "interior_peaks", "section_info"]:
         file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
         if x == "section_info":
-            save_format = '%i, '*4 + '%s, ' + '%.2f, '*7
+            save_format = '%i, '*4 + '%s, ' + '%.2f, '*8
         else:
             save_format = '%i, '*ecg_data[x].shape[1]
         try:

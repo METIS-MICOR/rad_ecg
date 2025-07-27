@@ -16,7 +16,6 @@ import matplotlib.gridspec as gridspec
 import utils # from rad_ecg.scripts
 import setup_globals # from rad_ecg.scripts 
 from support import logger, console, log_time
-import support
 
 PEAKDICT = {
     0:('P', 'green'),
@@ -29,7 +28,8 @@ PEAKDICT_EXT = {
     11:('P_on', 'purple'),
     12:('Q_on', 'darkgoldenrod'), 
     13:('T_on', 'teal'), 
-    14:('T_off', 'orange')
+    14:('T_off', 'orange'),
+    15:('J_poi', 'dodgerblue')
 }
 LABELDICT = {
     "P":(0, 7),
@@ -41,6 +41,7 @@ LABELDICT = {
     "Q_on":(-11, -4),
     "T_on":(10, 0),
     "T_off":(10, 10),
+    "J_poi":(-10, 15),
 }
 
 #FUNCTION Make rich table
@@ -71,7 +72,7 @@ def make_rich_table(failures:dict) -> Table:
     return error_table
 
 def load_graph_objects(datafile:str, outputf:str):
-    #Ugh, i have to rewrite all of this.  
+
     #FUNCTION Add chart labels
     def add_cht_labels(x:np.array, y:np.array, plt, label:str):
         """[Add's a label for each type of peak]
@@ -188,6 +189,7 @@ def load_graph_objects(datafile:str, outputf:str):
         inners = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_w) & (ecg_data['interior_peaks'][:, 2] <= end_w), :]
         R_peaks = inners[np.nonzero(inners[:, 2])[0], 2]
         RR_diffs = int(np.mean(np.diff(R_peaks))//2)
+        #If its the main peaks
         if main_p:
             P_peak = inners[np.nonzero(inners[:, 0])[0], 0]
             Q_peak = inners[np.nonzero(inners[:, 1])[0], 1]
@@ -207,14 +209,15 @@ def load_graph_objects(datafile:str, outputf:str):
                 Line2D([0], [0], marker='o', color='w', label='Q Peak', markerfacecolor=PEAKDICT[1][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='R Peak', markerfacecolor=PEAKDICT[2][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='S Peak', markerfacecolor=PEAKDICT[3][1], markersize=15),
-                Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15)
+                Line2D([0], [0], marker='o', color='w', label='T Peak', markerfacecolor=PEAKDICT[4][1], markersize=15),
             ]
-
+        #If its the interior plots
         else:
             P_onset = inners[np.nonzero(inners[:, 11])[0], 11]
             Q_onset = inners[np.nonzero(inners[:, 12])[0], 12]
             T_onset = inners[np.nonzero(inners[:, 13])[0], 13]
             T_offset = inners[np.nonzero(inners[:, 14])[0], 14]
+            J_point = inners[np.nonzero(inners[:, 15])[0], 15]
 
             for idx, Rpeak in enumerate(R_peaks):
                 ax_over.plot(wave[Rpeak-RR_diffs:Rpeak+RR_diffs], label=f'peak_{idx}', color='dodgerblue', alpha=.5)
@@ -222,12 +225,15 @@ def load_graph_objects(datafile:str, outputf:str):
                 ax_over.scatter((Q_onset[idx] - Rpeak) + RR_diffs , wave[Q_onset[idx]], label='Q Onset', s = 60, color=PEAKDICT_EXT[12][1])
                 ax_over.scatter((T_onset[idx] - Rpeak) + RR_diffs , wave[T_onset[idx]], label='T Onset', s = 60, color=PEAKDICT_EXT[13][1])
                 ax_over.scatter((T_offset[idx] - Rpeak) + RR_diffs , wave[T_offset[idx]], label='T Offset', s = 60, color=PEAKDICT_EXT[14][1])
-
+                if J_point.shape[0] != 0:
+                    ax_over.scatter((J_point[idx] - Rpeak) + RR_diffs , wave[J_point[idx]], label='J point', s = 60, color=PEAKDICT_EXT[15][1])
+                    
             legend_elements = [
                 Line2D([0], [0], marker='o', color='w', label='P Onset', markerfacecolor=PEAKDICT_EXT[11][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='Q Onset', markerfacecolor=PEAKDICT_EXT[12][1], markersize=15),
                 Line2D([0], [0], marker='o', color='w', label='T Onset', markerfacecolor=PEAKDICT_EXT[13][1], markersize=15),
-                Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor=PEAKDICT_EXT[14][1], markersize=15)
+                Line2D([0], [0], marker='o', color='w', label='T Offset', markerfacecolor=PEAKDICT_EXT[14][1], markersize=15),
+                Line2D([0], [0], marker='o', color='w', label='J point', markerfacecolor=PEAKDICT_EXT[15][1], markersize=15)
             ]
         ax_over.set_ylabel('Voltage (mV)')
         ax_over.set_xlabel('ECG index')
@@ -310,6 +316,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 label=f'Frequency Range (Hz)',
                 location='left')
             logger.info("")
+    
     #FUNCTION Wavesearch
     @log_time
     def wavesearch():
@@ -422,23 +429,6 @@ def load_graph_objects(datafile:str, outputf:str):
         )
         remove_colorbar()
 
-        
-    # https://stackoverflow.com/questions/60445772/making-spanselector-wait-for-a-specific-keypress-event
-        #Directions for wave search. 
-
-        #1. When selected, activate the span selector somehow. 
-        #2. Then ask in terminal if this is the correct wave form to search for. 
-        #3. Erase main plot, redraw mainplot as two subplots.  
-        #4. subplots
-            #Subplot 1
-                #-will be the selected waveform highlighed in its section. 
-            #Subplot 2
-                #-Will be an overlay of the query search.  With the count
-                #of how many matches were found.  
-
-        #5. Export matrix profile with locations. 
-
-            
     def remove_colorbar():
         for artist in fig.axes:
             if artist._label == "<colorbar>":
@@ -536,7 +526,7 @@ def load_graph_objects(datafile:str, outputf:str):
         elif val == 'Show R Valid':
             Rpeaks = ecg_data['peaks'][(ecg_data['peaks'][:, 0] >= start_w) & (ecg_data['peaks'][:, 0] <= end_w), :]
             for peak in range(Rpeaks.shape[0]):
-                if Rpeaks[peak, 1]==0:
+                if Rpeaks[peak, 1] == 0:
                     band_color = 'red'
                 else:
                     band_color = 'lightgreen'
@@ -547,7 +537,7 @@ def load_graph_objects(datafile:str, outputf:str):
                 facecolor=band_color,
                 edgecolor="grey",
                 alpha=0.7)
-            ax_ecg.add_patch(rect)
+                ax_ecg.add_patch(rect)
 
         elif 'Frequency' in val:
             configs["freq"] = True
@@ -569,37 +559,31 @@ def load_graph_objects(datafile:str, outputf:str):
 
     #FUNCTION Slide forward invalid
     def move_slider_forward(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         next_sect = np.where(ecg_data['section_info']['valid'][curr_sect+1:]==0)[0][0] + curr_sect+1
         sect_slider.set_val(next_sect)
     
     #FUNCTION Slide forward one
     def move_slider_sing_forward(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect+1)
 
     #FUNCTION Slide back invalid
     def move_slider_back(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         prev_sect = np.where(ecg_data['section_info']['valid'][:curr_sect]==0)[0][-1]
         sect_slider.set_val(prev_sect)
 
     #FUNCTION Slide back one
     def move_slider_sing_back(vl):
-        #TODO add docstrings
         curr_sect = sect_slider.val
         sect_slider.set_val(curr_sect-1)
 
     #FUNCTION Slide to section
     def jump_slider_to_sect(v1):
-        #TODO add docstrings
         jump_num = int(jump_sect_text.text)
         sect_slider.set_val(jump_num)
 
-    
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
         ('wave_section', 'i4'),
@@ -615,6 +599,7 @@ def load_graph_objects(datafile:str, outputf:str):
         ('NN50', 'f4'),
         ('PNN50', 'f4')
     ]
+
     for fname in outputf:
         if fname.endswith("_section_info.csv"):
             fpath = datafile._str + "\\" + fname.split("_section_info")[0]
@@ -626,7 +611,7 @@ def load_graph_objects(datafile:str, outputf:str):
     ecg_data = {
         "peaks": np.genfromtxt(fpath+"_peaks.csv", delimiter=",", dtype=np.int32, usecols=(0, 1)),
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
-        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(15)))
+        "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
 
     #Draw main plot inititally and set params
@@ -703,7 +688,8 @@ def load_graph_objects(datafile:str, outputf:str):
     #Make a custom legend. 
     legend_elements = [
         Line2D([0], [0], marker='o', color='w', label=val[0], markerfacecolor=val[1], markersize=10) for val in PEAKDICT.values()
-        ]
+    ]
+    
     ax_ecg.legend(handles=legend_elements, loc='upper left')
     plt.show()
 
@@ -721,21 +707,14 @@ def main():
     configs = setup_globals.load_config()
     configs["freq"], configs["stump"] =  False, False
     configs["slider"], configs["overlay"] = True, False
-
     datafile = setup_globals.launch_tui(configs)
     global wave, fs
     wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     graph = load_graph_objects(datafile, outputf)
- 
+
 if __name__ == "__main__":
     main()
-
     #IDEA - Larger section clustering of smaller groups.  Or motif shifts
         #Could run it in the slider.py file.
     #IDEA - Or have a draggable band that switches your viewpoint to a histogram of the width of the band.
         #Like stumpy search function
-    #TODO 
-        #Add FFT / stumpy to main option button layout
-        #have it reframe the layout the same way.  
-        #In the distirbution plot below.  Maybe have the ability to refocus the main
-        #chart based on the other area's.  (Think second slider below once vertical splits)

@@ -2,22 +2,19 @@
 import utils        #from rad_ecg.scripts # 
 import support      #from rad_ecg.scripts # 
 import setup_globals#from rad_ecg.scripts # 
-from support import log_time, logger
 
 #################################  Main libraries ####################################
-import time
-import os
-import logging
 import numpy as np
+from numpy.polynomial import polynomial as P
+from kneed import KneeLocator
 import scipy.signal as ss
+from scipy import stats
 from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Arrow
 from collections import deque
-from time import strftime
 from support import logger, console, DATE_JSON, log_time
-
 
 # FUNCTION section stats
 def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
@@ -247,18 +244,21 @@ def peak_validation_check(
         if np_inflections.size > 0:
                 leftbases.append(lookback + np_inflections[-1])
         else:
-            logging.warning(f"Left base missed on R peak {RP}")
-
-    if len(leftbases) == len(RPeaks):
-        slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
-        lower_bound = np.mean(slopes) * 0.20 #started at .51 
-        upper_bound = np.mean(slopes) * 3
-        peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
-    else:
-        logging.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
-        fail_reas = "slope"
-        peak_slope_check = False
-        sect_valid = False
+            logger.warning(f"Left base missed on R peak {RP}")
+    try:
+        if len(leftbases) == len(RPeaks):
+            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
+            lower_bound = np.mean(slopes) * 0.20 #started at .51 
+            upper_bound = np.mean(slopes) * 3
+            peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
+        else:
+            logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
+            fail_reas = "slope"
+            peak_slope_check = False
+            sect_valid = False
+            
+    except Exception as e:
+        logger.warning(f'Slope calc error for /n{e}')
 
     if peak_slope_check:
         logger.warning(f'Bad Slope in section {cur_sect}')
@@ -301,8 +301,8 @@ def peak_validation_check(
             plt.legend(loc="upper left")
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
             
-            a = 3000
-            b = 450 
+            a = 0 #3000
+            b = 0 #450 
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -387,8 +387,8 @@ def peak_validation_check(
                 plt.legend()
                 plt.title(f'Bad rolling median for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
                 ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-                a = 3000
-                b = 450 
+                a = 0#3000
+                b = 0#450 
                 fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
@@ -397,7 +397,6 @@ def peak_validation_check(
                 timer_error.start()
                 plt.show()
                 plt.close()
-            
 
     Rpeak_roll_diff = wave[last_keys][:,0] - ecg_data['rolling_med'][last_keys]
     #lower_bound = Rpeak_roll_diff.mean() - np.std(Rpeak_roll_diff)*3
@@ -456,8 +455,8 @@ def peak_validation_check(
             plt.legend()
             plt.title(f'Bad peak height for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-            a = 3000
-            b = 450 
+            a = 0#3000
+            b = 0#450 
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -511,8 +510,8 @@ def peak_validation_check(
             plt.legend()
             plt.title(f'Bad peak sep for idx {start_idx:_d} to {end_idx:_d} in sect {cur_sect}')
             ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
-            a = 3000
-            b = 450
+            a = 0#3000
+            b = 0#450
             fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -725,8 +724,8 @@ def STFT(
                         #? Need redraw spect as well?
                         fig.canvas.draw_idle()
 
-        a = 3000
-        b = 450 
+        a = 0#3000
+        b = 0#450 
 
         fig.canvas.manager.window.wm_geometry("+%d+%d" % (a, b))
         click_control = fig.canvas.mpl_connect("button_press_event", onClick)
@@ -751,7 +750,7 @@ def extract_PQRST(
     new_peaks_arr:np.array, 
     peak_info:np.array,
     rolled_med:np.array,
-    )->np.array:
+    ) -> np.array:
     """This function extract's the interior peaks of an ECG signal. 
 
     Args:
@@ -761,8 +760,9 @@ def extract_PQRST(
         rolled_med (np.array): _description_
 
     Returns:
-        np.array: _description_
+        np.array: temp array with relevant peaks, onsets and offsets
     """
+    # FUNCTION Grouper
     def grouper(arr):
         """Mini function for splitting and grouping arrays where the
         differences between values are not equal to 1, split the array at that
@@ -777,28 +777,344 @@ def extract_PQRST(
         """		
         return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
     
+    # FUNCTION Curve Line Distance
+    def curve_line_dist(point:tuple, coef:tuple)->float:
+        """This function calculates the distance from every point
+        in our manufactured line, to the curve.  We use this to determine
+        where the elbow of a curve is at its maximal.
+
+        Args:
+            point (tuple): _description_
+            coef (tuple): _description_
+
+        Returns:
+            float: _description_
+        """			
+        d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
+        
+        return d
+
+    # FUNCTION P onset
+    def find_P_onset():
+        try:
+            slope_end = P_peak + 1
+            slope_start = slope_end - int(srch_width*2)
+            
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            P_onset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 11] = P_onset
+            logger.debug(f'Adding P onset')
+            return P_onset
+        
+        except Exception as e:
+            logger.warning(f'P onset extraction Error for Rpeak {R_peak:_d}\n{e}')
+
+    # FUNCTION Q onset
+    def find_Q_onset():
+        try:
+            slope_start = Q_peak - int((Q_peak - P_peak)*.70)
+            slope_end = Q_peak + 1
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
+            Q_onset = slope_start + shoulder[0] + 1
+            temp_arr[temp_counter, 12] = Q_onset
+            logger.debug(f'Adding Q onset')
+            return Q_onset
+        
+        except Exception as e:
+            logger.warning(f'Q onset extraction Error for Rpeak {R_peak:_d}\n{e}')
+
+    # FUNCTION T Offset
+    def find_T_offset():
+        slope_start = T_peak
+        slope_end = T_peak + int(srch_width*2) 
+
+        try:
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            T_offset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 14] = T_offset
+            logger.debug(f'Adding T offset')
+            return T_offset
+            
+        except Exception as e:
+            logger.warning(f'T Offset extraction Error for Rpeak {R_peak:_d}\n{e}')
+            logger.debug("Attempting secondary T_offset extraction")
+            # NOTE backup T_offset extract
+                # If the acceleration method fails.  Add in another check to look at
+                # the slope after the T peak.  Draw a line down to the isoelectric
+                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+
+            try:
+                m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
+                x_intercept = -b / m
+                isoelectric = isoelectric if isoelectric is not None else x_intercept
+                x_tans = np.linspace(T_peak, T_offset, 100)
+                y_tans = m * x_tans + b
+                T_cross = np.abs(y_tans - isoelectric)
+                T_offset = x_tans[T_cross]
+                temp_arr[temp_counter, 14] = T_offset
+                logger.info(f'Adding T offset backup')
+                return T_offset
+
+            except Exception as e:
+                logger.warning(f'T Offset backup extraction error = \n{e}')
+                return None
+    
+    #FUNCTION J point
+    def find_J_point():
+        #TODO - Refactor this in next iteration
+        try:
+            #Looks between S peak and T peak.  Pulls back the last point where the ECG is less than the rolling median. 
+            #In most ECG's the rolling median will be higher and cross near or directly after the J point.  
+            #The size of the rolling window will affect that.  Keep that in mind. 
+            slope_start = S_peak
+            lil_wave = wave[slope_start:T_peak].flatten()
+            med_sect = rolled_med[slope_start - st_fn[1]:T_peak - st_fn[1]].flatten()
+            ecg_less_median = np.where(lil_wave < med_sect)[0]
+            groups = grouper(ecg_less_median)
+            
+            last_group = groups[0]
+            slope_end = slope_start + last_group[-1]
+
+            X = np.array(range(slope_start, slope_end))
+            y = wave[slope_start:slope_end].flatten()
+            shape = None
+            # shape, sl_start = shape_test(X, y)
+            logger.debug(f"Shape is {shape}")
+            match shape:
+                case "linear":
+                    logger.debug(f"transition linear, starting from S peak{S_peak}")
+                    slope_start = X[np.argmin(y)]
+                case "V"|"U"|"W":
+                    logger.debug(f"Rpeak {R_peak} shape is {shape} ")
+                    slope_start = sl_start
+                case _: 
+                    logger.debug("No shape found")
+                    slope_start = X[np.argmin(y)] 
+                
+            X = np.array(range(slope_start, slope_end))
+            y = wave[slope_start:slope_end].flatten()
+            if X.shape[0] > 5:
+                knee = KneeLocator(X, y, curve="concave", direction="increasing")
+                J_point = knee.elbow + 1
+                temp_arr[temp_counter, 15] = J_point
+                logger.info(f'J point added. X shape {X.shape}')
+                return J_point
+
+        except Exception as e:
+            logger.info(f'J point extraction Error for Rpeak {R_peak:_d}\n{e}')
+
+            #NOTE SPeak widening
+                #I'm not isolating the correct start point for evaluating the J point. 
+                #because the S peak is located on the descent from the R peak
+                #I need to run the algorithm from the start of the ascent to the T peak.
+                #? I could 
+                #But, the current method also works very well for when the S peak is sharp.
+
+                #Solution 1:
+                    #1. Start from S peak, find greatest positive slope change before the T peak
+                    #2. Find the minimum of the S peak.  
+                        # Fit a line from the R peak said min
+                        # Fit a line from the min to the T peak
+                        #1a
+                            # Fit a parabolic (quadratic) to the S to R peak
+                            # Compare the errors.  If the error 
+                            # is lower in the lines, its a V
+                            # if error is lower in the parabola, Its a U shape
+                            #That's going to include the upslope to the T peak though.  Ugh.  
+                            #So fitting any parabola is going to have larger resids.  
+                        #1b 
+                            #Or we could upspline from the minimum (or S peak) and 
+                            #fit it with a polynomial.  Looking at 
+                            #test for linearity through RSME, Rsquared, and slope postive 
+
+                #Solution 2
+                    #1. Isolate global minima from S to T peak. 
+                    #1b. Isolate what type of shape it is... might not need this if i can isolate the 
+                        #section before the J point. 
+
+    # FUNCTION T Onset
+    def find_T_onset():
+        try:
+            # slope_st = samp_min_dict.get(R_peak, "")
+            # slope_start = T_peak - int(srch_width*1.25)
+            #If there is use the J point as your start search index.  
+            #If there isn't use the samp min from the init R peak search
+            slope_end = T_peak + 1
+            
+            if J_point:
+                slope_start = J_point
+                
+            else:
+                slope_st = samp_min_dict.get(R_peak, "")
+                lil_wave = wave[slope_st:slope_end].flatten()
+                med_sect = rolled_med[slope_st-st_fn[1]:slope_end-st_fn[1]].flatten()
+                ecg_less_median = np.where(lil_wave < med_sect)[0]
+                groups = grouper(ecg_less_median)
+                #If there's only one group (lil wave <)
+                    #sometimes there's a double dip in the J_point which causes
+                    #early crossing.  That is why if there's mutliple groups select
+                    #the last one.  
+                # if len(groups) == 1:
+                first_group = groups[0]
+                slope_start = slope_st + first_group[-1]
+                # else:
+                #     last_group = groups[-1]
+                #     slope_start = slope_st + last_group[0]
+
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            T_onset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 13] = T_onset
+            logger.debug(f'Adding T onset')
+            return T_onset
+        
+        except Exception as e:
+            logger.warning(f'T onset extraction Error for Rpeak {R_peak:_d}\n{e}')
+            # Old way
+            # slope_start = samp_min_dict.get(R_peak, "")
+            # slope_end = T_peak + 1
+            # lil_wave = wave[slope_start:slope_end].flatten()
+            # med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
+            # ecg_greater_med = np.where(lil_wave < med_sect)[0]
+            # groups = grouper(ecg_greater_med)
+            # first_group = groups[0]
+            # T_onset = slope_start + first_group[-1]
+            # temp_arr[temp_counter, 13] = T_onset
+            # logger.debug('Adding T onset')
+            # return T_onset
+
+    #FUNCTION Shape test
+    def shape_test(X:np.array, y:np.array):
+        try:
+            slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
+            y_preds = slope * X + intercept
+            rmse = utils.calc_rmse(y, y_preds)
+            gate1 = slope > 0           
+            gate2 = r_value**2 > 0.95
+            gate3 = rmse < 1
+
+            #If all gates met, section is linear and cannot extract Jpoint
+            if all([gate1, gate2, gate3]):
+                shape = "linear"
+                return shape, None
+            
+        except Exception as e:
+            logger.debug(f'Linear Regression error for Rpeak {R_peak:_d}\n{e}')
+
+        # Apply Savitzky-Golay filter
+        y_savg = utils.smooth_signal(y)
+        dy = np.gradient(y_savg)
+        ddy = np.gradient(dy)
+        rsme_thres = 0.2
+        length = len(X)
+        shape = None
+        start = None
+        #Fit for U shape
+        try:
+            if length > 5:
+                U_coeffs = np.polyfit(X, y_savg, 2)
+                U_poly = P.Polynomial(U_coeffs[::-1])
+                U_y_fit = U_poly(X)
+                U_rmse = utils.calc_rmse(y_savg, U_y_fit)
+
+                #Test for U shape.
+                #If the first coeff (y=ax^2+bx+c) is positive, it means the curve opens upward
+                if U_coeffs[0] > 0 and U_rmse < rsme_thres:
+                    if np.mean([ddy[length//4 : 3*length//4]]) > 0.05:
+                        shape = "U"
+                        start = X[np.argmin(y_savg)]
+
+        except Exception as e:
+            logger.debug(f'Shape Error for Rpeak {R_peak:_d}\n{e}')
+
+            #     #Fit for W shape with 4th degree polynomial
+            #     if length > 5:
+            #         W_coeffs = np.polyfit(X, y_savg, 4)
+            #         W_poly = P.Polynomial(W_coeffs[::-1])
+            #         W_y_fit = W_poly(X)
+            #         W_rmse = utils.calc_rmse(y_savg, W_y_fit)
+
+            # except Exception as e:
+            #     logger.debug(f'W fit error = \n{e} for Rpeak {R_peak:_d}')
+
+            # #Test for W shape
+            # if len(dy) > 1: #and W_rmse < rsme_thres:
+            #     dy_signch = np.diff(np.sign(dy))
+            #     local_mins = np.where(dy_signch > 0)[0] + 1
+            #     local_maxs = np.where(dy_signch < 0)[0] + 1
+            #     if len(local_mins) >= 2 and len(local_maxs) >= 1:
+            #         if local_mins[0] < local_maxs[0] and local_maxs[0] < local_mins[-1]:
+            #             shape = "W"
+            #             start = local_mins[-1]
+
+            # Test for V shape. 
+            # Here we're looking for a sharp change in the first derivative
+            if not shape:
+                min_y_idx = np.argmin(y_savg)
+                if min_y_idx > 0 and min_y_idx < length - 1:  #If its not at the start or end
+                    mean_slope_before = np.mean(dy[:min_y_idx])
+                    mean_slope_after = np.mean(dy[min_y_idx:])
+                    if mean_slope_before < -0.1 and mean_slope_after > 0.1:
+                        if U_rmse > threshold:
+                            if np.mean(np.abs(ddy[max(0, min_y_idx-5):min(length, min_y_idx+5)])) < 0.1:
+                                shape = "V"
+                                start = X[min_y_idx]
+
+        return shape, start
+
+    # FUNCTION estimate_iso
+    def estimate_iso() -> float:
+        iso = []
+        for idx, R_valid in enumerate(temp_arr[:, 5]): #MIght need to stop at 2nd to last peak
+            if R_valid:
+                try:
+                    T_pe = temp_arr[idx, 4]
+                    P_pe = temp_arr[idx + 1, 0]
+                    start = T_pe
+                    end = P_pe
+                    lil_wave = wave[start:end].flatten()
+                    lil_grads = np.gradient(np.gradient(lil_wave))
+                    half = lil_grads.shape[0]//2
+                    T_off = start + np.argmax(lil_grads[:half])
+                    P_on = start + half + np.argmax(lil_grads[half:])
+                    iso.append(np.nanmean(wave[T_off:P_on]))
+
+                except Exception as e:
+                    logger.warning(f'Iso extraction Error for Rpeak {temp_arr[idx, 5]:_d}\n{e} ')
+
+        if iso:
+            isoelectric = np.round(np.nanmean(iso), 6)
+            ecg_data["section_info"][st_fn[0]]["isoelectric"] = isoelectric
+            return isoelectric
+        else:
+            return None
+
     # Set Globals
     global ecg_data, wave
     peak_que = deque(new_peaks_arr[:, 0])
-    temp_arr = np.zeros(shape=(new_peaks_arr.shape[0], 15), dtype=np.int32)
-    temp_counter = 0
+    temp_arr = np.zeros(shape=(new_peaks_arr.shape[0], 16), dtype=np.int32)
+    temp_counter = 0    
     samp_min_dict = {x:int for x in new_peaks_arr[:, 0]}
 
-    if ecg_data['interior_peaks'].shape[0] == 0:
-        pass
-    elif ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
-        # Load the values from the last interior peak into the temp array
-        temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
-        # remove the last row
-        ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
-
+    if ecg_data['interior_peaks'].shape[0] != 0:
+        if ecg_data['interior_peaks'][-1, 2] in new_peaks_arr[:, 0]:
+            # Load the values from the last interior peak into the temp array
+            temp_arr[temp_counter] = ecg_data['interior_peaks'][-1]
+            # remove the last row
+            ecg_data['interior_peaks'] = ecg_data['interior_peaks'][:-1]
+    
+    # NOTE Main Peak Extraction
     while len(peak_que) > 1:
-        # move in pairs of peaks through the deque
+        # Iterate through each pair of peaks and calculate PQST
         peak0 = peak_que.popleft()
         peak1 = peak_que[0]
 
         # Assign the R peaks to the temp array.
-        temp_arr[temp_counter, 2]  = peak0
+        temp_arr[temp_counter, 2] = peak0
         temp_arr[temp_counter + 1, 2] = peak1
 
         # First we go through and find the difference between each point.
@@ -835,31 +1151,28 @@ def extract_PQRST(
         prominences = peak_info['prominences']
         avg_prom = np.mean(prominences)
         threshold = 0.30
-        
         reject_limit = threshold * avg_prom
 
         if std_dev_SQ < reject_limit:
-            logger.info(f'peak {peak0} and peak {peak1} S => Q std dev: {std_dev_SQ:.3f} under a 30% threshold of {reject_limit:.3f}')
-            logger.info(f'{peak0}:{peak1} std is {std_dev_SQ:.3f} and under threshold of {reject_limit:.3f}')
+            logger.debug(f'peak {peak0} and peak {peak1} S => Q std dev: {std_dev_SQ:.3f} under a 30% threshold of {reject_limit:.3f}')
+            logger.debug(f'{peak0}:{peak1} std is {std_dev_SQ:.3f} and under threshold of {reject_limit:.3f}')
         else:
-            logger.info(f'Skipping Peak {peak0} - {peak1}')
-            logger.info(f'{peak0}:{peak1} std is {std_dev_SQ:.3f} and over a threshold of {reject_limit:.3f}')
+            logger.debug(f'Skipping Peak {peak0} - {peak1}')
+            logger.debug(f'{peak0}:{peak1} std is {std_dev_SQ:.3f} and over a threshold of {reject_limit:.3f}')
             temp_counter += 1
             continue
 
         # MEAS Q peak
-        #logger.info("adding Q peak")
         temp_arr[temp_counter + 1, 1] = np_inflections[-1] + peak0
+        logger.debug("adding Q peak")
 
         # MEAS S peak
-        # Grab left peak
+        # Grab first R peak
         slope_start = peak0
         # Select first third of R to R distance
-        slope_end = peak0 + int((peak1  - peak0)//3) # np_inflections[0] + 1
-
+        slope_end = peak0 + int((peak1  - peak0)//3) 
         # subset that portion of the wave
         lil_wave = wave[slope_start:slope_end].flatten()
-
         # Cubic splining routine for upsampling. 
         y_ut = lil_wave
         x_ut = np.arange(slope_start, slope_end)
@@ -869,23 +1182,7 @@ def extract_PQRST(
         y_vals = f(x_vals) #cubic splines
         # line coefficients from first point to last point.
         coeffs = np.polyfit((x_vals[0], x_vals[-1]), (y_vals[0], y_vals[-1]), 1) #first/last point in x_vals
-        y_plot = coeffs[0]*x_vals + coeffs[1]
-
-        def curve_line_dist(point:tuple, coef:tuple)->float:
-            """This function calculates the distance from every point
-            in our manufactured line, to the curve.  We use this to determine
-            where the elbow of a curve is at its maximal.
-
-            Args:
-                point (tuple): _description_
-                coef (tuple): _description_
-
-            Returns:
-                float: _description_
-            """			
-            d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
-            
-            return d
+        # y_plot = coeffs[0]*x_vals + coeffs[1]
 
         p_dist = []
 
@@ -908,14 +1205,17 @@ def extract_PQRST(
         # where the true minimum is to evaluate the J point. 
         samp_min = np.argmin(wave[peak0:peak0 + (peak1-peak0)//3])
 
-        # If the sample min is not in the first 5 minimums of that transition, 
-        # Let me know.  Could be a sign of signal instability. 
+        # If the sample min is not in the first 7 minimums of that transition, 
+        #BUG Code Rot
+            #This eval ... isn't really necessary.  You're no longer using hte 
+            # Samp min dict in the ensuing extractions. Consider removal and / or simplification
+
         if (wave[peak0+samp_min].item() < rolled_med[samp_min]) & (samp_min in np_inflections[:6]): 
             samp_min = samp_min + peak0
-            logger.info(f'Samp min for peak {peak0:_d}:{peak1:_d} in first 7')
+            logger.debug(f'Samp min for peak {peak0:_d}:{peak1:_d} in first 7')
         else: 
             samp_min = min(np_inflections) + peak0
-            logger.info(f"Samp min farther out than expected between {peak0:_d}:{peak1:_d}")
+            logger.debug(f"Samp min farther out than expected between {peak0:_d}:{peak1:_d}")
         
         samp_min_dict[peak0] = samp_min
 
@@ -924,10 +1224,10 @@ def extract_PQRST(
 
         # Do the same for the rolling median. 
         filt_rol_med = rolled_med[samp_min-st_fn[1]:temp_arr[temp_counter + 1, 1] - st_fn[1]]
-
+        
         # Subtract rolling median from wave to flatten it.
+        # BUG - Why are you flattening this?
         SQ_med_reduced = SQ_range - filt_rol_med
-
 
         # MEAS T Peak 
         try:
@@ -935,54 +1235,23 @@ def extract_PQRST(
             peak_T_find = ss.find_peaks(RR_first_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_T = peak_T_find[0][np.argpartition(peak_T_find[1]['peak_heights'], -1)[-1:]]
             temp_arr[temp_counter, 4] = peak0 + (samp_min - peak0) + top_T[0]
-            # logger.info("adding T peak")
-            #BUG - Onset and offset updates
-                #TODO - Fix T onset, T offset
-                #Tonset
-                #It would seem the T onsets are getting triggered too early.  
-                #Going to switch to utilizing rolling median to look for
-                #flatline secitons that will allow for a better shoulder
-                #assignment of hte onset to the peak. Could use the tangent
-                #method on both onset and offset.
-
-                #TOffset
-                #On the T offset side.  it looks to be estimating the greastest 
-                #rate of acceleration change a little early.  So we need to combine a few 
-                #methods to agree on location of the T offset.  There are two standardized 
-                #ways to extract T offset. 
-
-                #1.Threshold method / Acceleration change. 
-                    # Finds the greatest rate of change to isolate the elbow of a curve
-                    # How neurokit and others do it. 
-                    # signal needs to be smooth. 
-                    # 
-                #2.Tangent method
-                    #Tried true method, but sometimes underestimates offset 
-                    #by 10ms or so.  (Mark notes)
-                    #
-                #Solution:
-                    # A combination logic of both methods. 
-                    # We calculate both, 
-                    # Establish a threshold for closeness.
-                    # If under, both agree and validated. 
-                    # if over, take the tangent method as that is board recommended.
-
+            logger.debug("adding T peak")
             
         except Exception as e:
-            logger.warning(f"T peak find error for {peak0}. Error message {e}")
+            logger.info(f"T peak extraction error for {peak0}. Error message {e}")
             temp_arr[temp_counter, 4] = 0
 
         # MEAS P Peak 
-        try:    
+        try:
             RR_second_half = SQ_med_reduced[(SQ_med_reduced.shape[0]//2):]
             peak_P_find = ss.find_peaks(RR_second_half.flatten(), height=np.percentile(SQ_med_reduced, 60))
             top_P = peak_P_find[0][np.argpartition(peak_P_find[1]['peak_heights'], -1)[-1:]] + RR_first_half.shape[0]
             # Adds the P peak to the next R peaks data.  (as its the P of the next peaks PQRST)
-            temp_arr[temp_counter+1, 0] = peak0 + (samp_min - peak0) + top_P[0]
-            #logger.info("adding P peak")
+            temp_arr[temp_counter + 1, 0] = peak0 + (samp_min - peak0) + top_P[0]
+            logger.debug("adding P peak")
 
         except Exception as e:
-            logger.warning(f"P peak find error at {peak1}", )
+            logger.warning(f"P peak find error at {peak1}")
             temp_arr[temp_counter + 1, 0] = 0
 
         # Final Check to ensure valid PQRST for peak0 before proceeding to interval extraction
@@ -997,124 +1266,73 @@ def extract_PQRST(
             }
             missing_peak = np.where(temp_arr[temp_counter, :5]==0)[0]
             missing_peaks = [peak_dict[x] for x in missing_peak]
-            logger.warning(f"Missing peak for {missing_peaks} in section {st_fn[0]}")
-            
+            logger.info(f"Missing peak for {missing_peaks} in section {st_fn[0]}")
+
         # Advance temp_arr counter
         temp_counter += 1
-        logger.info(f'finished interior peak extraction between peaks {peak0} and {peak1}')
-    
-    
-    # NOTE Segment Data  Extraction
-    # The earlier iteration was looping between each R_peak to get its
-    # consitutient peak values. This iteration moves on each individual peak.  
+        logger.debug(f'Peak extraction complete: peaks {peak0} and {peak1}')
+
+    #NOTE Estimate ISO
+        #variable used in find_T_offset function
+    isoelectric = estimate_iso()
+
+    # NOTE Offset/Onset Extraction
+    # Iterate through each peak and calculate its onset/offset attributes
     peak_que = deque(new_peaks_arr[:, 0])
     temp_counter = 0
     while len(peak_que) > 0:
-        
         R_peak = peak_que.popleft()
-        # Get Q Shoulder
         # Early terminate if not all valid PQRST present.
-        if temp_arr[temp_counter, 5]==0:
-            logger.info(f'Cannot process segment data for R peak {R_peak}')
+        if temp_arr[temp_counter, 5] == 0:
+            logger.debug(f'Missing PQST, cannot process R peak {R_peak}')
             temp_counter += 1
             continue
-
+        
         # Get all the surrounding peaks for each R peak
         P_peak = temp_arr[temp_counter, 0].item()
         Q_peak = temp_arr[temp_counter, 1].item()
         S_peak = temp_arr[temp_counter, 3].item()
         T_peak = temp_arr[temp_counter, 4].item()
         
-        # Setup shoulder containers. 
-        P_onset, Q_onset, T_onset, T_offset = [], [], [], []
+        # Setup shoulder containers.
+        P_onset, Q_onset, T_onset, T_offset, J_point = "", "", "", "", ""
         
-        # Get the width of the QRS for later. 
-        srch_width = (S_peak - Q_peak)
+        # Calc the width of the QRS.  Will be used for searching offsets. 
+        srch_width = (S_peak - Q_peak) * 2
+        # Grab each necessary onset/offset relevant to basic metrics
+        P_onset    = find_P_onset()
+        Q_onset    = find_Q_onset()
+        T_offset   = find_T_offset()
+        J_point    = find_J_point()
+        T_onset    = find_T_onset()
 
-        # MEAS Q onset
-        slope_start = Q_peak - int((Q_peak - P_peak)*.70)
-        slope_end = Q_peak + 1
-
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
-            Q_onset = slope_start + shoulder[0] + 1
-            temp_arr[temp_counter, 12] = Q_onset
-            #logger.info(f'Adding Q onset')
-        except Exception as e:
-            logger.warning(f'Q onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-
-        # MEAS T onset
-        slope_start = samp_min_dict[R_peak]
-        slope_end = T_peak + 1
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            med_sect = rolled_med[slope_start-st_fn[1]:slope_end-st_fn[1]].flatten()
-            ecg_greater_med = np.where(lil_wave < med_sect)[0]
-            groups = grouper(ecg_greater_med)
-            first_group = groups[0]
-            T_onset = slope_start + first_group[-1]
-            temp_arr[temp_counter, 13] = T_onset
-            #logger.info('Adding T onset')
-
-        except Exception as e:
-            logger.warning(f'T onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-
-        # MEAS QRS Complex
-        #TODO - update this to J point
-        # Add the QRS time in ms if both the onsets exist.
-        if Q_onset and S_peak:
-            temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
-
-        # PR Interval   
-        slope_start = P_peak - int(srch_width)
-        slope_end = P_peak + 1
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            P_onset = slope_start + np.argmax(lil_grads)
-            temp_arr[temp_counter, 11] = P_onset
-            #logger.info(f'Adding P onset')
-        except Exception as e:
-            logger.warning(f'P Onset extraction Error = \n{e} for Rpeak {R_peak:_d}')
-        
         # MEAS PR Interval
         if Q_onset and P_onset:
             # Add PR interval in ms
             temp_arr[temp_counter, 7] = int(1000*((Q_onset - P_onset)/fs))
-        
-        # ST segments are suppressed in this case as the higher heart rate obliterates them. 
 
-        # MEAS T Offset
-        slope_start = T_peak 
-        slope_end = T_peak + int(srch_width*1.25)
+        # MEAS QRS Complex
+        if Q_onset and J_point:
+            # Add the QRS time in ms
+            temp_arr[temp_counter, 8] = int(1000*((J_point - Q_onset)/fs))
+            # logger.debug("Added Jpoint")
 
-        try:
-            lil_wave = wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            # TODO - Update TOffset heirarchy.
-                # If the acceleration method fails.  
-                # Add in another check to look at the slope after
-                # the T peak.  Draw a line down to the isoelectric line (0)
-                # Use that marker as your time marker for QT. 
-                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
-
-            T_offset = slope_start + np.argmax(lil_grads)
-            temp_arr[temp_counter, 14] = T_offset
-            #logger.info(f'Adding T offset')
-        except Exception as e:
-            logger.warning(f'T Offset extraction Error = \n{e} for Rpeak {R_peak:_d}')
+        elif Q_onset and S_peak:
+            # If Jpoint not extracted, use the S peak as a backup
+            temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
+            logger.debug("Added backup Jpoint")
         
         # MEAS ST Segment
-        if T_onset:
+        if T_onset and S_peak:
             # Add ST interval.  
             temp_arr[temp_counter, 9] = int(1000*((T_onset - S_peak)/fs))
+            # logger.debug("Added ST")
 
         # MEAS QT Interval
-        if Q_onset and T_offset:
+        if T_offset and Q_onset:
             # Add QT interval.  
             temp_arr[temp_counter, 10] = int(1000*((T_offset - Q_onset)/fs))
+            # logger.debug("Added QT")
 
         # Shift the counter
         temp_counter += 1
@@ -1142,12 +1360,17 @@ def main_peak_search(
     Returns:
         ecg_data (dict): dictionary with full dataset on waveform
     """
+
+    # Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
+    @log_time
+    def peak_stack_test(new_peaks_arr:np.array):
+        return np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
+
     if len(args) != 0:
         global ecg_data, wave, fs
         ecg_data = args[0][0]
         wave = args[0][1]
         fs = args[0][2]
-        
 
     # section tracking + invalid section tracking
     section_counter, invalid_sect_counter = 0, 0
@@ -1156,14 +1379,10 @@ def main_peak_search(
     # Whether dynamic STFT is in a countdown
     stft_loop_on = False
     stft_count = 0
-    # Sample ranges to test the array stacking to ensure we're not getting slowdowns there. 
+
     # Round down to the nearest 100k
     stack_range = [x for x in range(0, int(np.round(np.floor(ecg_data["section_info"].shape[0]), -2)), 5_000)]
     # Stacking test for peak addition	
-    
-    @log_time
-    def peak_stack_test(new_peaks_arr:np.array):
-        return np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
 
     global IQR_low_thresh
     # Set IQR threshold and low count tracker
@@ -1237,9 +1456,15 @@ def main_peak_search(
                     )
 
                     # If you've found the wave and have sufficient num of peaks
-                    if sect_valid and R_peaks.size > 10:
+                    if sect_valid and R_peaks.size > 10: 
+                        #BUG - You need a way to tie the number of R peaks to the section window size so it 
+                        # makes sense.  having a static number here is dangerous. 
                         found_wave = True
-                        start_sect = section_counter #BUG Possible bug 
+                        start_sect = section_counter 
+                        #BUG Section Data Error
+                            #Program sometimes early terminates here if we haven't built up
+                            #enough sections.  Update to switch immediately back to STFT
+                            #if that is the case. 
                         ecg_data['section_info'][section_counter]['valid'] = 1
                         logger.critical(f'Wave found at {start_p}:{end_p} in section {start_sect}')
 
@@ -1247,7 +1472,7 @@ def main_peak_search(
                         ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
 
                         # Make temp container for interior peaks
-                        int_peaks = np.zeros(shape=(new_peaks.shape[0], 15), dtype=np.int32)
+                        int_peaks = np.zeros(shape=(new_peaks.shape[0], 16), dtype=np.int32)
                         # Add the R peaks to the interior_peaks container. 
                         int_peaks[:, 2] = new_peaks_arr[:, 0]
                         ecg_data['interior_peaks'] = np.vstack((ecg_data['interior_peaks'], int_peaks))
@@ -1301,13 +1526,11 @@ def main_peak_search(
                     )
                     logger.info(f'Building up time for historical data Section:{section_counter}')			
                 
-                # Still need a quick peak count check. Found 1 edge case that got through
-                # and messed up a 2 hour section. 
                 elif new_peaks_arr.shape[0] < 4:
                     sect_valid = False
                     fail_reas = "Not enough peaks"
                     ecg_data['section_info'][section_counter]['fail_reason'] = fail_reas
-                    logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                    logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
                     new_peaks_arr[:, 1] = 0
 
                 elif stft_loop_on:
@@ -1328,7 +1551,7 @@ def main_peak_search(
                     # Make sure to mark the section as invalid due to FFT. 
                     if not sect_valid:
                         ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
+                        logger.warning(f'STFT Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')		
 
                 # Checking our bad section counter. More than 10 and we switch back to STFT.  
                 elif invalid_sect_counter > 10:
@@ -1345,18 +1568,21 @@ def main_peak_search(
 
                     if not sect_valid:
                         ecg_data['section_info'][section_counter]['fail_reason'] = "FFT"
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
+                        logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: FFT')
                 else:
                     # Set the section validity for Peak Validation
                     PV_sect_valid = False
                     # Grab the last consecutive peaks that are marked as valid
                     last_keys = consecutive_valid_peaks(ecg_data['peaks'])
-                    # Run Peak validation check based oh historical avgs
-                    PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
-
+                    if not isinstance(last_keys, bool):
+                        # Run Peak validation check based oh historical avgs
+                        PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
+                    else:
+                        ecg_data['section_info'][section_counter]['fail_reason'] = "historical"
+                        
                     if not PV_sect_valid: 
                         fail_reas = ecg_data['section_info'][section_counter]['fail_reason']
-                        logger.critical(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
+                        logger.warning(f'Peak Validation fail sect:{section_counter} idx:{start_p}->{end_p} Reason: {fail_reas}')
                         sect_valid = False
                     else:
                         sect_valid = True
@@ -1380,7 +1606,7 @@ def main_peak_search(
                         ecg_data['section_info'][section_counter]['RMSSD'] = sect_stats[4]
                         ecg_data['section_info'][section_counter]['NN50'] = sect_stats[5]
                         ecg_data['section_info'][section_counter]['PNN50'] = sect_stats[6]
-
+                        
                     # Pull out interior peaks and segment data for QRS, PR, QT, etc
                     int_peaks = extract_PQRST((section_counter, start_p, end_p), new_peaks_arr, peak_info, rolled_med)
                 
@@ -1406,11 +1632,10 @@ def main_peak_search(
                 else:
                     ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
                 
-
                 # Advance section tracker to next section
                 section_counter += 1
                 logger.info(f'Section counter at {section_counter}')
-
+    
     return ecg_data
 
 # NOTE START PROGRAM
@@ -1426,8 +1651,11 @@ def main():
         configs["plot_errors"],
         (ecg_data, wave, fs)
     )
+
+
+    #NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
     # Save logs, results, send update email
-    #send_email(log_path)
+    # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
     has_bucket_name = len(configs.get("bucket_name")) > 0
     configs["log_path"] = f"src/rad_ecg/data/logs/{DATE_JSON}.log"

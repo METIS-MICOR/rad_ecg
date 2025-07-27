@@ -9,13 +9,8 @@ from google.cloud import storage
 from support import logger, console
 from pathlib import PurePath, Path
 from rich import print
-from rich.logging import RichHandler
-from rich.table import Table
-from rich.console import Console
 from rich.tree import Tree
 from rich.markup import escape
-from rich.text import Text
-from rich.table import Table
 from pathlib import Path, PurePath
 
 ################################# Custom INIT / Loading functions ############################################
@@ -80,8 +75,10 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     
     #Frequency
     fs = record.fs
-
-    return wave, fs, os.listdir(f"{configs['save_path']}\{datafile.name}")
+    
+    #folder return 
+    folderp = os.listdir(PurePath(Path(configs["save_path"], Path(datafile.name))))
+    return wave, fs, folderp
 
 #FUNCTION Load Structures
 def load_structures(source:str, datafile:Path):
@@ -101,8 +98,8 @@ def load_structures(source:str, datafile:Path):
         #Check output folder for existence
         test_sp = os.path.join(configs["save_path"], datafile.name)
         if os.path.exists(test_sp):
-            logger.warning(f"{datafile.name} output folder already exists")
-            logger.warning("Do you want to overwrite results?")
+            logger.critical(f"{datafile.name} output folder already exists")
+            logger.critical("Do you want to overwrite results?")
             overwrite = input("(y/n)?")
             if overwrite.lower() == "n":
                 exit()
@@ -149,7 +146,7 @@ def load_structures(source:str, datafile:Path):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:10_000]
     #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
@@ -164,7 +161,8 @@ def load_structures(source:str, datafile:Path):
         ('max_HR_diff' , 'f4'), 
         ('RMSSD'       , 'f4'),
         ('NN50'        , 'f4'),
-        ('PNN50'       , 'f4')
+        ('PNN50'       , 'f4'), 
+        ('isoelectric' , 'f4')
     ]
 
     #Base data container keys
@@ -172,7 +170,7 @@ def load_structures(source:str, datafile:Path):
         'peaks': np.zeros(shape=(0, 2), dtype=np.int32),
         'rolling_med': np.zeros(shape=(wave.shape[0]), dtype=np.float32),
         'section_info': np.zeros(shape=(wave_sections.shape[0]), dtype=wave_sect_dtype),
-        'interior_peaks': np.zeros(shape=(0, 15), dtype=np.int32)
+        'interior_peaks': np.zeros(shape=(0, 16), dtype=np.int32)
     }
 
     ecg_data['section_info']['wave_section'] = np.arange(0, wave_sections.shape[0], 1)
