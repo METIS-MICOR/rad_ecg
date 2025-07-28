@@ -1654,8 +1654,8 @@ def main():
         configs["plot_errors"],
         (ecg_data, wave, fs)
     )
-
-    #NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
+    
+    logger.info("Woo hoo!\nECG Analysis Complete")
     # Save logs, results, send update email
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
@@ -1668,9 +1668,13 @@ def main():
         support.save_results(ecg_data, configs, current_date)
 
     if run_anomaly:
-        stump_anom.run_algo(ecg_data)
-    
-    logger.info("Woo hoo!\nECG Analysis Complete")
+        stump_anom.run_stumpy(ecg_data, wave)
+
+    # if run_ML:
+    #     pass
 
 if __name__ == "__main__":
     main()
+
+
+#NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
