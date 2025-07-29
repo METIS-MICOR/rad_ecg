@@ -34,24 +34,23 @@ def group_numbers(arr, delta:int=10):
     return [round(np.median(x)) for x in groups]
 
 def run_stumpy_discord(ecg_data:dict, wave:np.array):    
+    if cuda.is_available():
+        logger.debug("Algorithm running on GPU")
+        all_gpu_devices = [device.id for device in cuda.list_devices()]
+        if len(all_gpu_devices) > 1:
+            device_id = all_gpu_devices
+        else:
+            device_id = 0
+        stump_func = stumpy.gpu_stump
+    else:
+        logger.debug("Algorithm running on CPU")
+        device_id = None
+        stump_func = stumpy.stump
+    
+    sect_que = deque(ecg_data['section_info'][['start_point', 'end_point']])
+    sect_track = 0
     progbar, job_id = support.mainspinner(console, len(sect_que))
     with progbar:
-        if cuda.is_available():
-            logger.debug("Algorithm running on GPU")
-            all_gpu_devices = [device.id for device in cuda.list_devices()]
-            if len(all_gpu_devices) > 1:
-                device_id = all_gpu_devices
-            else:
-                device_id = 0
-            stump_func = stumpy.gpu_stump
-        else:
-            logger.debug("Algorithm running on CPU")
-            device_id = None
-            stump_func = stumpy.stump
-        
-        sect_que = deque(ecg_data['section_info'][['start_point', 'end_point']])
-        sect_track = 0
-        
         while len(sect_que) > 0:
             progbar.update(task_id=job_id, description=f"[green] Stumpy Anomalies", advance=1)
             section = sect_que.popleft()
@@ -94,11 +93,13 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
                         discords = group_numbers(discord_idx, match_delta)
                         for discord in discords:
                             discord_range = range(discord - match_delta, discord + match_delta)
-                            if any(invalid_r_peaks) in discord_range:
-                                match_count += 1
-
+                            for r_peak in invalid_r_peaks:
+                                if discord_range.start <= r_peak <= discord_range.stop:
+                                    match_count += 1
+                                    logger.critical(f"match found.  count={match_count}")
             sect_track += 1
         return match_count
+    
 def main():
     global configs
     configs = setup_globals.load_config()
@@ -134,6 +135,7 @@ def main():
     } 
     match = run_stumpy_discord(ecg_data, wave)
     print(match)
+
 if __name__ == "__main__":
     main()
 
