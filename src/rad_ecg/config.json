@@ -10,7 +10,7 @@
   "save_path": "./src/rad_ecg/data/output",
   "gcp_bucket": false,
   "bucket_name": "",
-  "run_anomalyd": false,
+  "run_anomalyd": true,
   "cam": "",
   "last_run": "",
   "log_path": "",
