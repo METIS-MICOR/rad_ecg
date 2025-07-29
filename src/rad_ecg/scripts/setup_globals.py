@@ -146,7 +146,7 @@ def load_structures(source:str, datafile:Path):
         exit()
 
     #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:5000]
+    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:10_000]
     #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [

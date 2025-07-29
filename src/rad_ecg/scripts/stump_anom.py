@@ -35,7 +35,7 @@ def group_numbers(arr, delta:int=10):
 
 def run_stumpy_discord(ecg_data:dict, wave:np.array):    
     if cuda.is_available():
-        logger.debug("Algorithm running on GPU")
+        logger.info("Algorithm running on GPU")
         all_gpu_devices = [device.id for device in cuda.list_devices()]
         if len(all_gpu_devices) > 1:
             device_id = all_gpu_devices
@@ -43,7 +43,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
             device_id = 0
         stump_func = stumpy.gpu_stump
     else:
-        logger.debug("Algorithm running on CPU")
+        logger.info("Algorithm running on CPU")
         device_id = None
         stump_func = stumpy.stump
     
@@ -132,7 +132,7 @@ def main():
         "peaks": np.genfromtxt(fpath+"_peaks.csv", delimiter=",", dtype=np.int32, usecols=(0, 1)),
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
-    } 
+    }
     match = run_stumpy_discord(ecg_data, wave)
     print(match)
 
