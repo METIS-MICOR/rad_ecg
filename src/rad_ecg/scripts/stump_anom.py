@@ -48,6 +48,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
         stump_func = stumpy.stump
     
     sect_que = deque(ecg_data['section_info'][['start_point', 'end_point']])
+    match_count = 0
     sect_track = 0
     progbar, job_id = support.mainspinner(console, len(sect_que))
     with progbar:
@@ -57,14 +58,13 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
             start_p = section[0]
             end_p = section[1]
             sect_valid = ecg_data["section_info"]["valid"][sect_track]
-            match_delta = 10
-            match_count = 0
             #Only compare valid sections. No R peak reference for failed area's.
             if sect_valid:
                 peak_info = ecg_data['interior_peaks'][(ecg_data['interior_peaks'][:, 2] >= start_p) & (ecg_data['interior_peaks'][:, 2] <= end_p), :]
                 valid_QRS = peak_info[:, 5]
                 #NOTE maybe change to mean
                 m = round(np.median(np.diff(peak_info[:, 2])))
+                match_delta = m // 10
                 try:
                     TA = wave[start_p:end_p].flatten()
                     if device_id is not None:
