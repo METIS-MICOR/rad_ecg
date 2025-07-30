@@ -244,7 +244,7 @@ def create_endpoint(test_sp:str):
 #FUNCTION Launch TUI
 def launch_tui(configs:dict):
     try:
-        if configs["slider"]:
+        if configs["slider"] | configs["run_anomalyd"]:
             directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
 
         else:

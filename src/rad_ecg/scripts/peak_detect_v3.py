@@ -4,16 +4,17 @@ import support      #from rad_ecg.scripts #
 import setup_globals#from rad_ecg.scripts # 
 
 #################################  Main libraries ####################################
+import stump_anom
 import numpy as np
-from numpy.polynomial import polynomial as P
-from kneed import KneeLocator
-import scipy.signal as ss
 from scipy import stats
+import scipy.signal as ss
+from kneed import KneeLocator
+from collections import deque
+import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.fft import rfft, rfftfreq, irfft
-import matplotlib.pyplot as plt
+from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
-from collections import deque
 from support import logger, console, DATE_JSON, log_time
 
 # FUNCTION section stats
@@ -1627,9 +1628,9 @@ def main_peak_search(
                         invalid_sect_counter += 1
 
                 logger.info(f'Invalid count {invalid_sect_counter} in section {section_counter}')
-
                 if section_counter in stack_range: 
                     ecg_data['peaks'] = peak_stack_test(new_peaks_arr)
+
                 else:
                     ecg_data['peaks'] = np.vstack((ecg_data['peaks'], new_peaks_arr)).astype(np.int32)
                 
@@ -1652,20 +1653,27 @@ def main():
         configs["plot_errors"],
         (ecg_data, wave, fs)
     )
-
-
-    #NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
+    
+    logger.info("Woo hoo!\nECG Analysis Complete")
     # Save logs, results, send update email
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
     has_bucket_name = len(configs.get("bucket_name")) > 0
+    run_anomaly = configs.get("stumpy")
     configs["log_path"] = f"src/rad_ecg/data/logs/{DATE_JSON}.log"
-    if use_bucket & has_bucket_name :
+
+    if use_bucket & has_bucket_name:
         support.save_results(ecg_data, configs, current_date, True)
     else:
         support.save_results(ecg_data, configs, current_date)
 
-    logger.info("Woo hoo!\nECG Analysis Complete")
+    if run_anomaly:
+        stump_anom.run_stumpy_discord(ecg_data, wave)
+
+    # if run_ML:
+    #     pass
 
 if __name__ == "__main__":
     main()
+
+#NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
