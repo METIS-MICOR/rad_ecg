@@ -65,6 +65,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
                 #NOTE maybe change to mean
                 m = round(np.median(np.diff(peak_info[:, 2])))
                 match_delta = m // 10
+                logger.info(f"match delta {match_delta} sect: {sect_track}")
                 try:
                     TA = wave[start_p:end_p].flatten()
                     if device_id is not None:
@@ -96,7 +97,10 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
                             for r_peak in invalid_r_peaks:
                                 if discord_range.start <= r_peak <= discord_range.stop:
                                     match_count += 1
-                                    logger.critical(f"match found.  count={match_count}")
+                        if match_count == len(discords):
+                            logger.critical(f"discords match peaks{match_count}")
+                        match_count = 0
+                        
             sect_track += 1
         return match_count
     

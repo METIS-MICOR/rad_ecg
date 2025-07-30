@@ -137,7 +137,6 @@ dmypy.json
 /.vscode
 /backups
 /poster
-
 .Rhistory
 .DS_Store
 /__pycache__/
