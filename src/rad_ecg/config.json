@@ -1,5 +1,5 @@
 {
-  "plot_fft": false,
+  "plot_fft": true,
   "plot_errors": false,
   "live_term": false,
   "porcine": false,
@@ -11,8 +11,8 @@
   "gcp_bucket": false,
   "bucket_name": "",
   "run_anomalyd": false,
-  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\inputdata\\PKGYG-WNAM2\\PKGYG-WNAM2",
-  "last_run": "07-29-2025",
-  "log_path": "src/rad_ecg/data/logs/07-29-2025_18-12-48.log",
-  "cam_name": "PKGYG-WNAM2"
+  "cam": "",
+  "last_run": "",
+  "log_path": "",
+  "cam_name": ""
 }

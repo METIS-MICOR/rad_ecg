@@ -53,7 +53,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
     progbar, job_id = support.mainspinner(console, len(sect_que))
     with progbar:
         while len(sect_que) > 0:
-            progbar.update(task_id=job_id, description=f"[green] Stumpy Anomalies", advance=1)
+            progbar.update(task_id=job_id, description=f"[green] Stumpy Anomalies section {sect_track}", advance=1)
             section = sect_que.popleft()
             start_p = section[0]
             end_p = section[1]
@@ -139,10 +139,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-#Game plan
-    # First we make a deque of the sections. 
-    # Run anomaly detection on each section. 
-    # Pull back the indexes of the main discords.  
-    # Check if they're around the same index as the stored invalid QRS (interior_peaks col 5)
-    # use the amount of invalid peaks and pull back those top x indexes of discords.  
-    # See if all the indexes align.  
+#NOTES - 
+    #Even with GPU speedup, the anomaly detection scheme is slow.  
+    #I'm not quite sure why. 
