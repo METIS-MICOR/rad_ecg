@@ -34,8 +34,8 @@ def group_numbers(arr, delta:int=10):
     return [round(np.median(x)) for x in groups]
 
 def run_stumpy_discord(ecg_data:dict, wave:np.array):    
-    if cuda.is_available():
-        logger.info("Algorithm running on GPU")
+    if not cuda.is_available():
+        logger.warning("Algorithm running on GPU")
         all_gpu_devices = [device.id for device in cuda.list_devices()]
         if len(all_gpu_devices) > 1:
             device_id = all_gpu_devices
@@ -43,7 +43,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
             device_id = 0
         stump_func = stumpy.gpu_stump
     else:
-        logger.info("Algorithm running on CPU")
+        logger.warning("Algorithm running on CPU")
         device_id = None
         stump_func = stumpy.stump
     
@@ -98,7 +98,7 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
                                 if discord_range.start <= r_peak <= discord_range.stop:
                                     match_count += 1
                         if match_count == len(discords):
-                            logger.critical(f"discords match peaks{match_count}")
+                            logger.critical(f"Matched anomaly - peaks matched: {match_count}")
                         match_count = 0
                         
             sect_track += 1
@@ -130,7 +130,6 @@ def main():
             fpath = datafile._str + "\\" + fname.split("_section_info")[0]
             break
     
-    # NOTE: #Consider storing the mp results in here. 
     global ecg_data
     ecg_data = {
         "peaks": np.genfromtxt(fpath+"_peaks.csv", delimiter=",", dtype=np.int32, usecols=(0, 1)),
@@ -145,4 +144,6 @@ if __name__ == "__main__":
 
 #NOTES - 
     #Even with GPU speedup, the anomaly detection scheme is slow.  
-    #I'm not quite sure why. 
+    #I'm not quite sure why.  
+    #Update, CPU is 5x faster than GPU.
+    #Could have to do with a shorter evaL windOW 
