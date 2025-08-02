@@ -5,9 +5,11 @@ from rich.table import Table
 from rich.theme import Theme
 import setup_globals
 import seaborn as sns
-from collections import Counter
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from itertools import cycle
+from collections import Counter
 from support import log_time, console, logger
 from scipy.stats import pearsonr, probplot, boxcox, yeojohnson, norm
 
@@ -383,7 +385,7 @@ class EDA(object):
         #quick correlation
         if not isinstance(feat_1, bool) and not isinstance(feat_2, bool):
             self.corr = self.data[feat_1].corr(self.data[feat_2])
-            logging.info(f'correlation of {feat_1} and {feat_2}:\n{self.corr:.2f}')
+            logger.info(f'correlation of {feat_1} and {feat_2}:\n{self.corr:.2f}')
 
         #Generates repeatable colordict for all values in the group
         if not isinstance(group, bool):
@@ -830,7 +832,7 @@ class FeatureEngineering(EDA):
                     super().eda_plot("histogram", feature, False, target)
                     logger.info(f'Distribution after transform for {feature}')
                     super().eda_plot("histogram", trans_name, False, target)
-                    logging.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
+                    logger.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
                     probability_plot(self, feature, trans_name)
 
                 self.data.drop(columns=feature, inplace=True)
@@ -852,7 +854,7 @@ class FeatureEngineering(EDA):
                     super().eda_plot("histogram", feature, False, target)
                     logger.info(f'Distribution after transform for {feature}')
                     super().eda_plot("histogram", trans_name, False, target)
-                    logging.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
+                    logger.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
                     probability_plot(self, feature, trans_name)
 
                     self.data.drop(columns=trans_name, inplace=True)
@@ -865,7 +867,7 @@ class FeatureEngineering(EDA):
                         super().eda_plot("histogram", feature, False, target)
                         logger.info(f'Distribution after transform for {feature}')
                         super().eda_plot("histogram", trans_name, False, target)
-                        logging.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
+                        logger.info(f'Probability plot for\n{feature}\nbefore-after\n{trans} transformation')
                         probability_plot(self, feature, trans_name)
 
                     self.data.drop(columns=feature, inplace=True)
@@ -1062,6 +1064,840 @@ class ModelTraining(object):
         self.task = dataprep.task
         self.cross_val = dataprep.cross_val
         self.CV_func = None
+        self._model_params = {
+            #MEAS Initial Model params
+        	"cart":{
+				#Notes. 
+					#Only real functional gridsearching option for classification
+				"model_name":DecisionTreeClassifier(),
+				"model_type":"classification",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html#sklearn.tree.DecisionTreeClassifier
+				"base_params":{
+					"criterion":"gini",				
+					"splitter":"best",				
+					"max_depth":None,
+					"min_samples_split":2,    		#!MUSTCHANGEME
+					"min_samples_leaf":1,     		#!MUSTCHANGEME
+					"max_leaf_nodes":None,
+					"random_state":42
+				},
+				"init_params":{
+					"criterion":"gini",				
+					"splitter":"best",				
+					"max_depth":15,
+					"min_samples_split":3,    		#!MUSTCHANGEME
+					"min_samples_leaf":2,     		#!MUSTCHANGEME
+					"max_leaf_nodes":None,
+					# "max_features":"auto",
+					"random_state":42
+				},
+				"grid_srch_params":{
+					"criterion":["entropy", "gini"],
+					# "splitter":["best", "random"],
+					"max_depth":range(1, 100),
+					"min_samples_split":range(2, 25),
+					"min_samples_leaf":range(1, 20),
+				}
+			},
+			"knc":{
+				"model_name":KNeighborsClassifier(),
+				"model_type":"classification",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
+				#NOTE - Be sure to check docs here.  Different solvers work with
+				#different penalties. 
+				"base_params":{
+					"n_neighbors":5,				
+					"weights":"uniform",
+					"algorithm":"auto",	
+					"leaf_size":1,					
+					"p":2, 					
+					"metric":"minkowski"
+				},
+				"init_params":{
+					"n_neighbors":5,				#!MUSTCHANGEME
+					"weights":"distance",
+					"algorithm":"auto",	
+					"leaf_size":1,					#!MUSTCHANGEME
+					"p":2, 					
+					"metric":"manhattan"
+				},
+				"grid_srch_params":{
+					"n_neighbors":range(3, 20),
+					# "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
+					# "leaf_size":range(1, 60),
+					# "metric":["cosine", "euclidean", "manhattan", "minkowski"]
+				}
+			},
+			"svc":{
+				#Notes. 
+					#
+				"model_name":LinearSVC(),
+				"model_type":"classification",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
+				"base_params":{
+					"penalty":"l2",					
+					"loss":"squared_hinge",
+					"dual":True,
+					"C":1.0,						
+					"multi_class":"ovr",			
+					"fit_intercept":True,
+					"random_state":42,
+					"max_iter":1000
+				},
+				"init_params":{
+					"penalty":"l2",					#!MUSTCHANGEME
+					"loss":"squared_hinge",
+					"dual":False,
+					"C":0.1,						#!MUSTCHANGEME
+					"multi_class":"ovr",			#!MUSTCHANGEME
+					"fit_intercept":True,
+					"random_state":42,
+					"max_iter":1000
+				},
+				"grid_srch_params":{
+					"penalty":["l1","l2"],
+					"loss":["hinge","squared_hinge"],
+					"C":np.arange(0, 1.1, 0.1),
+					"max_iter":np.arange(1000, 10000, 500)
+				}
+			},
+			"xgboost":{
+				#Notes. 
+					#TODO - update params here after figuring out how to sync
+					#this model workflow to the others
+				"model_name":"XGBClassifier()",
+				"model_type":"classification",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://xgboost.readthedocs.io/en/stable/parameter.html
+				"base_params":{
+					"booster":"gbtree",
+					"gamma":0,
+					"max_depth":6,
+					"learning_rate": 0.3,
+					"nthread":4, 
+					"subsample":1,
+					"objective":"multi:softmax",
+					"n_estimators":1000,
+					"reg_alpha":0.3,
+					"num_class":2
+				},
+				"init_params":{
+					"booster":"gbtree",
+					"eval_metric":"error",
+					"max_depth":10,
+					"gamma":0,
+					"lambda":1,
+					"alpha":0,
+					"nthread":4,
+					"learning_rate": 0.1,
+					# "subsample":0.5,
+					"objective":"binary:hinge",
+					"n_estimators":100,
+					"reg_alpha":0.3,
+				},
+				"grid_srch_params":{
+					# "cv":5,
+					# "lambda":np.arange(0, 1.1, 0.1),
+					# "alpha":np.arange(0, 1.1, 0.1),
+					"learning_rate":np.arange(0, 1.1, 0.1),
+					# "max_depth":range(0, 26, 2),
+					# "subsample":np.arange(0.5, 1.1, 0.1)
+					# "loss":["hinge","squared_hinge"],
+					# "gamma":range(0, 100),
+					# "n_estimators":np.arange(0, 1000, 100)
+				}
+			},
+            #MEAS Clustering Model params
+            "kmeans":{
+				"model_name":KMeans(),
+				"model_type":"clustering",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
+				"base_params":{
+					"n_clusters":8,
+					"init":"k-means++",
+					"n_init":"auto",
+					"max_iter":300,
+					"random_state":42,
+					"algorithm":"lloyd"
+				},
+				"init_params":{
+					"n_clusters":8,
+					"init":"k-means++",
+					"n_init":"auto",
+					"max_iter":300,
+					"random_state":42,
+					"algorithm":"lloyd"
+				},
+				"grid_srch_params":{
+					"n_clusters":range(2, 12, 2),
+					"max_iter":range(300, 600, 100),
+					"init":["k-means++", "random"], 
+					"algorithm":["lloyd", "elkan"],
+				}
+			},
+			"meanshift":{
+				"model_name":MeanShift(),
+				"model_type":"clustering",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MeanShift.html#sklearn.cluster.MeanShift
+				"base_params":{
+					"bandwidth":None,
+					"seeds":None,
+					"bin_seeding":False,
+					"min_bin_freq":1,
+					"cluster_all":True,
+					"n_jobs":None,
+					"max_iter":300,
+				},
+				"init_params":{
+					"bandwidth":None,
+					"seeds":None,
+					"bin_seeding":False,
+					"min_bin_freq":1,
+					"cluster_all":True,
+					"n_jobs":None,
+					"max_iter":300,
+				},
+				"grid_srch_params":{
+					"min_bin_freq":range(1, 6),
+					"max_iter":range(300, 600, 100),
+				}
+			},
+			"dbscan":{
+				"model_name":DBSCAN(),
+				"model_type":"clustering",
+				"scoring_metric":"accuracy",
+				#link to params
+				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html#sklearn.cluster.DBSCAN
+				"base_params":{
+					"eps":0.5,
+					"min_samples":5,
+					"metric":"euclidian",
+					"metric_params":None,
+					"algorithm":"auto",
+					"leaf_size":30,
+					"p":None,
+					"n_jobs":None
+				},
+				"init_params":{
+					"eps":0.5,
+					"min_samples":5,
+					"metric":"euclidian",
+					"metric_params":None,
+					"algorithm":"auto",
+					"leaf_size":30,
+					"p":None,
+					"n_jobs":None				},
+				"grid_srch_params":{
+					"eps":np.arange(0.1, 1, 0.1),
+					"min_samples":range(1, 10),
+					"leaf_size":range(30, 50),
+					"algorithm":["auto", "ball_tree", "kd_tree","brute"]	
+				}
+			}
+        }
+    
+
+	#FUNCTION get_data
+    def get_data(self, model_name:str):
+        """Unpacks training and test data
+
+        Args:
+            model_name (str): Name of model
+        """		
+        self.X_train = self._traind[model_name]["X_train"]
+        self.X_test = self._traind[model_name]["X_test"]
+        self.y_train = self._traind[model_name]["y_train"]
+        self.y_test = self._traind[model_name]["y_test"]
+        self.X = self._traind[model_name]["X"]
+        self.y = self._traind[model_name]["y"]
+
+    #FUNCTION Load Model
+    def load_model(self, model_name:str):
+        """_summary_
+
+        Args:
+            model_name (str): _description_
+
+        Returns:
+            _type_: _description_
+        """			
+        params = self._model_params[model_name]['init_params']
+
+        if model_name == 'lr':
+            return LinearRegression(**params)
+
+        elif model_name == 'rfr':
+            return RandomForestRegressor(**params)
+        
+        elif model_name == 'ridge':
+            return Ridge(**params)
+
+        elif model_name == "ridgecv":
+            return RidgeCV(**params)
+
+        elif model_name == 'lasso':
+            return Lasso(**params)
+
+        elif model_name == 'lassocv':
+            return LassoCV(**params)	
+
+        elif model_name == 'elasticnet':
+            return ElasticNet(**params)
+
+        elif model_name == 'elasticnetcv':
+            return ElasticNetCV(**params)
+
+        elif model_name == 'svr':
+            return LinearSVR(**params)
+        
+        ####################  classification ########################### 
+        elif model_name == 'logr':
+            return LogisticRegression(**params)
+
+        elif model_name == 'rfc':
+            return RandomForestClassifier(**params)
+
+        elif model_name == 'knc':
+            return KNeighborsClassifier(**params)
+
+        elif model_name == 'svc':
+            return LinearSVC(**params)
+
+        elif model_name == 'lda':
+            return LDA(**params)
+
+        elif model_name == 'cart':
+            return DecisionTreeClassifier(**params)
+
+        elif model_name == 'nb':
+            return GaussianNB(**params)
+        
+        elif model_name == 'xgboost':
+            return XGBClassifier(**params)
+
+        ####################  Clustering  ##############################
+        elif model_name == 'kmeans':
+            return KMeans(**params)
+        
+        elif model_name == 'meanshift':
+            return MeanShift(**params)
+
+        elif model_name == 'dbscan':
+            return DBSCAN(**params)
+
+    #FUNCTION models fit
+    @log_time
+    def fit(self, model_name:str):
+        """This module handles the fit functions for each of the sklearn models. 
+        Logic:\n
+            1. Extracts model parameters from _model_params dictionary.\n
+            2. Unpacks said dictionary, into the model being run.\n
+
+        Args:
+            model_name (str): abbreviated name of the model to run
+            
+        """
+
+
+    #MEAS Model training \ Param loading
+        ####################  Model Load  ##############################		
+        self.model = ModelTraining.load_model(self, model_name)
+
+        ####################  Fitting  ##############################
+        logger.info(f'{model_name}: fitting model')
+        
+        if getcwd().endswith("doc_sim"):
+        #For super fun spinner action in your terminal.
+            #Doesn't work in a notebook without ipywidgets, and even then it
+            #doesn't look very good. 
+            progress = Progress(
+                SpinnerColumn(
+                    spinner_name="pong",
+                    speed = 1.2, 
+                    finished_text="fit complete in",
+                ),
+                "time elapsed:",
+                TimeElapsedColumn(),
+            )
+
+            with progress:
+                task = progress.add_task("Fitting Model", total=1)
+                self.model.fit(self.X_train, self.y_train)
+                progress.update(task, advance=1)
+
+        else:
+
+            self.model.fit(self.X_train, self.y_train)
+        
+        if self.category_value != None:
+            self._models[model_name][self.category_value] = self.model
+        else:
+            self._models[model_name] = self.model
+        logger.info(f"fit complete for {model_name}")
+
+    #FUNCTION predict
+    def predict(self, model_name):
+        """Fits the model in question
+        Note:
+            Will add an additional key for category if that is desired. 
+
+        Args:
+            model_name (str): abbreviated name of the model
+        """		
+        if self.category_value != None:
+            self._predictions[model_name][self.category_value] = self._models[model_name][self.category_value].predict(self.X_test)
+        else:
+            self._predictions[model_name] = self._models[model_name].predict(self.X_test)
+        
+        logger.info(f'{model_name}: making predictions')
+    
+    #FUNCTION validate
+    def validate(self, model_name):
+        """This module handles the model metrics and which to run.   It
+        summarizes model metrics and outputs them into a rich table as those
+        look better than plain ol print statements.
+
+        Logic:
+            1. Pull out the parameters of the model it just ran. 
+            2. Create a rich table for results storage. 
+            3. Identify which task route to take for which metric to run.
+                if Regressor
+                    - Calculate desired metric
+                    - Provide Model summary
+
+                if Classification
+                    - Generate a classification report, and confusion matrix.
+                    - Format and print model results as a rich table.
+
+        Args:
+            model_name (str): Name of model
+        """		
+
+        #FUNCTION custom_confusion_matrix
+        def custom_confusion_matrix(y_true, y_pred, display_labels=None):
+            from sklearn.metrics import confusion_matrix
+            """
+            A function to plot a custom confusion matrix with
+            positive class as the first row and the first column.
+            """
+            
+            # Create a flipped matrix
+            cm = np.flip(confusion_matrix(y_true, y_pred))
+
+            #Lets make some variables.
+            cats = ["True -", "False +", "False -", "True +"]
+            counts = [f"{x:0.0f}" for x in cm.flatten()]
+            perc = [f"{x / np.sum(cm):0.2%}" for x in cm.flatten()]
+            labs = [f"{uno}\n{dos}\n{tres}" for uno, dos, tres in zip(cats, counts, perc)]
+
+            labs = np.asarray(labs).reshape(2, 2)
+
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(6, 6))
+            sns.heatmap(
+                cm, 
+                ax=ax, 
+                annot=labs, 
+                fmt="", 
+                annot_kws={
+                    'fontsize':18,
+                },
+                cmap='Blues'
+            )
+            plt.title(f"{model_name.upper()} confusion matrix", fontsize=22)
+            plt.xlabel("Predicted Label", fontsize=14)
+            plt.ylabel("True Label", fontsize=14)
+            plt.xticks(ax.get_xticks(), labels = display_labels, rotation=-30, fontsize=14)
+            plt.yticks(ax.get_yticks(), labels = display_labels, rotation=-30, fontsize=14)
+            plt.show()
+            plt.close()	
+
+        #FUNCTION classification_report
+        def classification_report(y_true, y_pred, display_labels=None):
+            from sklearn.metrics import classification_report
+
+            report = classification_report(
+                y_true, 
+                y_pred, 
+                labels = np.unique(y_pred), #BUG Still wary of using this. Look at this again to figure out a better way
+                target_names=display_labels,
+                zero_division=False
+            ) 
+            #BUG. Unrepresented classes throw a div by zero error.  Look into this later. 
+
+            body = report.split("\n\n")
+            header = body[0]
+            rows = [body[x].split("\n") for x in range(1, len(body))]
+            rows_flat = list(chain(*rows))
+            table = Table(title = f'Classification report', header_style="Blue on white")
+            table.add_column(header, justify='center', style='white on blue')
+            for row in rows_flat:
+                table.add_row(row)
+            console = Console()
+            console.print(table)
+
+        #FUNCTION ROC_AUC
+        def roc_auc_curves(self, model:str):
+            #Get the size of the target responses. (how many are there)
+            num_groups = np.unique(self._traind[model]["y"]).size
+            #Get the colormap
+            color_cmap = plt.cm.get_cmap('Paired', num_groups) 
+            #Generate a hex code for the color.  
+            color_str = [mpl.colors.rgb2hex(color_cmap(i)) for i in range(color_cmap.N)]
+            #Now make a dictionary of the activities and their hex color.
+            colcyc = color_str[:num_groups]
+            cycol = cycle(colcyc)
+            group_color_dict = {x:next(cycol) for x in self.target_names}
+
+            #Using one vs rest scheme for Aucroc
+            test_prob = self._models[model].predict_proba(self._traind[model]["X_test"])
+            fpr, tpr, auc_s = {}, {}, {}
+            fig, ax = plt.subplots(nrows=1, ncols=1, figsize=(10, 8))
+            for cls in range(len(self.target_names)):  #BUG - Possible hardcoding here to a numbered target class. 
+                fpr[cls], tpr[cls], _ = roc_curve(self._traind[model]["y_test"], test_prob[:, cls], pos_label=cls)
+                auc_s[cls] = auc(fpr[cls], tpr[cls])
+                # roc_auc_s[cls] = roc_auc_score(
+                # 	y_true = self._traind[model]["y_test"],
+                # 	y_score = test_prob[:, cls],
+                # 	average = "macro",
+                # 	multi_class = "ovr",
+                # 	labels = cls
+                # )
+                plt.plot(
+                    fpr[cls], 
+                    tpr[cls], 
+                    linestyle="--",
+                    color = group_color_dict[self.target_names[cls]],
+                    label = f"ROC curve for {self.target_names[cls]} vs rest AUC:{auc_s[cls]:.2f}" 
+                )
+
+            plt.plot([0, 1], [0, 1], "k--", label="ROC curve for chance level (AUC = 0.5)")
+            plt.title(f'{model.upper()} ROC Curve')
+            plt.legend(loc="lower right")
+            plt.show()
+            plt.close()
+
+        def cv_roc_auc_curves():
+            pass
+
+        #FUNCTION classification summary
+        def classification_summary(model_name:str, y_pred:np.array, cv_class:str=False):
+        #######################Confusion Matrix and classification report##########################
+            labels = self.target_names
+            no_proba = ["svc", ""]
+            #Call confusion matrix
+            logger.info(f'{model_name} confusion matrix')
+            custom_confusion_matrix(self.y_test, y_pred, display_labels=labels)
+            #Call classification report
+            logger.info(f'{model_name} classification report')
+            classification_report(self.y_test, y_pred, display_labels=labels)
+            
+            #Generate ROC curves for non CV runs. 
+            if not cv_class:
+                if model_name not in no_proba:
+                    roc_auc_curves(self, model_name)
+            else:
+                # cv_roc_auc_curves() #Not finished
+                logger.warning(f"ROC Curves not yet functional for CV")
+            
+
+        #FUNCTION No Crossval
+        def no_cv_scoring(y_pred:np.array, cat_bool:bool, table)->float:
+            #I'm not sure why i'm keeping no cross validation as an option, but
+            #here we are. 
+
+            scoring_dict = {
+                #regression
+                "rsme"    : MSE(self.y_test, y_pred, squared=False),
+                "mse"     : MSE(self.y_test, y_pred),
+                "mae"     : MAE(self.y_test, y_pred),
+                "rsquared": RSQUARED(self.y_test, y_pred),
+                #Classification
+                "accuracy": ACC_SC(self.y_test, y_pred),
+                "logloss" : LOG_LOSS(self.y_test, y_pred)
+                #Clustering
+            }
+            if self.task == "regression":
+                logger.info(f'{model_name}: Calculating {metric} for {self.task}')
+                if cat_bool:
+                    self._performance[self.category_value][model_name][metric.upper()] = scoring_dict[metric]
+                    scores = self._performance[self.category_value][model_name][metric.upper()]
+                    table.add_column(f'{scores:^.2f}', justify="center", style="white on blue")
+                    
+                else:
+                    self._performance[model_name][metric.upper()] = scoring_dict[metric]
+                    scores = self._performance[model_name][metric.upper()]
+                    table.add_column(f'{scores:^.2f}', justify="center", style="white on blue")
+
+            elif self.task == "classification":
+                logger.info(f'{model_name}: Calculating {metric} for {self.task}')
+                if cat_bool:
+                    self._performance[self.category_value][model_name][metric.upper()] = scoring_dict[metric]
+                    scores = self._performance[self.category_value][model_name][metric.upper()]
+                    table.add_column(f'{scores:^.2%}', justify="center", style="white on blue")
+                    
+                else:	
+                    self._performance[model_name][metric.upper()] = scoring_dict[metric]
+                    scores = self._performance[model_name][metric.upper()]
+                    table.add_column(f'{scores:^.2%}', justify="center", style="white on blue")
+                    
+                classification_summary(model_name, y_pred)
+            
+            return scores
+
+        #FUNCTION With Cross Validation
+        def cv_scoring(y_pred:np.array, cat_bool:bool, model:str, table)->float:
+            """_summary_
+
+            Args:
+                y_pred (np.array): _description_
+                cat_bool (bool): _description_
+                model (str): _description_
+                table (_type_): _description_
+
+            Returns:
+                float: _description_
+            """
+            def load_cross_val(cv_name:str):
+                #TODO Insert notes on each CV in the func docs
+                cv_validators = {
+                    "kfold"       :KFold(n_splits=5, shuffle=True, random_state=42),
+                    "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                    "leaveoneout" :LeaveOneOut(),
+                    # "leavepout"   :LeaveOneOut(p=2),
+                    "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
+                    "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
+                }
+                return cv_validators[cv_name]
+            
+            def generate_cv_predictions(freshmodel, CV_func, X_data:np.array, y_data:np.array):#-> Tuple[list, list]
+                actual_t = np.array([])
+                predicted_t = np.array([])
+
+                for train_ix, test_ix in CV_func.split(X = X_data, y = y_data):
+                    train_X, train_y, test_X, test_y = X_data[train_ix], y_data[train_ix], X_data[test_ix], y_data[test_ix]
+                    freshmodel.fit(train_X, train_y)
+                    predicted_labels = freshmodel.predict(test_X)
+                    predicted_t = np.append(predicted_t, predicted_labels)
+                    actual_t = np.append(actual_t, test_y)
+
+                return predicted_t, actual_t
+
+            #Load a fresh untrained model and score it.
+            freshmodel = ModelTraining.load_model(self, model_name)
+
+            #Load Cross Validation
+            CV_func = load_cross_val(self.cross_val)
+
+            #Validate
+            scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func)["test_score"]
+                #BUG - Don't i need to eval on the test set? for above?
+
+            #reload model untrained model for cross_validation predictions
+            freshmodel = ModelTraining.load_model(self, model_name)
+
+            #Load Cross Validation
+            CV_func = load_cross_val(self.cross_val)
+
+            #Generate new predictions based on cross validated data.
+            y_pred, y_target = generate_cv_predictions(freshmodel, CV_func, self.X_train, self.y_train.to_numpy())
+            
+            #Store them in the modeltraining object
+            self._predictions[model_name] = y_pred
+            self.y_test = y_target
+        
+            #IDEA
+                #Do we want a permutation test at the end of cross validation to
+                #see if the distributions changed? aka did the model find any
+                #real relation to the inputs
+
+                #? Two fold inner and outer CV? Make a custom scorer??
+
+            if cat_bool:
+                self._performance[self.category_value][model_name][metric.upper()] = scores
+            else:
+                self._performance[model_name][metric.upper()] = (scores.mean(), scores.std())
+
+            #Add them to the table. 
+            table.add_column(f'{scores.mean():^.2f}', justify="center", style="white on blue")
+            
+            if self.task == "classification":
+                logger.info(f'{model_name}: Calculating model summary')
+                classification_summary(model_name, y_pred, True)
+                
+            return scores.mean()
+
+
+        ###################### METRIC CENTRAL ##################################################
+        metric = self._model_params[model_name]["scoring_metric"]
+        #Grab the model parameters used.
+        params = {k:v for k, v in self.model.get_params().items()}
+        #Make a results table
+        table = Table(title = str(self.model.__class__).split(" ")[1].split(".")[-1].rstrip(">'"), header_style="white on blue")
+        table.add_column(metric.upper(), justify="right", style="white on blue")
+
+        #Grab predictions
+        cat_bool = self.category_value != None
+        if cat_bool:
+            y_pred = self._predictions[self.category_value][model_name]
+        else:
+            y_pred = self._predictions[model_name]
+        
+        if self.cross_val:
+            #Call cross validation function
+            scores = cv_scoring(y_pred, cat_bool, model_name, table)
+            table.add_row("CV:", f"{self.cross_val}", end_section=True)
+
+        else:
+            #Call regular holdout scoring function
+            scores = no_cv_scoring(y_pred, cat_bool, table)
+            table.add_row("Test holdout", f"{self.split:.0%}", end_section=True)
+        
+
+        #TODO - input clustering metric creation and reporting here
+
+        #Add the model parameters to the table
+        table.add_row("Params:", "", end_section=True)
+        [table.add_row(k, str(v)) for k, v in params.items()]
+
+        #Print them to the console
+        console = Console()
+        logger.info(f'{model_name}: results \U00002193 \U0001f389')
+        console.print(table)
+
+        #TODO.  Add in prec/recall chart as found here. 
+        #https://scikit-learn.org/stable/auto_examples/miscellaneous/plot_display_object_visualization.html#sphx-glr-auto-examples-miscellaneous-plot-display-object-visualization-py
+
+    #FUNCTION show_results
+    def show_results(self, modellist:list, sort_des:bool=False):
+        #Make a results table
+        #Structure will be:
+        #modelname | metric | score
+
+        table = Table(title = "Model Results Table", header_style="white on blue")
+        table.add_column("model name", justify="right", style="white on blue")
+        table.add_column("metric", justify="center", style="white on blue")
+        table.add_column("score", justify="center", style="white on blue")
+
+        cat_bool = self.category_value != None
+        #TODO - cat_bool + Metric units
+            #Code in for category selection here too. 
+            #Also need to reformat below to not be hardecoded to task. 
+                #temp fix for now, but ultimately i'd it to format the metric
+                #as it is supposed to be reported. 
+        _templist = []
+        for model in modellist:
+            model_name = str(self._model_params[model]['model_name'])[:-2]
+            metric = self._model_params[model]['scoring_metric']
+            score = self._performance[model][metric.upper()]
+            if self.task == "regression":
+                score = f'{score :.2f}'
+            elif self.task == "classification":
+                if self.cross_val:
+                    score, std = score[0], score[1]
+                    score = f'Mean: {score:.2%} +/-:{std:.2%}'
+                else:
+                    score = f'{score:.2%}'
+                    
+            _templist.append((model_name, metric.upper(), score))
+            
+        if sort_des:
+            _templist = sorted(_templist, key=lambda x: x[2], reverse=True)
+        else:
+            _templist = sorted(_templist, key=lambda x: x[2], reverse=False)
+
+        [table.add_row(model_name, metric, score) for (model_name, metric, score) in _templist]
+        console = Console()
+        logger.info(f'Model results \U00002193 \U0001f389')
+        console.print(table)
+
+    #FUNCTION importance plot
+    def plot_feats(self, model:str, features:list, imps:list):
+        fig, ax = plt.subplots(nrows=1, ncols=1, figsize = (10, 8))
+        feat_imp = sorted(zip(features, imps), key=lambda x: -x[1])[:20]
+        dfeats = pd.DataFrame(data = feat_imp, columns=["Name", "Imp"])
+        plt.barh(
+            y=dfeats["Name"], 
+            height=0.8,
+            width=dfeats["Imp"],
+        )
+        ax.invert_yaxis()
+        plt.title(f"{model} Top 20 feature importance", fontsize=14)
+        plt.xlabel("Feature Importance")
+        plt.ylabel("Feature Name")
+        plt.show()
+
+    #FUNCTION _grid_search
+    @log_time
+    def _grid_search(self, model_name:str, folds:int):
+        from sklearn.model_selection import GridSearchCV
+        logger.info(f'{model_name} grid search initiated')
+
+        clf = self._models[model_name]
+        params = self._model_params[model_name]["grid_srch_params"]
+        metric = self._model_params[model_name]["scoring_metric"]
+        #TODO add cv validator here
+        grid = GridSearchCV(clf, param_grid=params, cv = folds, scoring=metric)
+        #TODO need CV search here too
+            #Means i should load it into the modeltraining object.
+        
+        if getcwd().endswith("doc_sim"):
+        # #For super fun spinner action in your terminal.
+            progress = Progress(
+                    SpinnerColumn(
+                        spinner_name="shark",
+                        speed = 1.2, 
+                        finished_text="searching parameters",
+                    ),
+                    "time elapsed:",
+                    TimeElapsedColumn(),
+
+                )
+            with progress:
+                task = progress.add_task("Fitting Model", total=1)
+                grid.fit(self.X_train, self.y_train)
+                progress.update(task, advance=1)
+
+        else:
+            grid.fit(self.X_train, self.y_train)
+
+        logger.info(f"{model_name} best params\n{grid.best_params_}")
+        logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
+
+        #IDEA Perhaps update this to dual cross validation as well. 		
+
+        fp = "././scripts/phd/gridresults.txt"
+        t = time.localtime()
+        current_time = time.strftime("%m-%d-%Y %H:%M:%S", t)
+        #Check to see if the file can be opened.
+        if exists(fp):
+            #If it exists, append to it.
+            with open(fp, "a") as savef:
+                savef.write(f"\n\nGridsearch ran on {current_time}\n")
+                savef.write(f"Model {model_name} using {grid.cv} folds\n")
+                savef.write(f"score:\n{grid.best_score_}\n")
+                savef.write(f"parameters:\n{grid.best_params_}")
+        else:
+            #If it doesn't, make a new file
+            with open(fp, "w") as savef:
+                savef.write(f'Gridsearch ran on {current_time}\n')
+                savef.write(f"Model {model_name} using {grid.cv} folds\n")
+                savef.write(f"score:\n{grid.best_score_}\n")
+                savef.write(f"parameters:\n{grid.best_params_}")
+
+        return grid
+
 
 def run_models(dataset:dict):
     #Load test/train data

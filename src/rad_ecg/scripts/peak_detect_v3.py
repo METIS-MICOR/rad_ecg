@@ -884,7 +884,7 @@ def extract_PQRST(
             y = wave[slope_start:slope_end].flatten()
             shape = None
             # shape, sl_start = shape_test(X, y)
-            logger.debug(f"Shape is {shape}")
+            # logger.debug(f"Shape is {shape}")
             match shape:
                 case "linear":
                     logger.debug(f"transition linear, starting from S peak{S_peak}")
@@ -1014,6 +1014,12 @@ def extract_PQRST(
         length = len(X)
         shape = None
         start = None
+
+        #TODO - Update this with increasing polynomial fits.  
+            # maybe start with linear fit here.  
+            # Start with 2 - 4.
+            # save the RSME and compare at the end?
+            # 
         #Fit for U shape
         try:
             if length > 5:

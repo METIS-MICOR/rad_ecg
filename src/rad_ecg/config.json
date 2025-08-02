@@ -1,5 +1,5 @@
 {
-  "plot_fft": true,
+  "plot_fft": false,
   "plot_errors": false,
   "live_term": false,
   "porcine": false,
@@ -11,8 +11,8 @@
   "gcp_bucket": false,
   "bucket_name": "",
   "run_anomalyd": false,
-  "cam": "",
-  "last_run": "",
-  "log_path": "",
-  "cam_name": ""
+  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\inputdata\\T8WVP-9UE12\\T8WVP-9UE12",
+  "last_run": "08-01-2025",
+  "log_path": "src/rad_ecg/data/logs/08-01-2025_12-55-19.log",
+  "cam_name": "T8WVP-9UE12"
 }
