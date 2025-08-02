@@ -5,6 +5,7 @@ import setup_globals#from rad_ecg.scripts #
 
 #################################  Main libraries ####################################
 import stump_anom
+import ml_anom
 import numpy as np
 from scipy import stats
 import scipy.signal as ss
@@ -1673,11 +1674,11 @@ def main():
     else:
         support.save_results(ecg_data, configs, current_date)
 
-    if run_anomaly:
-        stump_anom.run_stumpy_discord(ecg_data, wave)
+    # if run_anomaly:
+    #     stump_anom.run_stumpy_discord(ecg_data, wave)
 
     # if run_ML:
-    #     pass
+    #     ml_anom.run_models(ecg_data, wave)
 
 if __name__ == "__main__":
     main()

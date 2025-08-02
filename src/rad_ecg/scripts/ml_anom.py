@@ -686,65 +686,65 @@ class FeatureEngineering(EDA):
             return dp / (norm1 * norm2)
 
 
-    #FUNCTION categorical_encoding
-    def categorical_encoding(self, enc:str, feat:str, order:list=None):
-        """Note, can only drop single columns at a time. I'll 
-        Eventually make it do multiple
+    # #FUNCTION categorical_encoding
+    # def categorical_encoding(self, enc:str, feat:str, order:list=None):
+    #     """Note, can only drop single columns at a time. I'll 
+    #     Eventually make it do multiple
 
-        Args:
-            enc (str): _description_
-            feat (str): _description_
-            order (list, optional): _description_. Defaults to None.
+    #     Args:
+    #         enc (str): _description_
+    #         feat (str): _description_
+    #         order (list, optional): _description_. Defaults to None.
 
-        Raises:
-            ValueError: _description_
-        """		
-        if isinstance(enc, str):
-            enc_dict = {
-                "onehot" :OneHotEncoder(
-                    categories="auto",
-                    drop=None,
-                    sparse_output=False,
-                    dtype=int,
-                    handle_unknown="error",
-                    min_frequency=None,
-                    max_categories=None)
-                ,
-                "ordinal":OrdinalEncoder(
-                    categories=[order],
-                    dtype=np.float64,
-                    # handle_unknown="error",
-                    min_frequency=None,
-                    max_categories=None)
-            }
-            encoder = enc_dict.get(enc)
-            if not encoder:
-                raise ValueError(f"Encoder not loaded, check before continuing")
+    #     Raises:
+    #         ValueError: _description_
+    #     """		
+    #     if isinstance(enc, str):
+    #         enc_dict = {
+    #             "onehot" :OneHotEncoder(
+    #                 categories="auto",
+    #                 drop=None,
+    #                 sparse_output=False,
+    #                 dtype=int,
+    #                 handle_unknown="error",
+    #                 min_frequency=None,
+    #                 max_categories=None)
+    #             ,
+    #             "ordinal":OrdinalEncoder(
+    #                 categories=[order],
+    #                 dtype=np.float64,
+    #                 # handle_unknown="error",
+    #                 min_frequency=None,
+    #                 max_categories=None)
+    #         }
+    #         encoder = enc_dict.get(enc)
+    #         if not encoder:
+    #             raise ValueError(f"Encoder not loaded, check before continuing")
 
-            #Fit and transform the column (Needs to reshaped to 2d for transform)
-            arr = encoder.fit_transform(self.data[feat].to_numpy().reshape(-1, 1))
-            if enc == "onehot":
-                #grab columns 
-                ndf_cols = encoder.categories_[0].tolist()
-                ndf_cols = ["oh_" + x for x in ndf_cols]
-                #Add to dataset
-                new_df = pd.DataFrame(arr, index = self.data.index, columns=ndf_cols)
-                #Add colnames to feature_names
-                self.feature_names.extend(ndf_cols)
+    #         #Fit and transform the column (Needs to reshaped to 2d for transform)
+    #         arr = encoder.fit_transform(self.data[feat].to_numpy().reshape(-1, 1))
+    #         if enc == "onehot":
+    #             #grab columns 
+    #             ndf_cols = encoder.categories_[0].tolist()
+    #             ndf_cols = ["oh_" + x for x in ndf_cols]
+    #             #Add to dataset
+    #             new_df = pd.DataFrame(arr, index = self.data.index, columns=ndf_cols)
+    #             #Add colnames to feature_names
+    #             self.feature_names.extend(ndf_cols)
             
-            elif enc == "ordinal":
-                #Make trans col name
-                nn = "ord_" + feat
-                new_df = pd.DataFrame(arr, index = self.data.index, columns=[nn])
-                self.feature_names.append(nn)
+    #         elif enc == "ordinal":
+    #             #Make trans col name
+    #             nn = "ord_" + feat
+    #             new_df = pd.DataFrame(arr, index = self.data.index, columns=[nn])
+    #             self.feature_names.append(nn)
 
-            #Add the new col/cols
-            self.data = pd.concat([self.data, new_df], axis=1)
+    #         #Add the new col/cols
+    #         self.data = pd.concat([self.data, new_df], axis=1)
 
-            #Drop said feature of transform from dataset
-            self.data.drop([feat], axis=1, inplace=True)
-            self.feature_names.pop(self.feature_names.index(feat))
-            logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
+    #         #Drop said feature of transform from dataset
+    #         self.data.drop([feat], axis=1, inplace=True)
+    #         self.feature_names.pop(self.feature_names.index(feat))
+    #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
@@ -1167,7 +1167,10 @@ class ModelTraining(object):
 					"max_iter":np.arange(1000, 10000, 500)
 				}
 			},
-			"xgboost":{
+			"isolation":{
+                #NOTE
+            },
+            "xgboost":{
 				#Notes. 
 					#TODO - update params here after figuring out how to sync
 					#this model workflow to the others
@@ -1901,6 +1904,8 @@ class ModelTraining(object):
 
 def run_models(dataset:dict):
     #Load test/train data
+    engin = FeatureEngineering()
+
     X = dataset
     y = dataset
     X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, random_state=0)
@@ -1950,8 +1955,9 @@ def main():
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
-    #TODO - Eventually throw some EDA in to get a feeling of summary stats
-    run_eda(ecg_data, wave)
+    #NOTE - Eventually throw some EDA in to get a feeling of summary stats
+    # run_eda(ecg_data, wave)
+
     run_models(ecg_data, wave)
     
 if __name__ == "__main__":
