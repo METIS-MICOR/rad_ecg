@@ -2,19 +2,18 @@
 import time
 import numpy as np
 import pandas as pd
-from rich.table import Table
-from rich.theme import Theme
-import setup_globals
 import seaborn as sns
+import setup_globals
+from os.path import exists
+from itertools import cycle, chain
+from collections import Counter
+from support import log_time, console, logger
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from itertools import cycle, chain
-from collections import Counter
-from os.path import exists
-
-from support import log_time, console, logger
 from scipy.stats import pearsonr, probplot, boxcox, yeojohnson, norm
+from rich.table import Table
+from rich.theme import Theme
 
 ########################### Sklearn imports ###############################
 from sklearn.preprocessing import RobustScaler
@@ -25,9 +24,10 @@ from sklearn.metrics import log_loss as LOG_LOSS
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.metrics import classification_report
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut
+from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 from sklearn.decomposition import PCA
 from sklearn.svm import LinearSVC as SVM
 from sklearn.ensemble import IsolationForest as IsoForest
@@ -38,20 +38,44 @@ from xgboost import XGBClassifier, DMatrix
 class EDA(object):
     def __init__(self, ecg_data:dict, wave:np.array):
         self.dataset = ecg_data
+        self.names_interior = [
+            "p_peak", "q_peak", "r_peak", "s_peak", "t_peak", "valid_qrs",
+            "pr_intr", "pr_seg", "qrs_comp", "st_seg", "qt_intr", "p_onset",
+            "q_onset", "t_onset", "t_offset", "j_point"
+        ]
+        self.interior_peaks = pd.DataFrame(self.dataset["interior_peaks"], columns=self.names_interior)
         self.wave = wave
         self.task = "classification"
-        self.data = pd.DataFrame(self.dataset["interior_peaks"]) 
+        self.data = pd.DataFrame(self.dataset["section_info"])
         self.target = pd.Series(ecg_data["section_info"]["valid"])
+        
         self.target_names = ["anomaly", "stable"]
         self.rev_target_dict = {
             0:"anomaly",
             1:"stable"
         }
-    
+
     #FUNCTION clean_data
     def clean_data(self):
-        pass
-
+        #Calculate necessary segment averages
+        cols = ["Avg_QRS", "Avg_QT", "Avg_PR", "Avg_ST"]
+        add_cols = ["qrs_comp", "pr_intr", "qt_intr", "st_seg"]
+        for col in cols:
+            self.data[col] = np.zeros(shape=(self.data.shape[0]))
+        for idx in self.data.index:
+            valid = self.data.iloc[idx, 3] == 1.0
+            if valid:
+                star = self.data.iloc[idx, 1]
+                fini = self.data.iloc[idx, 2]
+                inners = self.interior_peaks[(self.interior_peaks["r_peak"] > star) & (self.interior_peaks["r_peak"] < fini)]
+                for cidx, col in enumerate(add_cols):
+                    avg = inners.loc[np.nonzero(inners[col])[0], col]
+                    if avg.shape[0] > 0:
+                        self.data.loc[idx, cols[cidx]] = np.mean(avg)
+            
+            # T_peak = inners[np.nonzero(inners[:, 4])[0], 4]
+        #Drop the target column.
+        self.data = self.data.drop("valid", axis=1)
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
         """Function for imputing missing data.  
@@ -924,7 +948,7 @@ class DataPrep(object):
         else:
             EDA.__init__(self)
             EDA.clean_data(self)
-            # EDA.drop_nulls(self)
+            EDA.drop_nulls(self)
             self.data = self.data[features]
             self.feature_names = features
 
@@ -1078,31 +1102,31 @@ class ModelTraining(object):
             #MEAS Initial Model params
         	"isoforest":{
 				#Notes. 
-					#
+					##!MUSTCHANGEME
 				"model_name":"isoforest",
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
 				#https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html#
 				"base_params":{
-					"n_esimators":100,				
-					"max_samples":"auto",				
-					"contamination":"auto",
-					"max_features":1.0,    		#!MUSTCHANGEME
-					"bootstrap":False,     		#!MUSTCHANGEME
-					"n_jobs":None,
-					"random_state":42,
-                    "warm_start":False
+					"n_estimators":100,				#int
+					"max_samples":"auto",			#int|float	
+					"contamination":"auto",         #auto|float
+					"max_features":1.0,    		    #int|float
+					"bootstrap":False,     		    #bool
+					"n_jobs":None,                  #int
+					"random_state":42,              #int
+                    "warm_start":False              #bool
 				},
 				"init_params":{
-					"criterion":"gini",				
-					"splitter":"best",				
-					"max_depth":15,
-					"min_samples_split":3,    		#!MUSTCHANGEME
-					"min_samples_leaf":2,     		#!MUSTCHANGEME
-					"max_leaf_nodes":None,
-					# "max_features":"auto",
-					"random_state":42
+					"n_estimators":100,				#int
+					"max_samples":"auto",			#int|float	
+					"contamination":"auto",         #auto|float
+					"max_features":1.0,    		    #int|float
+					"bootstrap":False,     		    #bool
+					"n_jobs":None,                  #int
+					"random_state":42,              #int
+                    "warm_start":False              #bool
 				},
 				"grid_srch_params":{
 					"criterion":["entropy", "gini"],
@@ -1117,27 +1141,33 @@ class ModelTraining(object):
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
+				#https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html
 				#NOTE - Be sure to check docs here.  Different solvers work with
 				#different penalties. 
 				"base_params":{
-					"n_neighbors":5,				
-					"weights":"uniform",
-					"algorithm":"auto",	
-					"leaf_size":1,					
-					"p":2, 					
-					"metric":"minkowski"
+					"n_components":None,                #int | float			
+					"copy":True,                        #bool
+					"whiten":False,                     #bool	
+					"svd_solver":"auto",                #str | 'auto'			
+					"tol":0.0, 				            #float	
+					"iterated_power":"auto",            #int | 'auto'
+                    "n_oversamples":10,                 #int
+                    "power_iteration_normalizer":"auto",#str | 'auto'
+                    "random_state":42                   #int | None
 				},
 				"init_params":{
-					"n_neighbors":5,				#!MUSTCHANGEME
-					"weights":"distance",
-					"algorithm":"auto",	
-					"leaf_size":1,					#!MUSTCHANGEME
-					"p":2, 					
-					"metric":"manhattan"
+					"n_components":None,                #int | float			
+					"copy":True,                        #bool
+					"whiten":False,                     #bool	
+					"svd_solver":"auto",                #str | 'auto'			
+					"tol":0.0, 				            #float	
+					"iterated_power":"auto",            #int | 'auto'
+                    "n_oversamples":10,                 #int
+                    "power_iteration_normalizer":"auto",#str | 'auto'
+                    "random_state":42                   #int | None
 				},
 				"grid_srch_params":{
-					"n_neighbors":range(3, 20),
+					# "n_neighbors":range(3, 20),
 					# "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
 					# "leaf_size":range(1, 60),
 					# "metric":["cosine", "euclidean", "manhattan", "minkowski"]
@@ -1152,9 +1182,9 @@ class ModelTraining(object):
 				#link to params
 				#https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
 				"base_params":{
-					"penalty":"l2",					
-					"loss":"squared_hinge",
-					"dual":True,
+					"penalty":"l2",					#str
+					"loss":"squared_hinge",         #str
+					"dual":True,                    #
 					"C":1.0,						
 					"multi_class":"ovr",			
 					"fit_intercept":True,
@@ -1226,7 +1256,6 @@ class ModelTraining(object):
 				}
 			}
         }
-    
 
 	#FUNCTION get_data
     def get_data(self, model_name:str):
@@ -1255,7 +1284,6 @@ class ModelTraining(object):
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
         match model_name:
-
             case 'svm':
                 return SVM(**params)
 
@@ -1280,7 +1308,6 @@ class ModelTraining(object):
             model_name (str): abbreviated name of the model to run
             
         """
-
 
     #MEAS Model training \ Param loading
         ####################  Model Load  ##############################		
@@ -1393,9 +1420,7 @@ class ModelTraining(object):
             plt.close()	
 
         #FUNCTION classification_report
-        def classification_report(y_true, y_pred, display_labels=None):
-            from sklearn.metrics import classification_report
-
+        def make_cls_report(y_true, y_pred, display_labels=None):
             report = classification_report(
                 y_true, 
                 y_pred, 
@@ -1469,7 +1494,7 @@ class ModelTraining(object):
             custom_confusion_matrix(self.y_test, y_pred, display_labels=labels)
             #Call classification report
             logger.info(f'{model_name} classification report')
-            classification_report(self.y_test, y_pred, display_labels=labels)
+            make_cls_report(self.y_test, y_pred, display_labels=labels)
             
             #Generate ROC curves for non CV runs. 
             if not cv_class:
@@ -1479,22 +1504,20 @@ class ModelTraining(object):
                 # cv_roc_auc_curves() #Not finished
                 logger.warning(f"ROC Curves not yet functional for CV")
             
-
         #FUNCTION No Crossval
         def no_cv_scoring(y_pred:np.array, cat_bool:bool, table)->float:
             #I'm not sure why i'm keeping no cross validation as an option, but
             #here we are. 
-
             scoring_dict = {
                 #regression
-                "rsme"    : MSE(self.y_test, y_pred, squared=False),
-                "mse"     : MSE(self.y_test, y_pred),
-                "mae"     : MAE(self.y_test, y_pred),
-                "rsquared": RSQUARED(self.y_test, y_pred),
-                #Classification
+                # "rsme"    : MSE(self.y_test, y_pred, squared=False),
+                # "mse"     : MSE(self.y_test, y_pred),
+                # "mae"     : MAE(self.y_test, y_pred),
+                # "rsquared": RSQUARED(self.y_test, y_pred),
+                #classification
                 "accuracy": ACC_SC(self.y_test, y_pred),
                 "logloss" : LOG_LOSS(self.y_test, y_pred)
-                #Clustering
+                #clustering
             }
             if self.task == "regression":
                 logger.info(f'{model_name}: Calculating {metric} for {self.task}')
@@ -1508,7 +1531,7 @@ class ModelTraining(object):
                     scores = self._performance[model_name][metric.upper()]
                     table.add_column(f'{scores:^.2f}', justify="center", style="white on blue")
 
-            elif self.task == "classification":
+            if self.task == "classification":
                 logger.info(f'{model_name}: Calculating {metric} for {self.task}')
                 if cat_bool:
                     self._performance[self.category_value][model_name][metric.upper()] = scoring_dict[metric]
@@ -1521,8 +1544,11 @@ class ModelTraining(object):
                     table.add_column(f'{scores:^.2%}', justify="center", style="white on blue")
                     
                 classification_summary(model_name, y_pred)
+                return scores
             
-            return scores
+            else:
+
+                return None
 
         #FUNCTION With Cross Validation
         def cv_scoring(y_pred:np.array, cat_bool:bool, model:str, table)->float:
@@ -1538,7 +1564,6 @@ class ModelTraining(object):
                 float: _description_
             """
             def load_cross_val(cv_name:str):
-                #TODO Insert notes on each CV in the func docs
                 cv_validators = {
                     "kfold"       :KFold(n_splits=5, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
@@ -1632,8 +1657,6 @@ class ModelTraining(object):
             scores = no_cv_scoring(y_pred, cat_bool, table)
             table.add_row("Test holdout", f"{self.split:.0%}", end_section=True)
         
-
-        #TODO - input clustering metric creation and reporting here
 
         #Add the model parameters to the table
         table.add_row("Params:", "", end_section=True)
@@ -1781,6 +1804,7 @@ def run_eda(data:dict, wave:np.array):
     # Load EDA class
     explore = EDA(data, wave)
     # Look at nulls
+    explore.clean_data()
     explore.print_nulls(False)
     # 
 
