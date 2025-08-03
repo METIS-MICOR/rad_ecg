@@ -19,6 +19,7 @@ stumpy = "^1.13.0"
 kneed = "^0.8.5"
 scikit-learn = "^1.7.1"
 seaborn = "^0.13.2"
+xgboost = "^3.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"

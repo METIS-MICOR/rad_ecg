@@ -1,4 +1,5 @@
 ########################### Main imports ###############################
+import time
 import numpy as np
 import pandas as pd
 from rich.table import Table
@@ -8,21 +9,30 @@ import seaborn as sns
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
-from itertools import cycle
+from itertools import cycle, chain
 from collections import Counter
+from os.path import exists
+
 from support import log_time, console, logger
 from scipy.stats import pearsonr, probplot, boxcox, yeojohnson, norm
 
 ########################### Sklearn imports ###############################
-from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.preprocessing import RobustScaler
-from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut
+from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
 from sklearn.metrics import log_loss as LOG_LOSS
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_auc_score, roc_curve, auc
+
+########################### Sklearn model imports #########################
+from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut
+from sklearn.decomposition import PCA
+from sklearn.svm import LinearSVC as SVM
+from sklearn.ensemble import IsolationForest as IsoForest
+from xgboost import XGBClassifier, DMatrix
+
 
 #CLASS EDA
 class EDA(object):
@@ -31,7 +41,7 @@ class EDA(object):
         self.wave = wave
         self.task = "classification"
         self.data = pd.DataFrame(self.dataset["interior_peaks"]) 
-        self.target = pd.Series(ecg_data["section_info"][:, 3])
+        self.target = pd.Series(ecg_data["section_info"]["valid"])
         self.target_names = ["anomaly", "stable"]
         self.rev_target_dict = {
             0:"anomaly",
@@ -1066,22 +1076,23 @@ class ModelTraining(object):
         self.CV_func = None
         self._model_params = {
             #MEAS Initial Model params
-        	"cart":{
+        	"isoforest":{
 				#Notes. 
-					#Only real functional gridsearching option for classification
-				"model_name":DecisionTreeClassifier(),
+					#
+				"model_name":"isoforest",
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.tree.DecisionTreeClassifier.html#sklearn.tree.DecisionTreeClassifier
+				#https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html#
 				"base_params":{
-					"criterion":"gini",				
-					"splitter":"best",				
-					"max_depth":None,
-					"min_samples_split":2,    		#!MUSTCHANGEME
-					"min_samples_leaf":1,     		#!MUSTCHANGEME
-					"max_leaf_nodes":None,
-					"random_state":42
+					"n_esimators":100,				
+					"max_samples":"auto",				
+					"contamination":"auto",
+					"max_features":1.0,    		#!MUSTCHANGEME
+					"bootstrap":False,     		#!MUSTCHANGEME
+					"n_jobs":None,
+					"random_state":42,
+                    "warm_start":False
 				},
 				"init_params":{
 					"criterion":"gini",				
@@ -1101,8 +1112,8 @@ class ModelTraining(object):
 					"min_samples_leaf":range(1, 20),
 				}
 			},
-			"knc":{
-				"model_name":KNeighborsClassifier(),
+			"pca":{
+				"model_name":PCA(),
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
@@ -1132,10 +1143,10 @@ class ModelTraining(object):
 					# "metric":["cosine", "euclidean", "manhattan", "minkowski"]
 				}
 			},
-			"svc":{
+			"svm":{
 				#Notes. 
 					#
-				"model_name":LinearSVC(),
+				"model_name":SVM(),
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
@@ -1167,9 +1178,6 @@ class ModelTraining(object):
 					"max_iter":np.arange(1000, 10000, 500)
 				}
 			},
-			"isolation":{
-                #NOTE
-            },
             "xgboost":{
 				#Notes. 
 					#TODO - update params here after figuring out how to sync
@@ -1216,97 +1224,6 @@ class ModelTraining(object):
 					# "gamma":range(0, 100),
 					# "n_estimators":np.arange(0, 1000, 100)
 				}
-			},
-            #MEAS Clustering Model params
-            "kmeans":{
-				"model_name":KMeans(),
-				"model_type":"clustering",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.KMeans.html
-				"base_params":{
-					"n_clusters":8,
-					"init":"k-means++",
-					"n_init":"auto",
-					"max_iter":300,
-					"random_state":42,
-					"algorithm":"lloyd"
-				},
-				"init_params":{
-					"n_clusters":8,
-					"init":"k-means++",
-					"n_init":"auto",
-					"max_iter":300,
-					"random_state":42,
-					"algorithm":"lloyd"
-				},
-				"grid_srch_params":{
-					"n_clusters":range(2, 12, 2),
-					"max_iter":range(300, 600, 100),
-					"init":["k-means++", "random"], 
-					"algorithm":["lloyd", "elkan"],
-				}
-			},
-			"meanshift":{
-				"model_name":MeanShift(),
-				"model_type":"clustering",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.MeanShift.html#sklearn.cluster.MeanShift
-				"base_params":{
-					"bandwidth":None,
-					"seeds":None,
-					"bin_seeding":False,
-					"min_bin_freq":1,
-					"cluster_all":True,
-					"n_jobs":None,
-					"max_iter":300,
-				},
-				"init_params":{
-					"bandwidth":None,
-					"seeds":None,
-					"bin_seeding":False,
-					"min_bin_freq":1,
-					"cluster_all":True,
-					"n_jobs":None,
-					"max_iter":300,
-				},
-				"grid_srch_params":{
-					"min_bin_freq":range(1, 6),
-					"max_iter":range(300, 600, 100),
-				}
-			},
-			"dbscan":{
-				"model_name":DBSCAN(),
-				"model_type":"clustering",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.cluster.DBSCAN.html#sklearn.cluster.DBSCAN
-				"base_params":{
-					"eps":0.5,
-					"min_samples":5,
-					"metric":"euclidian",
-					"metric_params":None,
-					"algorithm":"auto",
-					"leaf_size":30,
-					"p":None,
-					"n_jobs":None
-				},
-				"init_params":{
-					"eps":0.5,
-					"min_samples":5,
-					"metric":"euclidian",
-					"metric_params":None,
-					"algorithm":"auto",
-					"leaf_size":30,
-					"p":None,
-					"n_jobs":None				},
-				"grid_srch_params":{
-					"eps":np.arange(0.1, 1, 0.1),
-					"min_samples":range(1, 10),
-					"leaf_size":range(30, 50),
-					"algorithm":["auto", "ball_tree", "kd_tree","brute"]	
-				}
 			}
         }
     
@@ -1336,68 +1253,20 @@ class ModelTraining(object):
             _type_: _description_
         """			
         params = self._model_params[model_name]['init_params']
+        ####################  classification Models ##################### 
+        match model_name:
 
-        if model_name == 'lr':
-            return LinearRegression(**params)
+            case 'svm':
+                return SVM(**params)
 
-        elif model_name == 'rfr':
-            return RandomForestRegressor(**params)
+            case 'isoforest':
+                return IsoForest(**params)
         
-        elif model_name == 'ridge':
-            return Ridge(**params)
+            case 'pca':
+                return PCA(**params)
 
-        elif model_name == "ridgecv":
-            return RidgeCV(**params)
-
-        elif model_name == 'lasso':
-            return Lasso(**params)
-
-        elif model_name == 'lassocv':
-            return LassoCV(**params)	
-
-        elif model_name == 'elasticnet':
-            return ElasticNet(**params)
-
-        elif model_name == 'elasticnetcv':
-            return ElasticNetCV(**params)
-
-        elif model_name == 'svr':
-            return LinearSVR(**params)
-        
-        ####################  classification ########################### 
-        elif model_name == 'logr':
-            return LogisticRegression(**params)
-
-        elif model_name == 'rfc':
-            return RandomForestClassifier(**params)
-
-        elif model_name == 'knc':
-            return KNeighborsClassifier(**params)
-
-        elif model_name == 'svc':
-            return LinearSVC(**params)
-
-        elif model_name == 'lda':
-            return LDA(**params)
-
-        elif model_name == 'cart':
-            return DecisionTreeClassifier(**params)
-
-        elif model_name == 'nb':
-            return GaussianNB(**params)
-        
-        elif model_name == 'xgboost':
-            return XGBClassifier(**params)
-
-        ####################  Clustering  ##############################
-        elif model_name == 'kmeans':
-            return KMeans(**params)
-        
-        elif model_name == 'meanshift':
-            return MeanShift(**params)
-
-        elif model_name == 'dbscan':
-            return DBSCAN(**params)
+            case 'xgboost':
+                return XGBClassifier(**params)
 
     #FUNCTION models fit
     @log_time
@@ -1420,28 +1289,25 @@ class ModelTraining(object):
         ####################  Fitting  ##############################
         logger.info(f'{model_name}: fitting model')
         
-        if getcwd().endswith("doc_sim"):
         #For super fun spinner action in your terminal.
             #Doesn't work in a notebook without ipywidgets, and even then it
             #doesn't look very good. 
-            progress = Progress(
-                SpinnerColumn(
-                    spinner_name="pong",
-                    speed = 1.2, 
-                    finished_text="fit complete in",
-                ),
-                "time elapsed:",
-                TimeElapsedColumn(),
-            )
+        # progress = Progress(
+        #     SpinnerColumn(
+        #         spinner_name="pong",
+        #         speed = 1.2, 
+        #         finished_text="fit complete in",
+        #     ),
+        #     "time elapsed:",
+        #     TimeElapsedColumn(),
+        # )
 
-            with progress:
-                task = progress.add_task("Fitting Model", total=1)
-                self.model.fit(self.X_train, self.y_train)
-                progress.update(task, advance=1)
+        # with progress:
+        #     task = progress.add_task("Fitting Model", total=1)
+        #     self.model.fit(self.X_train, self.y_train)
+        #     progress.update(task, advance=1)
 
-        else:
-
-            self.model.fit(self.X_train, self.y_train)
+        self.model.fit(self.X_train, self.y_train)
         
         if self.category_value != None:
             self._models[model_name][self.category_value] = self.model
@@ -1547,7 +1413,6 @@ class ModelTraining(object):
             table.add_column(header, justify='center', style='white on blue')
             for row in rows_flat:
                 table.add_row(row)
-            console = Console()
             console.print(table)
 
         #FUNCTION ROC_AUC
@@ -1775,7 +1640,6 @@ class ModelTraining(object):
         [table.add_row(k, str(v)) for k, v in params.items()]
 
         #Print them to the console
-        console = Console()
         logger.info(f'{model_name}: results \U00002193 \U0001f389')
         console.print(table)
 
@@ -1821,7 +1685,6 @@ class ModelTraining(object):
             _templist = sorted(_templist, key=lambda x: x[2], reverse=False)
 
         [table.add_row(model_name, metric, score) for (model_name, metric, score) in _templist]
-        console = Console()
         logger.info(f'Model results \U00002193 \U0001f389')
         console.print(table)
 
@@ -1846,7 +1709,6 @@ class ModelTraining(object):
     def _grid_search(self, model_name:str, folds:int):
         from sklearn.model_selection import GridSearchCV
         logger.info(f'{model_name} grid search initiated')
-
         clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
@@ -1855,26 +1717,23 @@ class ModelTraining(object):
         #TODO need CV search here too
             #Means i should load it into the modeltraining object.
         
-        if getcwd().endswith("doc_sim"):
-        # #For super fun spinner action in your terminal.
-            progress = Progress(
-                    SpinnerColumn(
-                        spinner_name="shark",
-                        speed = 1.2, 
-                        finished_text="searching parameters",
-                    ),
-                    "time elapsed:",
-                    TimeElapsedColumn(),
+        # For super fun spinner action in your terminal.
+        # progress = Progress(
+        #         SpinnerColumn(
+        #             spinner_name="shark",
+        #             speed = 1.2, 
+        #             finished_text="searching parameters",
+        #         ),
+        #         "time elapsed:",
+        #         TimeElapsedColumn(),
 
-                )
-            with progress:
-                task = progress.add_task("Fitting Model", total=1)
-                grid.fit(self.X_train, self.y_train)
-                progress.update(task, advance=1)
+        #     )
+        # with progress:
+        #     task = progress.add_task("Fitting Model", total=1)
+        #     grid.fit(self.X_train, self.y_train)
+        #     progress.update(task, advance=1)
 
-        else:
-            grid.fit(self.X_train, self.y_train)
-
+        grid.fit(self.X_train, self.y_train)
         logger.info(f"{model_name} best params\n{grid.best_params_}")
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
 
@@ -1902,15 +1761,15 @@ class ModelTraining(object):
         return grid
 
 
-def run_models(dataset:dict):
+def run_models(data:dict, wave:np.array):
     #Load test/train data
     engin = FeatureEngineering()
 
-    X = dataset
-    y = dataset
-    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, random_state=0)
-    d_train = xgboost.DMatrix(X_train, label=y_train)
-    d_test = xgboost.DMatrix(X_test, label=y_test)
+    X = engin.data
+    y = engin.target
+    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
+    d_train = DMatrix(X_train, label=y_train)
+    d_test = DMatrix(X_test, label=y_test)
     params = {
         "eta": 0.01,
         "objective": "binary:logistic",
@@ -1918,15 +1777,19 @@ def run_models(dataset:dict):
         "base_score": np.mean(y_train),
         "eval_metric": "logloss",
     }
-def run_eda(ecg_data:dict, wave:np.array):
-    EDA.init() 
+def run_eda(data:dict, wave:np.array):
+    # Load EDA class
+    explore = EDA(data, wave)
+    # Look at nulls
+    explore.print_nulls(False)
+    # 
 
 ################################# Start Program ####################################
 @log_time
 def main():
     global configs
     configs = setup_globals.load_config()
-    configs["slider"], configs["run_anomalyd"] = True, True
+    configs["slider"] = True
     datafile = setup_globals.launch_tui(configs)
     wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     wave_sect_dtype = [
@@ -1955,10 +1818,9 @@ def main():
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
-    #NOTE - Eventually throw some EDA in to get a feeling of summary stats
-    # run_eda(ecg_data, wave)
+    run_eda(ecg_data, wave)
 
-    run_models(ecg_data, wave)
+    # run_models(ecg_data, wave)
     
 if __name__ == "__main__":
     main()
