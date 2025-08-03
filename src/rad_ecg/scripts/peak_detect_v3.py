@@ -247,20 +247,24 @@ def peak_validation_check(
                 leftbases.append(lookback + np_inflections[-1])
         else:
             logger.warning(f"Left base missed on R peak {RP}")
-    try:
-        if len(leftbases) == len(RPeaks):
+
+    if len(leftbases) == len(RPeaks):
+        try:
             slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
-            lower_bound = np.mean(slopes) * 0.20 #started at .51 
+            lower_bound = np.mean(slopes) * 0.20
             upper_bound = np.mean(slopes) * 3
             peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
-        else:
-            logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
-            fail_reas = "slope"
+        except Exception as e:
+            logger.warning(f'Slope calc error for \n{e}')
             peak_slope_check = False
+            fail_reas = "slope"
             sect_valid = False
-            
-    except Exception as e:
-        logger.warning(f'Slope calc error for /n{e}')
+
+    else:
+        logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
+        peak_slope_check = False
+        fail_reas = "une_slope"
+        sect_valid = False
 
     if peak_slope_check:
         logger.warning(f'Bad Slope in section {cur_sect}')
@@ -1329,13 +1333,17 @@ def extract_PQRST(
         elif Q_onset and S_peak:
             # If Jpoint not extracted, use the S peak as a backup
             temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
-            logger.debug("Added backup Jpoint")
+            # logger.debug("Added backup Jpoint")
         
         # MEAS ST Segment
-        if T_onset and S_peak:
+        if T_onset and J_point:
+            # Add ST interval.  
+            temp_arr[temp_counter, 9] = int(1000*((T_onset - J_point)/fs))
+            # logger.debug("Added ST")
+        elif T_onset and S_peak:
             # Add ST interval.  
             temp_arr[temp_counter, 9] = int(1000*((T_onset - S_peak)/fs))
-            # logger.debug("Added ST")
+            # logger.debug("Added backup ST")
 
         # MEAS QT Interval
         if T_offset and Q_onset:

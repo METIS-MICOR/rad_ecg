@@ -668,7 +668,7 @@ class FeatureEngineering(EDA):
     def __init__(self):
         #Inherit from the EDA class
         super().__init__()
-        # EDA.clean_data(self)
+        EDA.clean_data(self)
         # EDA.drop_nulls(self)
         
         """		
@@ -1806,12 +1806,13 @@ def run_eda(data:dict, wave:np.array):
     explore = EDA(data, wave)
     # Look at nulls
     explore.clean_data()
-    explore.print_nulls(False)
+    # explore.print_nulls(False)
     ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
     explore.sum_stats(ofinterest, title="Columns of Interest")
-    explore.corr_heatmap(ofinterest)
-    
-    # [explore.eda_plot("jointplot", feat_1, x, False) for x in (allcols)]
+    # explore.corr_heatmap(ofinterest)
+    feature = "Avg_HR"
+    group = explore.target
+    # [explore.eda_plot("histogram", feature, x, group) for x in (ofinterest)]
 
 
 ################################# Start Program ####################################
@@ -1848,9 +1849,9 @@ def main():
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
-    run_eda(ecg_data, wave)
+    # run_eda(ecg_data, wave)
 
-    # run_models(ecg_data, wave)
+    run_models(ecg_data, wave)
     
 if __name__ == "__main__":
     main()
