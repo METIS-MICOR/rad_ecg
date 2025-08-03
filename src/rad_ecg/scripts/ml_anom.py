@@ -14,6 +14,7 @@ from matplotlib.lines import Line2D
 from scipy.stats import pearsonr, probplot, boxcox, yeojohnson, norm
 from rich.table import Table
 from rich.theme import Theme
+from rich.console import Console
 
 ########################### Sklearn imports ###############################
 from sklearn.preprocessing import RobustScaler
@@ -69,11 +70,11 @@ class EDA(object):
                 fini = self.data.iloc[idx, 2]
                 inners = self.interior_peaks[(self.interior_peaks["r_peak"] > star) & (self.interior_peaks["r_peak"] < fini)]
                 for cidx, col in enumerate(add_cols):
-                    avg = inners.loc[np.nonzero(inners[col])[0], col]
+                    avg = np.nonzero(inners[col])[0]
                     if avg.shape[0] > 0:
-                        self.data.loc[idx, cols[cidx]] = np.mean(avg)
+                        avg_vec = inners.iloc[avg, self.names_interior.index(col)]
+                        self.data.loc[idx, cols[cidx]] = round(np.mean(avg_vec), 2)
             
-            # T_peak = inners[np.nonzero(inners[:, 4])[0], 4]
         #Drop the target column.
         self.data = self.data.drop("valid", axis=1)
     #FUNCTION Imputation
@@ -121,7 +122,7 @@ class EDA(object):
         #Setting theme levels
         custom_theme = Theme(
             {"kindagood":"white on blue",
-            "danger":"red on white"
+             "danger":"red on white"
             }
         )
 
@@ -160,7 +161,7 @@ class EDA(object):
                         style="danger", 
                         end_section=end_sect
                     )
-
+        console = Console(theme=custom_theme)
         console.log("Printing Null Table")
         console.print(table)
 
@@ -194,7 +195,7 @@ class EDA(object):
         table.add_column("count", style="cyan", justify="center")
 
         for col in stat_list:
-            _mean, _stddev, _max, _min, _count = self.data[col].agg([np.mean, np.std, max, min, "count"]).T
+            _mean, _stddev, _max, _min, _count = self.data[col].agg(["mean", "std", "max", "min", "count"]).T
             table.add_row(
                 col,
                 f"{_mean:.2f}",
@@ -1806,7 +1807,12 @@ def run_eda(data:dict, wave:np.array):
     # Look at nulls
     explore.clean_data()
     explore.print_nulls(False)
-    # 
+    ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
+    explore.sum_stats(ofinterest, title="Columns of Interest")
+    explore.corr_heatmap(ofinterest)
+    
+    # [explore.eda_plot("jointplot", feat_1, x, False) for x in (allcols)]
+
 
 ################################# Start Program ####################################
 @log_time
