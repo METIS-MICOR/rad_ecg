@@ -48,7 +48,7 @@ class EDA(object):
         self.wave = wave
         self.task = "classification"
         self.data = pd.DataFrame(self.dataset["section_info"])
-        self.target = pd.Series(ecg_data["section_info"]["valid"])
+        self.target = pd.Series(ecg_data["section_info"]["valid"], name="valid")
         
         self.target_names = ["anomaly", "stable"]
         self.rev_target_dict = {
@@ -61,7 +61,7 @@ class EDA(object):
         #Calculate necessary segment averages
         cols = ["Avg_QRS", "Avg_QT", "Avg_PR", "Avg_ST"]
         add_cols = ["qrs_comp", "pr_intr", "qt_intr", "st_seg"]
-        if np.all(np.isin(cols, self.data.columns.tolist())):
+        if not np.all(np.isin(cols, self.data.columns.tolist())):
             for col in cols:
                 self.data[col] = np.zeros(shape=(self.data.shape[0]))
             for idx in self.data.index:
@@ -147,8 +147,8 @@ class EDA(object):
                 if not over30[ss]:
                     table.add_row(
                         cols[ss], 
-                        f"{nulls[ss]:.0f}", 
-                        f"{perc[ss]:.2%}", 
+                        f"{nulls.iloc[ss]:.0f}", 
+                        f"{perc.iloc[ss]:.2%}", 
                         f"{str(over30[ss])}", 
                         style="kindagood", 
                         end_section=end_sect
@@ -156,8 +156,8 @@ class EDA(object):
                 else:
                     table.add_row(
                         cols[ss], 
-                        f"{nulls[ss]:.0f}", 
-                        f"{perc[ss]:.2%}", 
+                        f"{nulls.iloc[ss]:.0f}", 
+                        f"{perc.iloc[ss]:.2%}", 
                         f"{str(over30[ss])}", 
                         style="danger", 
                         end_section=end_sect
@@ -196,7 +196,7 @@ class EDA(object):
         table.add_column("count", style="cyan", justify="center")
 
         for col in stat_list:
-            _mean, _stddev, _max, _min, _count = self.data[col].agg(["mean", "std", "max", "min", "count"]).T
+            _mean, _stddev, _max, _min, _count = self.data.loc[self.data[col] != 0, col].agg(["mean", "std", "max", "min", "count"]).T
             table.add_row(
                 col,
                 f"{_mean:.2f}",
@@ -421,7 +421,7 @@ class EDA(object):
         #quick correlation
         if not isinstance(feat_1, bool) and not isinstance(feat_2, bool):
             self.corr = self.data[feat_1].corr(self.data[feat_2])
-            logger.info(f'correlation of {feat_1} and {feat_2}:\n{self.corr:.2f}')
+            logger.warning(f'correlation of {feat_1} and {feat_2}: {self.corr:.2f}')
 
         #Generates repeatable colordict for all values in the group
         if not isinstance(group, bool):
@@ -432,9 +432,9 @@ class EDA(object):
                 #Avail cmaps here.  
                 #https://matplotlib.org/stable/tutorials/colors/colormaps.html
             #Get the colormap
-            color_cmap = plt.cm.get_cmap('Paired', num_groups) 
+            color_cmap = mpl.colormaps["Paired"]
             #Generate a hex code for the color.  
-            color_str = [mpl.colors.rgb2hex(color_cmap(i)) for i in range(color_cmap.N)]
+            color_str = [mpl.colors.rgb2hex(color_cmap(i)) for i in range(num_groups)]
             #Now make a dictionary of the activities and their hex color.
             colcyc = color_str[:num_groups]
             cycol = cycle(colcyc)
@@ -1852,7 +1852,7 @@ def run_eda(data:dict, wave:np.array):
     explore.print_nulls(False)
     ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
     #Generate Numeric Feature table
-    explore.num_features(ofinterest, True)
+    explore.sum_stats(ofinterest, title="Cols of interest")
     #Look at heatmap
     # explore.corr_heatmap(ofinterest)
     #Explore histograms
