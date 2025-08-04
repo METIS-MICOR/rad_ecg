@@ -61,19 +61,20 @@ class EDA(object):
         #Calculate necessary segment averages
         cols = ["Avg_QRS", "Avg_QT", "Avg_PR", "Avg_ST"]
         add_cols = ["qrs_comp", "pr_intr", "qt_intr", "st_seg"]
-        for col in cols:
-            self.data[col] = np.zeros(shape=(self.data.shape[0]))
-        for idx in self.data.index:
-            valid = self.data.iloc[idx, 3] == 1.0
-            if valid:
-                star = self.data.iloc[idx, 1]
-                fini = self.data.iloc[idx, 2]
-                inners = self.interior_peaks[(self.interior_peaks["r_peak"] > star) & (self.interior_peaks["r_peak"] < fini)]
-                for cidx, col in enumerate(add_cols):
-                    avg = np.nonzero(inners[col])[0]
-                    if avg.shape[0] > 0:
-                        avg_vec = inners.iloc[avg, self.names_interior.index(col)]
-                        self.data.loc[idx, cols[cidx]] = round(np.mean(avg_vec), 2)
+        if np.all(np.isin(cols, self.data.columns.tolist())):
+            for col in cols:
+                self.data[col] = np.zeros(shape=(self.data.shape[0]))
+            for idx in self.data.index:
+                valid = self.data.iloc[idx, 3] == 1.0
+                if valid:
+                    star = self.data.iloc[idx, 1]
+                    fini = self.data.iloc[idx, 2]
+                    inners = self.interior_peaks[(self.interior_peaks["r_peak"] > star) & (self.interior_peaks["r_peak"] < fini)]
+                    for cidx, col in enumerate(add_cols):
+                        avg = np.nonzero(inners[col])[0]
+                        if avg.shape[0] > 0:
+                            avg_vec = inners.iloc[avg, self.names_interior.index(col)]
+                            self.data.loc[idx, cols[cidx]] = round(np.mean(avg_vec), 2)
             
         #Drop the target column.
         self.data = self.data.drop("valid", axis=1)
@@ -1870,17 +1871,22 @@ def main():
     wave, fs, outputf = setup_globals.load_chart_data(configs, datafile, logger)
     wave_sect_dtype = [
         ('wave_section', 'i4'),
-        ('start_point', 'i4'),
-        ('end_point', 'i4'),
-        ('valid', 'i4'),
-        ('fail_reason', str, 16),
-        ('Avg_HR', 'f4'), 
-        ('SDNN', 'f4'),
-        ('min_HR_diff', 'f4'), 
-        ('max_HR_diff', 'f4'), 
-        ('RMSSD', 'f4'),
-        ('NN50', 'f4'),
-        ('PNN50', 'f4')
+        ('start_point' , 'i4'),
+        ('end_point'   , 'i4'),
+        ('valid'       , 'i4'),
+        ('fail_reason' , str, 16),
+        ('Avg_HR'      , 'f4'), 
+        ('SDNN'        , 'f4'),
+        ('min_HR_diff' , 'f4'), 
+        ('max_HR_diff' , 'f4'), 
+        ('RMSSD'       , 'f4'),
+        ('NN50'        , 'f4'),
+        ('PNN50'       , 'f4'),
+        ('isoelectric' , 'f4'),
+        ('Avg_QRS'     , 'f4'),
+        ('Avg_QT'      , 'f4'),
+        ('Avg_PR'      , 'f4'),
+        ('Avg_ST'      , 'f4')
     ]
 
     for fname in outputf:
