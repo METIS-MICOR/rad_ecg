@@ -75,14 +75,18 @@ Will be using poetry to package, so distribution will be cleaner.
 |1 | start_point of wave section    | int32 |
 |2 | end_point of wave section      | int32 |
 |3 | valid section                  | int32 |
-|4 | Avg HR                         | float32 |
-|5 | Min HR                         | float32 |
-|6 | Max HR                         | float32 |
-|7 | STD HR                         | float32 |
-|8 | NN50                           | float32 |
-|9 | PNN50                          | float32 |
-|10| Section failure encoding       | str     |
+|4 | Section failure encoding       | str   |
+|5 | Avg HR                         | float32 |
+|6 | Min HR                         | float32 |
+|7 | Max HR                         | float32 |
+|8 | STD HR                         | float32 |
+|9 | NN50                           | float32 |
+|10| PNN50                          | float32 |
 |11| Section Isoelectric            | float32 |
+|12| Avg QRS                        | float32 |
+|13| Avg QT                         | float32 |
+|14| Avg PR                         | float32 |
+|15| Avg ST                         | float32 |
 
 <font size=5> <h1 style="text-align: left;">interior_peaks</h1></font>
 |col idx | col name | val type | data type |

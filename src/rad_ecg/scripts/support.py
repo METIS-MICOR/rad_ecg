@@ -1,12 +1,14 @@
-#main libraries
+#################################  main libraries #######################################
 import datetime
-import numpy as np
 import time
 import json
-from os.path import exists
 import logging
+import subprocess
+import numpy as np
 from pathlib import Path
-#Formatting libraries
+from collections import Counter
+
+#################################  rich imports #######################################
 from rich.progress import (
     Progress,
     BarColumn,
@@ -16,8 +18,6 @@ from rich.progress import (
     TimeElapsedColumn)
 from rich.console import Console
 from rich.logging import RichHandler
-import subprocess
-from collections import Counter
 
 ################################# Logger functions ####################################
 #FUNCTION Logging Futures
@@ -202,7 +202,7 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     for x in ["peaks", "interior_peaks", "section_info"]:
         file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
         if x == "section_info":
-            save_format = '%i, '*4 + '%s, ' + '%.2f, '*8
+            save_format = '%i, '*4 + '%s, ' + '%.2f, '*12
         else:
             save_format = '%i, '*ecg_data[x].shape[1]
         try:

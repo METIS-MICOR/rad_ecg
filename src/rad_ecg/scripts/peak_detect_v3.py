@@ -2,9 +2,10 @@
 import utils        #from rad_ecg.scripts # 
 import support      #from rad_ecg.scripts # 
 import setup_globals#from rad_ecg.scripts # 
+import stump_anom
+import ml_anom
 
 #################################  Main libraries ####################################
-import stump_anom
 import numpy as np
 from scipy import stats
 import scipy.signal as ss
@@ -34,12 +35,14 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
 
     if peak_check:
         ecg_data['section_info'][section_counter]['fail_reason'] = "inv_peak"
-        bad_peaks = np.where(new_peaks_arr[:,1] == 0)[0]
-        logger.info(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
+        # ecg_data['section_info'][section_counter]['valid'] = 0
+        bad_peaks = np.where(new_peaks_arr[:-1, 1] == 0)[0]
+        logger.warning(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
 
     # Now see if we have the bare minimum for peaks to extract. 
     elif new_peaks_arr.size <= 2:
         ecg_data['section_info'][section_counter]['fail_reason'] = "no_peaks"
+        # ecg_data['section_info'][section_counter]['valid'] = 0
         logger.warning(f'Not enough peaks to calculate section stats')
 
     else:
@@ -52,6 +55,10 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
         max_HR  = np.max(HR)
         SDNN = np.round(np.std(HR), 5)
         RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
+        Avg_PR  = np.nan
+        Avg_QRS = np.nan
+        Avg_ST  = np.nan
+        Avg_QT  = np.nan
 
         try:
             NN50 = np.where(RR_diffs_time > 50)[0].shape[0]
@@ -60,8 +67,23 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             logger.warning(f'Unable to find NN50/PNN50 {e}')
             NN50 = np.nan
             PNN50 = np.nan
+        try:
+            star = ecg_data['section_info'][section_counter]["start_point"]
+            fini = ecg_data['section_info'][section_counter]["end_point"]
+            inners = ecg_data["interior_peaks"][(ecg_data["interior_peaks"][:, 2] > star) & (ecg_data["interior_peaks"][:, 2] < fini)]
+            if np.nonzero(inners[:, 7])[0].shape[0] > 1:
+                Avg_PR  = round(np.mean(inners[np.nonzero(inners[:, 7])[0], 7]), 1)
+            if np.nonzero(inners[:, 8])[0].shape[0] > 1:
+                Avg_QRS = round(np.mean(inners[np.nonzero(inners[:, 8])[0], 8]), 1)
+            if np.nonzero(inners[:, 9])[0].shape[0] > 1:
+                Avg_ST  = round(np.mean(inners[np.nonzero(inners[:, 9])[0], 9]), 1)
+            if np.nonzero(inners[:, 10])[0].shape[0] > 1:
+                Avg_QT  = round(np.mean(inners[np.nonzero(inners[:, 10])[0], 10]), 1)
+            
+        except Exception as e:
+            logger.warning(f'Unable to find segment data\n{e}')
 
-        return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50)
+        return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50, Avg_QRS, Avg_QT, Avg_ST, Avg_PR)
 
 # @log_time
 # FUNCTION consecutive valid peaks
@@ -222,7 +244,7 @@ def peak_validation_check(
             
     RPeaks = new_peaks_arr[:, 0]
     lookbacks = RPeaks - int(last_avg_p_sep * 0.75) #This needs to be somewhat wider to ensure a sign change
-    leftbases = []
+    leftbases, slopes = [], []
 
     # Loop through the lookback positions and R peaks to build the left bases to build the slopes
     for lookback, RP in zip(lookbacks, RPeaks):
@@ -246,20 +268,25 @@ def peak_validation_check(
                 leftbases.append(lookback + np_inflections[-1])
         else:
             logger.warning(f"Left base missed on R peak {RP}")
-    try:
-        if len(leftbases) == len(RPeaks):
-            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
-            lower_bound = np.mean(slopes) * 0.20 #started at .51 
+
+    if (len(leftbases) == len(RPeaks)) & (len(leftbases) > 2):
+        try:
+            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks) if x2 - x1 > 3]
+            lower_bound = np.mean(slopes) * 0.20
             upper_bound = np.mean(slopes) * 3
             peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
-        else:
-            logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
-            fail_reas = "slope"
+
+        except Exception as e:
+            logger.warning(f'Slope calc error for \n{e}')
             peak_slope_check = False
+            fail_reas = "slope"
             sect_valid = False
-            
-    except Exception as e:
-        logger.warning(f'Slope calc error for /n{e}')
+
+    else:
+        logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
+        peak_slope_check = False
+        fail_reas = "une_slope"
+        sect_valid = False
 
     if peak_slope_check:
         logger.warning(f'Bad Slope in section {cur_sect}')
@@ -884,7 +911,7 @@ def extract_PQRST(
             y = wave[slope_start:slope_end].flatten()
             shape = None
             # shape, sl_start = shape_test(X, y)
-            logger.debug(f"Shape is {shape}")
+            # logger.debug(f"Shape is {shape}")
             match shape:
                 case "linear":
                     logger.debug(f"transition linear, starting from S peak{S_peak}")
@@ -900,10 +927,11 @@ def extract_PQRST(
             y = wave[slope_start:slope_end].flatten()
             if X.shape[0] > 5:
                 knee = KneeLocator(X, y, curve="concave", direction="increasing")
-                J_point = knee.elbow + 1
-                temp_arr[temp_counter, 15] = J_point
-                logger.info(f'J point added. X shape {X.shape}')
-                return J_point
+                if knee.elbow is not None:
+                    J_point = knee.elbow + 1
+                    temp_arr[temp_counter, 15] = J_point
+                    logger.info(f'J point added. X shape {X.shape}')
+                    return J_point
 
         except Exception as e:
             logger.info(f'J point extraction Error for Rpeak {R_peak:_d}\n{e}')
@@ -990,6 +1018,7 @@ def extract_PQRST(
 
     #FUNCTION Shape test
     def shape_test(X:np.array, y:np.array):
+        #Linear Test
         try:
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
@@ -1005,6 +1034,8 @@ def extract_PQRST(
             
         except Exception as e:
             logger.debug(f'Linear Regression error for Rpeak {R_peak:_d}\n{e}')
+        #TODO - exponential test
+            #Make a test for an fitting an exponential curve as well. 
 
         # Apply Savitzky-Golay filter
         y_savg = utils.smooth_signal(y)
@@ -1014,6 +1045,12 @@ def extract_PQRST(
         length = len(X)
         shape = None
         start = None
+
+        #TODO - Update this with increasing polynomial fits.  
+            # maybe start with linear fit here.  
+            # Start with 2 - 4.
+            # save the RSME and compare at the end?
+
         #Fit for U shape
         try:
             if length > 5:
@@ -1208,10 +1245,6 @@ def extract_PQRST(
         samp_min = np.argmin(wave[peak0:peak0 + (peak1-peak0)//3])
 
         # If the sample min is not in the first 7 minimums of that transition, 
-        #BUG Code Rot
-            #This eval ... isn't really necessary.  You're no longer using hte 
-            # Samp min dict in the ensuing extractions. Consider removal and / or simplification
-
         if (wave[peak0+samp_min].item() < rolled_med[samp_min]) & (samp_min in np_inflections[:6]): 
             samp_min = samp_min + peak0
             logger.debug(f'Samp min for peak {peak0:_d}:{peak1:_d} in first 7')
@@ -1302,11 +1335,11 @@ def extract_PQRST(
         # Calc the width of the QRS.  Will be used for searching offsets. 
         srch_width = (S_peak - Q_peak) * 2
         # Grab each necessary onset/offset relevant to basic metrics
-        P_onset    = find_P_onset()
-        Q_onset    = find_Q_onset()
-        T_offset   = find_T_offset()
-        J_point    = find_J_point()
-        T_onset    = find_T_onset()
+        P_onset  = find_P_onset()
+        Q_onset  = find_Q_onset()
+        T_offset = find_T_offset()
+        J_point  = find_J_point()
+        T_onset  = find_T_onset()
 
         # MEAS PR Interval
         if Q_onset and P_onset:
@@ -1322,13 +1355,17 @@ def extract_PQRST(
         elif Q_onset and S_peak:
             # If Jpoint not extracted, use the S peak as a backup
             temp_arr[temp_counter, 8] = int(1000*((S_peak - Q_onset)/fs))
-            logger.debug("Added backup Jpoint")
+            # logger.debug("Added backup Jpoint")
         
         # MEAS ST Segment
-        if T_onset and S_peak:
+        if T_onset and J_point:
+            # Add ST interval.  
+            temp_arr[temp_counter, 9] = int(1000*((T_onset - J_point)/fs))
+            # logger.debug("Added ST")
+        elif T_onset and S_peak:
             # Add ST interval.  
             temp_arr[temp_counter, 9] = int(1000*((T_onset - S_peak)/fs))
-            # logger.debug("Added ST")
+            # logger.debug("Added backup ST")
 
         # MEAS QT Interval
         if T_offset and Q_onset:
@@ -1608,7 +1645,10 @@ def main_peak_search(
                         ecg_data['section_info'][section_counter]['RMSSD'] = sect_stats[4]
                         ecg_data['section_info'][section_counter]['NN50'] = sect_stats[5]
                         ecg_data['section_info'][section_counter]['PNN50'] = sect_stats[6]
-                        
+                        ecg_data['section_info'][section_counter]["Avg_QRS"] = sect_stats[7]
+                        ecg_data['section_info'][section_counter]["Avg_QT"] = sect_stats[8]
+                        ecg_data['section_info'][section_counter]["Avg_ST"] = sect_stats[9]
+                        ecg_data['section_info'][section_counter]["Avg_PR"] = sect_stats[10]
                     # Pull out interior peaks and segment data for QRS, PR, QT, etc
                     int_peaks = extract_PQRST((section_counter, start_p, end_p), new_peaks_arr, peak_info, rolled_med)
                 
@@ -1659,21 +1699,18 @@ def main():
     # send_email(log_path)
     use_bucket = configs.get("gcp_bucket")
     has_bucket_name = len(configs.get("bucket_name")) > 0
-    run_anomaly = configs.get("stumpy")
     configs["log_path"] = f"src/rad_ecg/data/logs/{DATE_JSON}.log"
 
     if use_bucket & has_bucket_name:
         support.save_results(ecg_data, configs, current_date, True)
     else:
         support.save_results(ecg_data, configs, current_date)
-
-    if run_anomaly:
-        stump_anom.run_stumpy_discord(ecg_data, wave)
-
-    # if run_ML:
-    #     pass
+    # run_anomaly = configs.get("run_anomalyd")
+    # if run_anomaly:
+    #     stump_anom.run_stumpy_discord(ecg_data, wave)
+    #     ml_anom.run_experiments(ecg_data, wave)
 
 if __name__ == "__main__":
     main()
 
-#NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
+#NOTE - Run at least 30 cams to satisfy central limit and law of large averages

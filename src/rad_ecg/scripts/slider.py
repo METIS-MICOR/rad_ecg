@@ -587,17 +587,22 @@ def load_graph_objects(datafile:str, outputf:str):
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
         ('wave_section', 'i4'),
-        ('start_point', 'i4'),
-        ('end_point', 'i4'),
-        ('valid', 'i4'),
-        ('fail_reason', str, 16),
-        ('Avg_HR', 'f4'), 
-        ('SDNN', 'f4'),
-        ('min_HR_diff', 'f4'), 
-        ('max_HR_diff', 'f4'), 
-        ('RMSSD', 'f4'),
-        ('NN50', 'f4'),
-        ('PNN50', 'f4')
+        ('start_point' , 'i4'),
+        ('end_point'   , 'i4'),
+        ('valid'       , 'i4'),
+        ('fail_reason' , str, 16),
+        ('Avg_HR'      , 'f4'), 
+        ('SDNN'        , 'f4'),
+        ('min_HR_diff' , 'f4'), 
+        ('max_HR_diff' , 'f4'), 
+        ('RMSSD'       , 'f4'),
+        ('NN50'        , 'f4'),
+        ('PNN50'       , 'f4'),
+        ('isoelectric' , 'f4'),
+        ('Avg_QRS'     , 'f4'),
+        ('Avg_QT'      , 'f4'),
+        ('Avg_PR'      , 'f4'),
+        ('Avg_ST'      , 'f4')
     ]
 
     for fname in outputf:
