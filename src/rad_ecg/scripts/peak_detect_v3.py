@@ -1706,7 +1706,7 @@ def main():
     # run_anomaly = configs.get("run_anomalyd")
     # if run_anomaly:
     #     stump_anom.run_stumpy_discord(ecg_data, wave)
-    #     ml_anom.run_models(ecg_data, wave)
+    #     ml_anom.run_experiments(ecg_data, wave)
 
 if __name__ == "__main__":
     main()

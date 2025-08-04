@@ -48,6 +48,7 @@ class EDA(object):
         self.interior_peaks = pd.DataFrame(self.dataset["interior_peaks"], columns=self.names_interior)
         self.task = "classification"
         self.data = pd.DataFrame(self.dataset["section_info"])
+        self.feature_names =[self.data.columns[x] for x in range(5, self.data.shape[1])]
         self.target = pd.Series(ecg_data["section_info"]["valid"], name="valid")
         self.target_names = ["anomaly", "stable"]
         self.rev_target_dict = {
@@ -60,6 +61,7 @@ class EDA(object):
         #Calculate necessary segment averages
         cols = ["Avg_QRS", "Avg_QT", "Avg_PR", "Avg_ST"]
         add_cols = ["qrs_comp", "pr_intr", "qt_intr", "st_seg"]
+        #If you're looking at old data.
         if not np.all(np.isin(cols, self.data.columns.tolist())):
             for col in cols:
                 self.data[col] = np.zeros(shape=(self.data.shape[0]))
@@ -947,7 +949,7 @@ class DataPrep(object):
             self.target_names = engin.target_names
             self.task = engin.task
         else:
-            EDA.__init__(self)
+            EDA.__init__(self) #BUG - I need a way to feed the data in here
             EDA.clean_data(self)
             EDA.drop_nulls(self)
             self.data = self.data[features]
@@ -1100,7 +1102,7 @@ class ModelTraining(object):
         self.cross_val = dataprep.cross_val
         self.CV_func = None
         self._model_params = {
-            #MEAS Initial Model params
+            #MEAS Model params
             "isoforest":{
                 #Notes. 
                     ##!MUSTCHANGEME
@@ -1307,7 +1309,7 @@ class ModelTraining(object):
             
         """
 
-    #MEAS Model training \ Param loading
+        #MEAS Model training \ Param loading
         ####################  Model Load  ##############################		
         self.model = ModelTraining.load_model(self, model_name)
 
@@ -1781,19 +1783,19 @@ class ModelTraining(object):
 
         return grid
 
-
-def run_models(data:dict, wave:np.array):
+def run_experiments(data:dict, wave:np.array):
     #Load test/train data
     engin = FeatureEngineering(data, wave)
     ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-    #Engineer your features here
-    #available transforms
+    
+    #Engineer your features here. available transforms below
         #log:  Log Transform
         #recip:Reciprocal
         #sqrt: square root
         #exp:  exponential - Good for right skew #!Broken
         #BoxC: Box Cox - Good for only pos val
         #YeoJ: Yeo-Johnson - Good for pos and neg val
+    # Ex:    
     # engin.engineer("NN50",    True, False, "YeoJ")
     # engin.engineer("Avg_QT",  True, False, "log")
     #Scale your variables to be on the same scale.  Necessary for most machine learning applications. 
@@ -1865,7 +1867,6 @@ def run_eda(data:dict, wave:np.array):
     group = explore.target
     [explore.eda_plot("jointplot", feature, x, group) for x in (ofinterest)]
 
-
 ################################# Start Program ####################################
 @log_time
 def main():
@@ -1908,7 +1909,7 @@ def main():
     #Run EDA routine
     # run_eda(ecg_data, wave)
     #Run Models
-    run_models(ecg_data, wave)
+    run_experiments(ecg_data, wave)
     
 if __name__ == "__main__":
     main()
