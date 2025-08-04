@@ -53,6 +53,10 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
         max_HR  = np.max(HR)
         SDNN = np.round(np.std(HR), 5)
         RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
+        Avg_PR  = np.nan
+        Avg_QRS = np.nan
+        Avg_ST  = np.nan
+        Avg_QT  = np.nan
 
         try:
             NN50 = np.where(RR_diffs_time > 50)[0].shape[0]
@@ -61,8 +65,20 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             logger.warning(f'Unable to find NN50/PNN50 {e}')
             NN50 = np.nan
             PNN50 = np.nan
-        
-        return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50)
+        try:
+            star = ecg_data['section_info'][section_counter]["start_point"]
+            fini = ecg_data['section_info'][section_counter]["end_point"]
+            inners = ecg_data["interior_peaks"][(ecg_data["interior_peaks"][:, 2] > star) & (ecg_data["interior_peaks"][:, 2] < fini)]
+            if inners.shape[0] > 0:
+                Avg_PR  = round(np.mean(inners[np.nonzero(inners[:, 7])[0], 7]), 1)
+                Avg_QRS = round(np.mean(inners[np.nonzero(inners[:, 8])[0], 8]), 1)
+                Avg_ST  = round(np.mean(inners[np.nonzero(inners[:, 9])[0], 9]), 1)
+                Avg_QT  = round(np.mean(inners[np.nonzero(inners[:, 10])[0], 10]), 1)
+            
+        except Exception as e:
+            logger.warning(f'Unable to find segment data\n{e}')
+
+        return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50, Avg_QRS, Avg_QT, Avg_ST, Avg_PR)
 
 # @log_time
 # FUNCTION consecutive valid peaks
@@ -1626,7 +1642,10 @@ def main_peak_search(
                         ecg_data['section_info'][section_counter]['RMSSD'] = sect_stats[4]
                         ecg_data['section_info'][section_counter]['NN50'] = sect_stats[5]
                         ecg_data['section_info'][section_counter]['PNN50'] = sect_stats[6]
-                        
+                        ecg_data['section_info'][section_counter]["Avg_QRS"] = sect_stats[7]
+                        ecg_data['section_info'][section_counter]["Avg_QT"] = sect_stats[8]
+                        ecg_data['section_info'][section_counter]["Avg_ST"] = sect_stats[9]
+                        ecg_data['section_info'][section_counter]["Avg_PR"] = sect_stats[10]
                     # Pull out interior peaks and segment data for QRS, PR, QT, etc
                     int_peaks = extract_PQRST((section_counter, start_p, end_p), new_peaks_arr, peak_info, rolled_med)
                 

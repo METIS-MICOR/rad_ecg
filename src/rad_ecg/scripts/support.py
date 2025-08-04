@@ -202,7 +202,7 @@ def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bo
     for x in ["peaks", "interior_peaks", "section_info"]:
         file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
         if x == "section_info":
-            save_format = '%i, '*4 + '%s, ' + '%.2f, '*8
+            save_format = '%i, '*4 + '%s, ' + '%.2f, '*12
         else:
             save_format = '%i, '*ecg_data[x].shape[1]
         try:

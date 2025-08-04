@@ -1846,15 +1846,18 @@ def run_models(data:dict, wave:np.array):
 def run_eda(data:dict, wave:np.array):
     # Load EDA class
     explore = EDA(data, wave)
-    # Look at nulls
     explore.clean_data()
-    # explore.print_nulls(False)
+    # Look at nulls
+    explore.print_nulls(False)
     ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
+    #Generate Numeric Feature table
     explore.num_features(ofinterest, True)
+    #Look at heatmap
     # explore.corr_heatmap(ofinterest)
+    #Explore histograms
     feature = "Avg_HR"
     group = explore.target
-    # [explore.eda_plot("histogram", feature, x, group) for x in (ofinterest)]
+    [explore.eda_plot("jointplot", feature, x, group) for x in (ofinterest)]
 
 
 ################################# Start Program ####################################
