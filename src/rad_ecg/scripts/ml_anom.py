@@ -1138,7 +1138,7 @@ class ModelTraining(object):
 				}
 			},
 			"pca":{
-				"model_name":PCA(),
+				"model_name":"pca",
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
@@ -1177,7 +1177,7 @@ class ModelTraining(object):
 			"svm":{
 				#Notes. 
 					#
-				"model_name":SVM(),
+				"model_name":"svm",
 				"model_type":"classification",
 				"scoring_metric":"accuracy",
 				#link to params
@@ -1285,15 +1285,12 @@ class ModelTraining(object):
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
         match model_name:
-            case 'svm':
-                return SVM(**params)
-
-            case 'isoforest':
-                return IsoForest(**params)
-        
             case 'pca':
                 return PCA(**params)
-
+            case 'svm':
+                return SVM(**params)
+            case 'isoforest':
+                return IsoForest(**params)
             case 'xgboost':
                 return XGBClassifier(**params)
 
@@ -1788,19 +1785,64 @@ class ModelTraining(object):
 def run_models(data:dict, wave:np.array):
     #Load test/train data
     engin = FeatureEngineering()
-
-    X = engin.data
+    ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+    X = engin.data[ofinterest]
     y = engin.target
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
-    d_train = DMatrix(X_train, label=y_train)
-    d_test = DMatrix(X_test, label=y_test)
-    params = {
-        "eta": 0.01,
-        "objective": "binary:logistic",
-        "subsample": 0.5,
-        "base_score": np.mean(y_train),
-        "eval_metric": "logloss",
-    }
+    #Scale your variables to be on the same scale.  Necessary for most machine
+    #learning applications. 
+    #available sklearn scalers
+    #s_scale : StandardScaler
+    #m_scale : MinMaxScaler
+    #r_scale : RobustScaler
+    #q_scale : QuantileTransformer
+    #p_scale : PowerTransformer
+    scaler = "m_scale"
+
+    #Next choose your cross validation scheme. Input `None` for no cross validation
+    #kfold       : KFold Validation
+    #stratkfold  : StratifiedKFold
+    #leavepout   : Leave p out 
+    #leaveoneout : Leave one out
+    #shuffle     : ShuffleSplit
+    #stratshuffle: StratifiedShuffleSplit
+    cross_val = "kfold"
+    
+    dataprep = DataPrep(ofinterest, scaler, cross_val, engin)
+    #Classifiers
+    #'pca':PrincipalComponentAnalysis
+    #'svm':LinearSVC
+    #'isoforest':IsolationForest
+    #'xgboost':XGBoostClassfier
+    modellist = ['pca', 'svm', 'isoforest', 'xgboost']
+    [dataprep.data_prep(model, 0.25) for model in modellist]
+    modeltraining = ModelTraining(dataprep)
+    for model in modellist:
+        modeltraining.get_data(model)
+        modeltraining.fit(model)
+        modeltraining.predict(model)
+        modeltraining.validate(model)
+        time.sleep(1)
+    
+    modeltraining.show_results(modellist, sort_des=False) 
+    forest = ['isoforest', 'xgboost']
+    #Looking at feature importances
+    for tree in forest: #Lol
+        feats = modeltraining._models[tree].feature_importances_
+        modeltraining.plot_feats(tree, ofinterest, feats)
+    
+    #Old Code
+    # grid_results = modeltraining._grid_search("isoforest", 5)
+    # d_train = DMatrix(X_train, label= y_train)
+    # d_test = DMatrix(X_test, label=y_test)
+    # params = {
+    #     "eta": 0.01,
+    #     "objective": "binary:logistic",
+    #     "subsample": 0.5,
+    #     "base_score": np.mean(y_train),
+    #     "eval_metric": "logloss",
+    # }
+
 def run_eda(data:dict, wave:np.array):
     # Load EDA class
     explore = EDA(data, wave)
@@ -1808,7 +1850,7 @@ def run_eda(data:dict, wave:np.array):
     explore.clean_data()
     # explore.print_nulls(False)
     ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
-    explore.sum_stats(ofinterest, title="Columns of Interest")
+    explore.num_features(ofinterest, True)
     # explore.corr_heatmap(ofinterest)
     feature = "Avg_HR"
     group = explore.target
@@ -1849,9 +1891,10 @@ def main():
         "section_info": np.genfromtxt(fpath+"_section_info.csv", delimiter=",", dtype=wave_sect_dtype),
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
-    # run_eda(ecg_data, wave)
-
-    run_models(ecg_data, wave)
+    #Run EDA routine
+    run_eda(ecg_data, wave)
+    #Run Models
+    # run_models(ecg_data, wave)
     
 if __name__ == "__main__":
     main()

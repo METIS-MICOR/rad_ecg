@@ -61,7 +61,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             logger.warning(f'Unable to find NN50/PNN50 {e}')
             NN50 = np.nan
             PNN50 = np.nan
-
+        
         return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50)
 
 # @log_time
@@ -995,6 +995,7 @@ def extract_PQRST(
 
     #FUNCTION Shape test
     def shape_test(X:np.array, y:np.array):
+        #Linear Test
         try:
             slope, intercept, r_value, _, _ = stats.linregress(X, y) #p_value, std_err
             y_preds = slope * X + intercept
@@ -1010,6 +1011,8 @@ def extract_PQRST(
             
         except Exception as e:
             logger.debug(f'Linear Regression error for Rpeak {R_peak:_d}\n{e}')
+        #TODO - exponential test
+            #Make a test for an fitting an exponential curve as well. 
 
         # Apply Savitzky-Golay filter
         y_savg = utils.smooth_signal(y)
@@ -1024,7 +1027,7 @@ def extract_PQRST(
             # maybe start with linear fit here.  
             # Start with 2 - 4.
             # save the RSME and compare at the end?
-            # 
+
         #Fit for U shape
         try:
             if length > 5:
