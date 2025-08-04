@@ -11,8 +11,8 @@
   "save_path": "./src/rad_ecg/data/output",
   "gcp_bucket": false,
   "bucket_name": "",
-  "cam": "",
-  "last_run": "",
-  "log_path": "",
-  "cam_name": ""
+  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\inputdata\\4FNGR-Y0NW0\\4FNGR-Y0NW0",
+  "last_run": "08-04-2025",
+  "log_path": "src/rad_ecg/data/logs/08-04-2025_07-33-13.log",
+  "cam_name": "4FNGR-Y0NW0"
 }

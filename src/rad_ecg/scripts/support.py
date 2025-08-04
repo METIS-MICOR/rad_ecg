@@ -1,12 +1,14 @@
-#main libraries
+#################################  main libraries #######################################
 import datetime
-import numpy as np
 import time
 import json
-from os.path import exists
 import logging
+import subprocess
+import numpy as np
 from pathlib import Path
-#Formatting libraries
+from collections import Counter
+
+#################################  rich imports #######################################
 from rich.progress import (
     Progress,
     BarColumn,
@@ -16,8 +18,6 @@ from rich.progress import (
     TimeElapsedColumn)
 from rich.console import Console
 from rich.logging import RichHandler
-import subprocess
-from collections import Counter
 
 ################################# Logger functions ####################################
 #FUNCTION Logging Futures
