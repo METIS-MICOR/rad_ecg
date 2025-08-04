@@ -11,8 +11,8 @@
   "save_path": "./src/rad_ecg/data/output",
   "gcp_bucket": false,
   "bucket_name": "",
-  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\inputdata\\8EJT9-1KAZ1\\8EJT9-1KAZ1",
-  "last_run": "08-04-2025",
-  "log_path": "src/rad_ecg/data/logs/08-04-2025_14-33-37.log",
-  "cam_name": "8EJT9-1KAZ1"
+  "cam": "",
+  "last_run": "",
+  "log_path": "",
+  "cam_name": ""
 }
