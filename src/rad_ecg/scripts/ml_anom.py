@@ -39,17 +39,16 @@ from xgboost import XGBClassifier, DMatrix
 class EDA(object):
     def __init__(self, ecg_data:dict, wave:np.array):
         self.dataset = ecg_data
+        self.wave = wave
         self.names_interior = [
             "p_peak", "q_peak", "r_peak", "s_peak", "t_peak", "valid_qrs",
             "pr_intr", "pr_seg", "qrs_comp", "st_seg", "qt_intr", "p_onset",
             "q_onset", "t_onset", "t_offset", "j_point"
         ]
         self.interior_peaks = pd.DataFrame(self.dataset["interior_peaks"], columns=self.names_interior)
-        self.wave = wave
         self.task = "classification"
         self.data = pd.DataFrame(self.dataset["section_info"])
         self.target = pd.Series(ecg_data["section_info"]["valid"], name="valid")
-        
         self.target_names = ["anomaly", "stable"]
         self.rev_target_dict = {
             0:"anomaly",
@@ -666,9 +665,9 @@ class EDA(object):
 
 #CLASS Feature Engineering
 class FeatureEngineering(EDA):
-    def __init__(self):
+    def __init__(self, ecg_data:dict, wave:np.array):
         #Inherit from the EDA class
-        super().__init__()
+        super().__init__(ecg_data, wave)
         EDA.clean_data(self)
         # EDA.drop_nulls(self)
         
@@ -1102,164 +1101,164 @@ class ModelTraining(object):
         self.CV_func = None
         self._model_params = {
             #MEAS Initial Model params
-        	"isoforest":{
-				#Notes. 
-					##!MUSTCHANGEME
-				"model_name":"isoforest",
-				"model_type":"classification",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html#
-				"base_params":{
-					"n_estimators":100,				#int
-					"max_samples":"auto",			#int|float	
-					"contamination":"auto",         #auto|float
-					"max_features":1.0,    		    #int|float
-					"bootstrap":False,     		    #bool
-					"n_jobs":None,                  #int
-					"random_state":42,              #int
+            "isoforest":{
+                #Notes. 
+                    ##!MUSTCHANGEME
+                "model_name":"isoforest",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html#
+                "base_params":{
+                    "n_estimators":100,				#int
+                    "max_samples":"auto",			#int|float	
+                    "contamination":"auto",         #auto|float
+                    "max_features":1.0,    		    #int|float
+                    "bootstrap":False,     		    #bool
+                    "n_jobs":None,                  #int
+                    "random_state":42,              #int
                     "warm_start":False              #bool
-				},
-				"init_params":{
-					"n_estimators":100,				#int
-					"max_samples":"auto",			#int|float	
-					"contamination":"auto",         #auto|float
-					"max_features":1.0,    		    #int|float
-					"bootstrap":False,     		    #bool
-					"n_jobs":None,                  #int
-					"random_state":42,              #int
+                },
+                "init_params":{
+                    "n_estimators":100,				#int
+                    "max_samples":"auto",			#int|float	
+                    "contamination":"auto",         #auto|float
+                    "max_features":1.0,    		    #int|float
+                    "bootstrap":False,     		    #bool
+                    "n_jobs":None,                  #int
+                    "random_state":42,              #int
                     "warm_start":False              #bool
-				},
-				"grid_srch_params":{
-					"criterion":["entropy", "gini"],
-					# "splitter":["best", "random"],
-					"max_depth":range(1, 100),
-					"min_samples_split":range(2, 25),
-					"min_samples_leaf":range(1, 20),
-				}
-			},
-			"pca":{
-				"model_name":"pca",
-				"model_type":"classification",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html
-				#NOTE - Be sure to check docs here.  Different solvers work with
-				#different penalties. 
-				"base_params":{
-					"n_components":None,                #int | float			
-					"copy":True,                        #bool
-					"whiten":False,                     #bool	
-					"svd_solver":"auto",                #str | 'auto'			
-					"tol":0.0, 				            #float	
-					"iterated_power":"auto",            #int | 'auto'
+                },
+                "grid_srch_params":{
+                    "criterion":["entropy", "gini"],
+                    # "splitter":["best", "random"],
+                    "max_depth":range(1, 100),
+                    "min_samples_split":range(2, 25),
+                    "min_samples_leaf":range(1, 20),
+                }
+            },
+            "pca":{
+                "model_name":"pca",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html
+                #NOTE - Be sure to check docs here.  Different solvers work with
+                #different penalties. 
+                "base_params":{
+                    "n_components":None,                #int | float			
+                    "copy":True,                        #bool
+                    "whiten":False,                     #bool	
+                    "svd_solver":"auto",                #str | 'auto'			
+                    "tol":0.0, 				            #float	
+                    "iterated_power":"auto",            #int | 'auto'
                     "n_oversamples":10,                 #int
                     "power_iteration_normalizer":"auto",#str | 'auto'
                     "random_state":42                   #int | None
-				},
-				"init_params":{
-					"n_components":None,                #int | float			
-					"copy":True,                        #bool
-					"whiten":False,                     #bool	
-					"svd_solver":"auto",                #str | 'auto'			
-					"tol":0.0, 				            #float	
-					"iterated_power":"auto",            #int | 'auto'
+                },
+                "init_params":{
+                    "n_components":None,                #int | float			
+                    "copy":True,                        #bool
+                    "whiten":False,                     #bool	
+                    "svd_solver":"auto",                #str | 'auto'			
+                    "tol":0.0, 				            #float	
+                    "iterated_power":"auto",            #int | 'auto'
                     "n_oversamples":10,                 #int
                     "power_iteration_normalizer":"auto",#str | 'auto'
                     "random_state":42                   #int | None
-				},
-				"grid_srch_params":{
-					# "n_neighbors":range(3, 20),
-					# "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
-					# "leaf_size":range(1, 60),
-					# "metric":["cosine", "euclidean", "manhattan", "minkowski"]
-				}
-			},
-			"svm":{
-				#Notes. 
-					#
-				"model_name":"svm",
-				"model_type":"classification",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
-				"base_params":{
-					"penalty":"l2",					#str
-					"loss":"squared_hinge",         #str
-					"dual":True,                    #
-					"C":1.0,						
-					"multi_class":"ovr",			
-					"fit_intercept":True,
-					"random_state":42,
-					"max_iter":1000
-				},
-				"init_params":{
-					"penalty":"l2",					#!MUSTCHANGEME
-					"loss":"squared_hinge",
-					"dual":False,
-					"C":0.1,						#!MUSTCHANGEME
-					"multi_class":"ovr",			#!MUSTCHANGEME
-					"fit_intercept":True,
-					"random_state":42,
-					"max_iter":1000
-				},
-				"grid_srch_params":{
-					"penalty":["l1","l2"],
-					"loss":["hinge","squared_hinge"],
-					"C":np.arange(0, 1.1, 0.1),
-					"max_iter":np.arange(1000, 10000, 500)
-				}
-			},
+                },
+                "grid_srch_params":{
+                    # "n_neighbors":range(3, 20),
+                    # "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
+                    # "leaf_size":range(1, 60),
+                    # "metric":["cosine", "euclidean", "manhattan", "minkowski"]
+                }
+            },
+            "svm":{
+                #Notes. 
+                    #
+                "model_name":"svm",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
+                "base_params":{
+                    "penalty":"l2",					#str
+                    "loss":"squared_hinge",         #str
+                    "dual":True,                    #
+                    "C":1.0,						
+                    "multi_class":"ovr",			
+                    "fit_intercept":True,
+                    "random_state":42,
+                    "max_iter":1000
+                },
+                "init_params":{
+                    "penalty":"l2",					#!MUSTCHANGEME
+                    "loss":"squared_hinge",
+                    "dual":False,
+                    "C":0.1,						#!MUSTCHANGEME
+                    "multi_class":"ovr",			#!MUSTCHANGEME
+                    "fit_intercept":True,
+                    "random_state":42,
+                    "max_iter":1000
+                },
+                "grid_srch_params":{
+                    "penalty":["l1","l2"],
+                    "loss":["hinge","squared_hinge"],
+                    "C":np.arange(0, 1.1, 0.1),
+                    "max_iter":np.arange(1000, 10000, 500)
+                }
+            },
             "xgboost":{
-				#Notes. 
-					#TODO - update params here after figuring out how to sync
-					#this model workflow to the others
-				"model_name":"XGBClassifier()",
-				"model_type":"classification",
-				"scoring_metric":"accuracy",
-				#link to params
-				#https://xgboost.readthedocs.io/en/stable/parameter.html
-				"base_params":{
-					"booster":"gbtree",
-					"gamma":0,
-					"max_depth":6,
-					"learning_rate": 0.3,
-					"nthread":4, 
-					"subsample":1,
-					"objective":"multi:softmax",
-					"n_estimators":1000,
-					"reg_alpha":0.3,
-					"num_class":2
-				},
-				"init_params":{
-					"booster":"gbtree",
-					"eval_metric":"error",
-					"max_depth":10,
-					"gamma":0,
-					"lambda":1,
-					"alpha":0,
-					"nthread":4,
-					"learning_rate": 0.1,
-					# "subsample":0.5,
-					"objective":"binary:hinge",
-					"n_estimators":100,
-					"reg_alpha":0.3,
-				},
-				"grid_srch_params":{
-					# "cv":5,
-					# "lambda":np.arange(0, 1.1, 0.1),
-					# "alpha":np.arange(0, 1.1, 0.1),
-					"learning_rate":np.arange(0, 1.1, 0.1),
-					# "max_depth":range(0, 26, 2),
-					# "subsample":np.arange(0.5, 1.1, 0.1)
-					# "loss":["hinge","squared_hinge"],
-					# "gamma":range(0, 100),
-					# "n_estimators":np.arange(0, 1000, 100)
-				}
-			}
+                #Notes. 
+                    #TODO - update params here after figuring out how to sync
+                    #this model workflow to the others
+                "model_name":"XGBClassifier()",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://xgboost.readthedocs.io/en/stable/parameter.html
+                "base_params":{
+                    "booster":"gbtree",
+                    "gamma":0,
+                    "max_depth":6,
+                    "learning_rate": 0.3,
+                    "nthread":4, 
+                    "subsample":1,
+                    "objective":"multi:softmax",
+                    "n_estimators":1000,
+                    "reg_alpha":0.3,
+                    "num_class":2
+                },
+                "init_params":{
+                    "booster":"gbtree",
+                    "eval_metric":"error",
+                    "max_depth":10,
+                    "gamma":0,
+                    "lambda":1,
+                    "alpha":0,
+                    "nthread":4,
+                    "learning_rate": 0.1,
+                    # "subsample":0.5,
+                    "objective":"binary:hinge",
+                    "n_estimators":100,
+                    "reg_alpha":0.3,
+                },
+                "grid_srch_params":{
+                    # "cv":5,
+                    # "lambda":np.arange(0, 1.1, 0.1),
+                    # "alpha":np.arange(0, 1.1, 0.1),
+                    "learning_rate":np.arange(0, 1.1, 0.1),
+                    # "max_depth":range(0, 26, 2),
+                    # "subsample":np.arange(0.5, 1.1, 0.1)
+                    # "loss":["hinge","squared_hinge"],
+                    # "gamma":range(0, 100),
+                    # "n_estimators":np.arange(0, 1000, 100)
+                }
+            }
         }
 
-	#FUNCTION get_data
+    #FUNCTION get_data
     def get_data(self, model_name:str):
         """Unpacks training and test data
 
@@ -1785,20 +1784,26 @@ class ModelTraining(object):
 
 def run_models(data:dict, wave:np.array):
     #Load test/train data
-    engin = FeatureEngineering()
+    engin = FeatureEngineering(data, wave)
     ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-    X = engin.data[ofinterest]
-    y = engin.target
-    X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
-    #Scale your variables to be on the same scale.  Necessary for most machine
-    #learning applications. 
+    #Engineer your features here
+    #available transforms
+        #log:  Log Transform
+        #recip:Reciprocal
+        #sqrt: square root
+        #exp:  exponential - Good for right skew #!Broken
+        #BoxC: Box Cox - Good for only pos val
+        #YeoJ: Yeo-Johnson - Good for pos and neg val
+    # engin.engineer("NN50",    True, False, "YeoJ")
+    # engin.engineer("Avg_QT",  True, False, "log")
+    #Scale your variables to be on the same scale.  Necessary for most machine learning applications. 
     #available sklearn scalers
-    #s_scale : StandardScaler
-    #m_scale : MinMaxScaler
-    #r_scale : RobustScaler
-    #q_scale : QuantileTransformer
-    #p_scale : PowerTransformer
-    scaler = "m_scale"
+        #s_scale : StandardScaler
+        #m_scale : MinMaxScaler
+        #r_scale : RobustScaler
+        #q_scale : QuantileTransformer
+        #p_scale : PowerTransformer
+    scaler = "r_scale"
 
     #Next choose your cross validation scheme. Input `None` for no cross validation
     #kfold       : KFold Validation
@@ -1851,11 +1856,11 @@ def run_eda(data:dict, wave:np.array):
     # Look at nulls
     explore.print_nulls(False)
     ofinterest = [explore.data.columns[x] for x in range(4, explore.data.shape[1])]
-    #Generate Numeric Feature table
+    # Generate Numeric Feature table
     explore.sum_stats(ofinterest, title="Cols of interest")
-    #Look at heatmap
+    # Look at heatmap
     # explore.corr_heatmap(ofinterest)
-    #Explore histograms
+    # Explore plots
     feature = "Avg_HR"
     group = explore.target
     [explore.eda_plot("jointplot", feature, x, group) for x in (ofinterest)]
@@ -1901,9 +1906,9 @@ def main():
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
     #Run EDA routine
-    run_eda(ecg_data, wave)
+    # run_eda(ecg_data, wave)
     #Run Models
-    # run_models(ecg_data, wave)
+    run_models(ecg_data, wave)
     
 if __name__ == "__main__":
     main()

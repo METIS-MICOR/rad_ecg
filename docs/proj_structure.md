@@ -83,6 +83,10 @@ Will be using poetry to package, so distribution will be cleaner.
 |9 | NN50                           | float32 |
 |10| PNN50                          | float32 |
 |11| Section Isoelectric            | float32 |
+|12| Avg QRS                        | float32 |
+|13| Avg QT                         | float32 |
+|14| Avg PR                         | float32 |
+|15| Avg ST                         | float32 |
 
 <font size=5> <h1 style="text-align: left;">interior_peaks</h1></font>
 |col idx | col name | val type | data type |
