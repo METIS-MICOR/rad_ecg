@@ -79,6 +79,7 @@ class EDA(object):
             
         #Drop the target column.
         self.data = self.data.drop("valid", axis=1)
+
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
         """Function for imputing missing data.  
@@ -284,7 +285,7 @@ class EDA(object):
                 plt.tight_layout()
                 plt.show()
 
-    # #FUNCTION cat_features
+    # FUNCTION cat_features
     # def cat_features(self, plotg:bool=False, print_stats:bool=True):
     # 	""" isolates categorical features and does a quick plot of them
 
@@ -347,7 +348,7 @@ class EDA(object):
     # 		console.log("Printing Cat Feature Table")
     # 		console.print(table)
 
-    #FUNCTION heatmap
+    # FUNCTION heatmap
     def corr_heatmap(self, sel_cols:list):
         """Generates correlation heatmap of numeric variables.
 
@@ -1823,7 +1824,11 @@ def run_experiments(data:dict, wave:np.array):
     #'isoforest':IsolationForest
     #'xgboost':XGBoostClassfier
     modellist = ['pca', 'svm', 'isoforest', 'xgboost']
+    
+    #split the training data
     [dataprep.data_prep(model, 0.25) for model in modellist]
+    
+    #Load the ModelTraining Class
     modeltraining = ModelTraining(dataprep)
     for model in modellist:
         modeltraining.get_data(model)

@@ -71,10 +71,13 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
             star = ecg_data['section_info'][section_counter]["start_point"]
             fini = ecg_data['section_info'][section_counter]["end_point"]
             inners = ecg_data["interior_peaks"][(ecg_data["interior_peaks"][:, 2] > star) & (ecg_data["interior_peaks"][:, 2] < fini)]
-            if inners.shape[0] > 0:
+            if np.nonzero(inners[:, 7])[0].shape[0] > 1:
                 Avg_PR  = round(np.mean(inners[np.nonzero(inners[:, 7])[0], 7]), 1)
+            if np.nonzero(inners[:, 8])[0].shape[0] > 1:
                 Avg_QRS = round(np.mean(inners[np.nonzero(inners[:, 8])[0], 8]), 1)
+            if np.nonzero(inners[:, 9])[0].shape[0] > 1:
                 Avg_ST  = round(np.mean(inners[np.nonzero(inners[:, 9])[0], 9]), 1)
+            if np.nonzero(inners[:, 10])[0].shape[0] > 1:
                 Avg_QT  = round(np.mean(inners[np.nonzero(inners[:, 10])[0], 10]), 1)
             
         except Exception as e:
@@ -266,9 +269,9 @@ def peak_validation_check(
         else:
             logger.warning(f"Left base missed on R peak {RP}")
 
-    if len(leftbases) == len(RPeaks):
+    if (len(leftbases) == len(RPeaks)) & (len(leftbases) > 2):
         try:
-            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks)]
+            slopes = [np.polyfit(range(x1, x2), wave[x1:x2], 1)[0].item() for x1, x2 in zip(leftbases, RPeaks) if x2 - x1 > 3]
             lower_bound = np.mean(slopes) * 0.20
             upper_bound = np.mean(slopes) * 3
             peak_slope_check = np.any((slopes < lower_bound)|(slopes > upper_bound))
@@ -278,7 +281,6 @@ def peak_validation_check(
             peak_slope_check = False
             fail_reas = "slope"
             sect_valid = False
-
 
     else:
         logger.critical(f"Uneven lengths of leftbases in sect {cur_sect}")
@@ -1711,4 +1713,4 @@ def main():
 if __name__ == "__main__":
     main()
 
-#NOTE - Run at least 30 cams to satisfy Central limit and law of large averages
+#NOTE - Run at least 30 cams to satisfy central limit and law of large averages
