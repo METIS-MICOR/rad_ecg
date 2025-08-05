@@ -159,6 +159,8 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 |"plot_errors" | false | Do you want to plot errors as they occur in extraction|
 |"live_term"|false|Do you want to display the terminal dashboard during extraction|
 |"porcine"|false| Is this porcine data?  |
+|"slider"|false| Do you want to load slider.py? | 
+|run_anomalyd|false| Do you want to run anomaly detection? |
 |"samp_freq|170| What sampling frequency was used with the data (Hz)|
 |"data_path" |"/src/rad_ecg/data/inputdata/"|Path of where to find your data|
 |"save_path" |"/src/rad_ecg/data/output/"|Path of where export the results|
@@ -166,6 +168,8 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 |"bucket_name" |bucketname|Name of the GCP Bucket|
 |"cam" |""|Name of CAM Analyzed.  (generated post analysis)|
 |"last_run" |datetime|Time of last script run  (generated post analysis)|
+|"log_path" |str| path of the log file generated |
+|"cam_name" |str| name of the cam |
 
 ## Note to users
 
@@ -175,11 +179,8 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 
 ### Short term
 - peak_detect_v3.py
-  - [x] Add J point discovery
-    - Use same logic as Q onset.
-      - Use kneedle for concave test, then extract knee if not on straight line
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
-  - [ ] Anomaly detection
+  - [x] Anomaly detection
       - Possible paths 
       1. Stumpy discord search.  
         - Working on GPU so far.  Unable to run on simultaneous CPU/ GPU with the detector running
@@ -189,13 +190,11 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 - slider.py
   - Anomaly Detection
     - [x] Add stumpy wave search for anomaly detection
-  - Functionality
-    - [ ] Re-examine distribution threshold of QRS window.
 
 ### Long Term
 - peak_detect.py
   - [ ] Apply inverse logic for analyzing porcine data
-  - [ ] Anomaly Detection
+  - [x] Anomaly Detection
   - [ ] Arrthymia Detection
   - [ ] Batch Processing - Some or all
 
