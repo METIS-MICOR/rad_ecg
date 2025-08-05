@@ -725,7 +725,7 @@ class FeatureEngineering(EDA):
 
 
     # #FUNCTION categorical_encoding
-    # def categorical_encoding(self, enc:str, feat:str, order:list=None):
+    #def categorical_encoding(self, enc:str, feat:str, order:list=None):
     #     """Note, can only drop single columns at a time. I'll 
     #     Eventually make it do multiple
 
@@ -1566,7 +1566,7 @@ class ModelTraining(object):
             """
             def load_cross_val(cv_name:str):
                 cv_validators = {
-                    "kfold"       :KFold(n_splits=5, shuffle=True, random_state=42),
+                    "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     "leaveoneout" :LeaveOneOut(),
                     # "leavepout"   :LeaveOneOut(p=2),
@@ -1844,17 +1844,8 @@ def run_experiments(data:dict, wave:np.array):
         feats = modeltraining._models[tree].feature_importances_
         modeltraining.plot_feats(tree, ofinterest, feats)
     
-    #Old Code
+    #Grid Search
     # grid_results = modeltraining._grid_search("isoforest", 5)
-    # d_train = DMatrix(X_train, label= y_train)
-    # d_test = DMatrix(X_test, label=y_test)
-    # params = {
-    #     "eta": 0.01,
-    #     "objective": "binary:logistic",
-    #     "subsample": 0.5,
-    #     "base_score": np.mean(y_train),
-    #     "eval_metric": "logloss",
-    # }
 
 def run_eda(data:dict, wave:np.array):
     # Load EDA class
