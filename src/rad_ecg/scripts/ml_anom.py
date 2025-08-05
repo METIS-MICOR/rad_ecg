@@ -1903,9 +1903,9 @@ def main():
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
     #Run EDA routine
-    # run_eda(ecg_data, wave)
+    run_eda(ecg_data, wave)
     #Run Models
-    run_experiments(ecg_data, wave)
+    # run_experiments(ecg_data, wave)
     
 if __name__ == "__main__":
     main()

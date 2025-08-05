@@ -115,7 +115,6 @@ console = Console(color_system="auto", stderr=True)
 logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
 
 ################################# Rich Spinner Control ####################################
-
 #FUNCTION Progress bar
 def mainspinner(console:Console, totalstops:int):
     """Load a rich Progress bar for alerting you to the progress of the algorithm
@@ -164,7 +163,6 @@ def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
     prog.update(liljob, visible=False)
 
 ################################# Saving Funcs ####################################
-
 #CLASS Numpy encoder
 class NumpyArrayEncoder(json.JSONEncoder):
     """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.
