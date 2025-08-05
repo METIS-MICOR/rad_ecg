@@ -25,15 +25,20 @@
 
 
 ## Requirements
-
-- python = "^3.11"
-- numpy = "^1.25.0"
-- pandas = "^1.5.0"
-- rich = "^13.8.0"
-- wfdb = "^4.1.2"
-- scipy = "^1.14.0"
-- matplotlib = "^3.9.0"
-- google-cloud-storage = "^2.18.2"
+- python = "^3.12"
+- google-cloud-storage = "^2.19.0"
+- kneed = "^0.8.5"
+- matplotlib = "^3.8.2"
+- numpy = "^1.26.4"
+- pandas = "^2.2.3"
+- pytest = "^7.4.4"
+- rich = "^13.9.4"
+- scikit-learn = "^1.7.1"
+- scipy = "^1.15.1"
+- seaborn = "^0.13.2"
+- stumpy = "^1.13.0"
+- wfdb = "^4.2.0"
+- xgboost = "^3.0.3"
 
 # Cloning the repo
 
