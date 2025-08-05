@@ -81,7 +81,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
                 Avg_QT  = round(np.mean(inners[np.nonzero(inners[:, 10])[0], 10]), 1)
             
         except Exception as e:
-            logger.warning(f'Unable to find segment data\n{e}')
+            logger.warning(f'Unable to calculate segment data\n{e}')
 
         return (Avg_HR, SDNN, min_HR, max_HR, RMSSD, NN50, PNN50, Avg_QRS, Avg_QT, Avg_ST, Avg_PR)
 

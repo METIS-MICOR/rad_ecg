@@ -4,7 +4,7 @@ import numpy as np
 import setup_globals
 from numba import cuda
 from collections import deque
-from support import logger, console
+from support import logger, console, log_time
 
 def group_numbers(arr, delta:int=10):
     if not isinstance(arr, np.ndarray):
@@ -33,9 +33,10 @@ def group_numbers(arr, delta:int=10):
 
     return [round(np.median(x)) for x in groups]
 
+@log_time
 def run_stumpy_discord(ecg_data:dict, wave:np.array):    
     if not cuda.is_available():
-        logger.warning("Algorithm running on GPU")
+        logger.critical("Algorithm running on GPU")
         all_gpu_devices = [device.id for device in cuda.list_devices()]
         if len(all_gpu_devices) > 1:
             device_id = all_gpu_devices
@@ -43,13 +44,12 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
             device_id = 0
         stump_func = stumpy.gpu_stump
     else:
-        logger.warning("Algorithm running on CPU")
+        logger.critical("Algorithm running on CPU")
         device_id = None
         stump_func = stumpy.stump
     
     sect_que = deque(ecg_data['section_info'][['start_point', 'end_point']])
-    match_count = 0
-    sect_track = 0
+    match_count, sect_track, total_count = 0, 0, 0
     progbar, job_id = support.mainspinner(console, len(sect_que))
     with progbar:
         while len(sect_que) > 0:
@@ -99,10 +99,11 @@ def run_stumpy_discord(ecg_data:dict, wave:np.array):
                                     match_count += 1
                         if match_count == len(discords):
                             logger.critical(f"Matched anomaly - peaks matched: {match_count}")
+                            total_count += 1
                         match_count = 0
                         
             sect_track += 1
-        return match_count
+        return total_count
     
 def main():
     global configs
