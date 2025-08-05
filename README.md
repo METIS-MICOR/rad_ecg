@@ -181,16 +181,14 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 - peak_detect_v3.py
   - [ ] In Tui, track / display runtime metrics.  (Section rejections, top 2 errors, AvgHR, RMSSD)
   - [x] Anomaly detection
-      - Possible paths 
-      1. Stumpy discord search.  
+      1. [x] Stumpy discord search.  
         - Working on GPU so far.  Unable to run on simultaneous CPU/ GPU with the detector running
-      2. LLM discord search
+      2. [ ] LLM discord search
         - Embed the sections of good data and use those to ask the LLM for any disturbances surrounding or precluding that event.
         - Build a RAG to store the signals.  
+      3. [x] Add 3 base classification models for anomaly detection.
+
 - slider.py
-  - Anomaly Detection
-    - [x] Add stumpy wave search for anomaly detection
-    - [x] Add 3 base classification models for anomaly detection.
 
 ### Long Term
 - peak_detect.py
