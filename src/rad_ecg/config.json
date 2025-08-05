@@ -12,7 +12,7 @@
   "gcp_bucket": false,
   "bucket_name": "",
   "cam": "",
-  "last_run": "",
+  "last_run": "08-05-2025",
   "log_path": "",
   "cam_name": ""
 }

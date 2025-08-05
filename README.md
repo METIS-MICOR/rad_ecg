@@ -190,6 +190,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 - slider.py
   - Anomaly Detection
     - [x] Add stumpy wave search for anomaly detection
+    - [x] Add 3 base classification models for anomaly detection.
 
 ### Long Term
 - peak_detect.py
