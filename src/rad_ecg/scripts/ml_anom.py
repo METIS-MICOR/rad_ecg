@@ -1790,22 +1790,22 @@ def run_experiments(data:dict, wave:np.array):
     ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
     
     #Engineer your features here. available transforms below
-        #log:  Log Transform
-        #recip:Reciprocal
-        #sqrt: square root
-        #exp:  exponential - Good for right skew #!Broken
-        #BoxC: Box Cox - Good for only pos val
-        #YeoJ: Yeo-Johnson - Good for pos and neg val
+    #log:  Log Transform
+    #recip:Reciprocal
+    #sqrt: square root
+    #exp:  exponential - Good for right skew #!Broken
+    #BoxC: Box Cox - Good for only pos val
+    #YeoJ: Yeo-Johnson - Good for pos and neg val
     # Ex:    
     # engin.engineer("NN50",    True, False, "YeoJ")
     # engin.engineer("Avg_QT",  True, False, "log")
     #Scale your variables to be on the same scale.  Necessary for most machine learning applications. 
     #available sklearn scalers
-        #s_scale : StandardScaler
-        #m_scale : MinMaxScaler
-        #r_scale : RobustScaler
-        #q_scale : QuantileTransformer
-        #p_scale : PowerTransformer
+    #s_scale : StandardScaler
+    #m_scale : MinMaxScaler
+    #r_scale : RobustScaler
+    #q_scale : QuantileTransformer
+    #p_scale : PowerTransformer
     scaler = "r_scale"
 
     #Next choose your cross validation scheme. Input `None` for no cross validation
@@ -1903,9 +1903,9 @@ def main():
         "interior_peaks": np.genfromtxt(fpath+"_interior_peaks.csv", delimiter=",", dtype=np.int32, usecols=(range(16)), filling_values=0)
     }
     #Run EDA routine
-    run_eda(ecg_data, wave)
+    # run_eda(ecg_data, wave)
     #Run Models
-    # run_experiments(ecg_data, wave)
+    run_experiments(ecg_data, wave)
     
 if __name__ == "__main__":
     main()

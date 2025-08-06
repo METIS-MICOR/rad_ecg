@@ -35,7 +35,7 @@ def group_numbers(arr, delta:int=10):
 
 @log_time
 def run_stumpy_discord(ecg_data:dict, wave:np.array):    
-    if not cuda.is_available():
+    if cuda.is_available():
         logger.critical("Algorithm running on GPU")
         all_gpu_devices = [device.id for device in cuda.list_devices()]
         if len(all_gpu_devices) > 1:
