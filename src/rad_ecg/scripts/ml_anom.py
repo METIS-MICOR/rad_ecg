@@ -305,7 +305,6 @@ class EDA(object):
     # 	# 		plt.show()
     # 	# 		print('\n\n')
     # 	#IDEA - Cat plotting
-    # 		# Possibly could plot the counts of each column vs the total shape. 
 
     # 	if print_stats:
     # 		#Add a rich table for results. 
