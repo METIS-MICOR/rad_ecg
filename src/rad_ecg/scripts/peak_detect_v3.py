@@ -930,7 +930,7 @@ def extract_PQRST(
                 if knee.elbow is not None:
                     J_point = knee.elbow + 1
                     temp_arr[temp_counter, 15] = J_point
-                    logger.info(f'J point added. X shape {X.shape}')
+                    logger.debug(f'J point added. X shape {X.shape}')
                     return J_point
 
         except Exception as e:

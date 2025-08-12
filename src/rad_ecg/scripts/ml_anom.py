@@ -1825,7 +1825,7 @@ def run_experiments(data:dict, wave:np.array):
     #'xgboost':XGBoostClassfier
     modellist = ['pca', 'svm', 'isoforest', 'xgboost']
     
-    #split the training data
+    #split the training data #splits: test 25%, train 75% 
     [dataprep.data_prep(model, 0.25) for model in modellist]
     
     #Load the ModelTraining Class
