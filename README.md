@@ -177,7 +177,7 @@ This repo is under active development, so if something is malfunctioning.  Pleas
 
 If you use this codebase in a scientific publication, please cite this software as following:
 
-
+```
 @software{heroy2021radecg,
   author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark, Soljhoo, Soroosh and Delgado, Paolo Cachi},
   title   = {{RAD_ECG: Robust Agile Detector for traversal of noisy ECGs}},
@@ -187,6 +187,7 @@ If you use this codebase in a scientific publication, please cite this software 
   url = {https://github.com/METIS-MICOR/rad_ecg},
   version = {3.4.0}
 }
+```
 
 [![DOI](https://zenodo.org/badge/768419708.svg)](https://doi.org/10.5281/zenodo.17315966)
 
