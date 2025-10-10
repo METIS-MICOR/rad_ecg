@@ -137,13 +137,10 @@ dmypy.json
 /.vscode
 /backups
 /poster
+/__pycache__/
 .Rhistory
 .DS_Store
-/__pycache__/
 *.hea
 *.dat
 *.mib
 *.log
-
-
-

@@ -24,6 +24,7 @@
 </p>
 
 
+
 ## Requirements
 - python = "^3.12"
 - google-cloud-storage = "^2.19.0"
@@ -54,9 +55,6 @@ mkdir src/rad_ecg/data/inputdata src/rad_ecg/data/logs src/rad_ecg/data/output s
 
 
 # Project setup with Poetry
-
-
-
 
 ## How to check Poetry installation
 
@@ -174,6 +172,25 @@ Before running the `peak_detect_v3.py` script, adjust the `config.json` in the r
 ## Note to users
 
 This repo is under active development, so if something is malfunctioning.  Please open an issue and I'd be happy to address it. 
+
+## Citation
+
+If you use this codebase in a scientific publication, please cite this software as following:
+
+
+@software{heroy2021radecg,
+  author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark, Soljhoo, Soroosh and Delgado, Paolo Cachi},
+  title   = {{RAD_ECG: Robust Agile Detector for traversal of noisy ECGs}},
+  year    = {2021},
+  doi     = {10.5281/zenodo.17315966},
+  license = {MIT},
+  url = {https://github.com/METIS-MICOR/rad_ecg},
+  version = {3.4.0}
+}
+
+[![DOI](https://zenodo.org/badge/768419708.svg)](https://doi.org/10.5281/zenodo.17315966)
+
+
 
 ## Todo List
 

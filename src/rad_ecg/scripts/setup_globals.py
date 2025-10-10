@@ -11,7 +11,6 @@ from pathlib import PurePath, Path
 from rich import print
 from rich.tree import Tree
 from rich.markup import escape
-from pathlib import Path, PurePath
 
 ################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
@@ -67,7 +66,7 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
         record = load_signal_data(input_path)
     else: 
         logger.warning(f"Input data for {datafile.name} not found")
-        logger.warning("Make sure base waveform data is stored in the data/input folder")
+        logger.warning("Make sure base waveform data is stored in the data/inputdata folder")
         exit()
 
     #ECG data
