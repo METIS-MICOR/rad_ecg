@@ -179,12 +179,12 @@ If you use this codebase in a scientific publication, please cite this software 
 
 ```
 @software{heroy2021radecg,
-  author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark, Soljhoo, Soroosh and Delgado, Paolo Cachi},
+  author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark, Solhjoo, Soroosh and Delgado-Cachi, Paolo},
   title   = {{RAD_ECG: Robust Agile Detector for traversal of noisy ECGs}},
   year    = {2021},
   doi     = {10.5281/zenodo.17315966},
   license = {MIT},
-  url = {https://github.com/METIS-MICOR/rad_ecg},
+  url     = {https://github.com/METIS-MICOR/rad_ecg},
   version = {3.4.0}
 }
 ```
