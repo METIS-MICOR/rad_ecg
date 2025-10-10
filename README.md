@@ -179,7 +179,7 @@ If you use this codebase in a scientific publication, please cite this software 
 
 ```
 @software{heroy2021radecg,
-  author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark, Solhjoo, Soroosh and Delgado-Cachi, Paolo},
+  author  = {Heroy, Andrew and Arnold, Thomas and Ehat, Nathaniel and Haigney, Mark and Solhjoo, Soroosh and Delgado-Cachi, Paolo},
   title   = {{RAD_ECG: Robust Agile Detector for traversal of noisy ECGs}},
   year    = {2021},
   doi     = {10.5281/zenodo.17315966},
