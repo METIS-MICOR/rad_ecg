@@ -943,7 +943,6 @@ class DataPrep(object):
         
         if engin:
             self.data = engin.data[features]
-            self.data_description = engin.data_description
             self.feature_names = features
             self.target = engin.target
             self.target_names = engin.target_names

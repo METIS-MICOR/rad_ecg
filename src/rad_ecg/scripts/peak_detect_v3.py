@@ -87,7 +87,7 @@ def section_stats(new_peaks_arr:np.array, section_counter:int)->tuple:
 
 # @log_time
 # FUNCTION consecutive valid peaks
-def consecutive_valid_peaks(R_peaks:np.array, lookback:int=3500):
+def consecutive_valid_peaks(R_peaks:np.array, lookback:int=1500):
     """Historical Data search function.  Scans back in time until it finds the lookback amount of continuous
     validated R peaks.  
 
@@ -178,7 +178,9 @@ def peak_validation_check(
     start_idx = st_fn[1]
     end_idx = st_fn[2]
 
-    # Start with the section as True.  If any gate fails, turn it to false. 
+    # Start with the section as True.  If any gate fails, turn it to false.   
+    #TODO - Reverse this.  
+        # We don't know if hte section is already valid.  Thats the whole point of the boolean.  
     sect_valid = True
 
     # empty array for historical data on last_keys
@@ -231,7 +233,7 @@ def peak_validation_check(
 
     # Peak separation/height variables
     last_avg_p_sep = np.mean(med_diff)
-    last_avg_peak_heights = np.mean([wave[x][0] for x in last_keys])
+    last_avg_peak_heights = np.mean([wave[x] for x in last_keys])
 
     # NOTE Slope Check
         # Process.
@@ -563,7 +565,7 @@ def STFT(
     st_fn:tuple, 
     plot_fft:bool=False, 
     *args
-):
+    ):
     """Takes in the new peaks found by scipy find_peaks.  Performs a STFT on
     each of the Rpeak to Rpeak sections to look for high frequency noise. If the
     STFT comes back with mostly low frequency data, the routine marks the peak
@@ -1495,7 +1497,7 @@ def main_peak_search(
                     )
 
                     # If you've found the wave and have sufficient num of peaks
-                    if sect_valid and R_peaks.size > 10: 
+                    if sect_valid and R_peaks.size > 4: # was 10 
                         #BUG - You need a way to tie the number of R peaks to the section window size so it 
                         # makes sense.  having a static number here is dangerous. 
                         found_wave = True
@@ -1555,7 +1557,7 @@ def main_peak_search(
                 
                 # Making sure we have enough historical data to scan backwards in time. 
                 # Make sure the section counter is at least 10 ahead of the start_sect
-                if section_counter < start_sect + 10:
+                if section_counter < start_sect + 4: # was 10
                     sect_valid, new_peaks_arr = STFT(
                         new_peaks_arr, 
                         peak_info, 

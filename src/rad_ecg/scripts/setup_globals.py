@@ -1,6 +1,6 @@
 import utils #from rad_ecg.scripts 
 import numpy as np
-import wfdb
+
 import logging
 import json
 import os
@@ -10,6 +10,8 @@ from support import logger, console
 from pathlib import PurePath, Path
 from rich import print
 from rich.tree import Tree
+from rich.text import Text
+from rich.filesize import decimal
 from rich.markup import escape
 
 ################################# Custom INIT / Loading functions ############################################
@@ -47,15 +49,39 @@ def load_config()->json:
     return config_data
 
 #FUNCTION Load Signal Data
-def load_signal_data(hea_path:str):
-    #Load signal data 
-    record = wfdb.rdrecord(
-        hea_path,
-        sampfrom=0,
-        sampto=None,
-        channels=[0]
-    )
-    return record
+def load_signal_data(file_path:str):
+    record, header = None, None
+
+    #Load signal data
+    if "." in file_path:
+        file_type = file_path[file_path.rindex(".") + 1:].lower()
+    else:
+        file_type = "hea" # I for some reason stirpped the .hea file extension here.  #TODO - Come back and fix
+    
+    try:
+        match file_type:
+            case "ebm": 
+                from software.lib_ebm.pyebmreader import ebmreader
+                record, header = ebmreader(
+                    filepath = file_path,
+                    onlyheader = False
+                )
+            case "ecg": 
+                pass
+            case "h12": 
+                pass
+            case "hea":
+                from wfdb import rdrecord
+                record = rdrecord(
+                    file_path,
+                    sampfrom=0,
+                    sampto=None,
+                    channels=[0]
+                )
+        return record, header
+
+    except Exception as e:
+        logger.critical(f"Unable to load file. Error {e}")
 
 #FUNCTION Load Chart Data
 def load_chart_data(configs:dict, datafile:Path, logger:logging):
@@ -93,8 +119,7 @@ def load_structures(source:str, datafile:Path):
         windowsi = 9
 
     elif source == "__main__":
-        #Load all possibles in the input dir or gcp
-        #Check output folder for existence
+        #Load all possibles in the input dir or gcp and check existence
         test_sp = os.path.join(configs["save_path"], datafile.name)
         if os.path.exists(test_sp):
             logger.critical(f"{datafile.name} output folder already exists")
@@ -103,7 +128,7 @@ def load_structures(source:str, datafile:Path):
             if overwrite.lower() == "n":
                 exit()
         else:
-            os.mkdir(test_sp)
+            os.makedirs(configs["save_path"], exist_ok=True)
             logger.info(f"folder created @ {test_sp} ")
 
         if configs["gcp_bucket"]:
@@ -125,27 +150,42 @@ def load_structures(source:str, datafile:Path):
                     logger.warning(f"Error {created}")
                     exit()
 
-        configs["cam"] = os.path.join(datafile, datafile.name)
+        if not "." in datafile.name:
+            configs["cam"] = os.path.join(datafile, datafile.name)
+        else:
+            configs["cam"] = os.path.join(datafile)
+
         configs["cam_name"] = datafile.name
-        record = load_signal_data(configs["cam"])
+        record, header = load_signal_data(configs["cam"])
         
         #ECG data
-        wave = record.p_signal
-        
-        #Frequency
-        fs = record.fs
-        configs["samp_freq"] = fs
-        
-        #Size of timing segment window
-        windowsi = 10
+        match datafile.name[datafile.name.rindex(".") + 1:]:
+            case "hea":
+                #Signal
+                wave = record.p_signal
+                
+                # sampling frequency
+                fs = record.fs
 
+                #Size of timing segment window
+                windowsi = 10
+
+                #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
+                wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
+
+            case "ebm":
+                wave = record[3]
+                fs =  float(header["frequency"])
+                windowsi = 5
+                wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)
+
+        #Frequency
+        configs["samp_freq"] = fs
 
     else:
         logger.CRITICAL("New runtime environment detected outside of normal operating params.\nPlease rerun with appropriate configuration")
         exit()
 
-    #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-    wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
     #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
     #Setting mixed datatypes (structured array) for ecg_data['section_info']
     wave_sect_dtype = [
@@ -249,7 +289,6 @@ def launch_tui(configs:dict):
     try:
         if configs["slider"] | configs["run_anomalyd"]:
             directory = PurePath(Path.cwd(), Path("./src/rad_ecg/data/output"))
-
         else:
             directory = PurePath(Path.cwd(), Path(configs["data_path"]))
 
@@ -263,8 +302,8 @@ def launch_tui(configs:dict):
         files = walk_directory(Path(directory), tree)
         print(tree)
         
-    question ="What file would you like to load?\n"
-    file_choice = console.input(f"{question}")
+    question = "What file would you like to load?\n"
+    file_choice = "0" #console.input(f"{question}")
     if file_choice.isnumeric():
         file_to_load = files[int(file_choice) - 1]
         #check output directory exists
@@ -288,7 +327,8 @@ def walk_directory(directory: Path, tree: Tree) -> None:
         # Remove hidden files
         if path.name.startswith("."):
             continue
-        # Just list the CAM folders
+        # List the CAM folders
+        #TODO - might need to restructure this
         if path.is_dir():
             style = "dim" if path.name.startswith("__") else ""
             file_size = getfoldersize(path)
@@ -298,19 +338,19 @@ def walk_directory(directory: Path, tree: Tree) -> None:
                 guide_style=style,
             )
             
-            # walk_directory(path, branch)
-        # else:
-        #     text_filename = Text(path.name, "green")
-        #     text_filename.highlight_regex(r"\..*$", "bold red")
-        #     text_filename.stylize(f"link file://{path}")
-        #     file_size = path.stat().st_size
-        #     text_filename.append(f" ({decimal(file_size)})", "blue")
-        #     if path.suffix == "py":
-        #         icon = "🐍 "
-        #     elif path.suffix == ".hea":
-        #         icon = "🤯  "
-        #     elif path.suffix == ".dat":
-        #         icon = "🔫 "
+            walk_directory(path, branch)
+        else:
+            text_filename = Text(path.name, "green")
+            text_filename.highlight_regex(r"\..*$", "bold red")
+            text_filename.stylize(f"link file://{path}")
+            file_size = path.stat().st_size
+            text_filename.append(f" ({decimal(file_size)})", "blue")
+            if path.suffix == "py":
+                icon = "🐍 "
+            elif path.suffix == ".hea":
+                icon = "🤯  "
+            elif path.suffix == ".ebm":
+                icon = "🔫 "
         #     elif path.suffix == ".mib":
         #         icon = "👽 "
         #     elif path.suffix == ".zip":

@@ -132,11 +132,13 @@ dmypy.json
 /src/rad_ecg/data/inputdata
 /src/rad_ecg/data/output
 /src/rad_ecg/secret
+/src/rad_ecg/data/datasets
 /.pytest_cache
 /.venv
 /.vscode
 /backups
 /poster
+
 /__pycache__/
 .Rhistory
 .DS_Store
