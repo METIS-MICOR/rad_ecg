@@ -1617,7 +1617,11 @@ def main_peak_search(
                     last_keys = consecutive_valid_peaks(ecg_data['peaks'])
                     if not isinstance(last_keys, bool):
                         # Run Peak validation check based oh historical avgs
-                        PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(new_peaks_arr, last_keys, peak_info, rolled_med, (section_counter, start_p, end_p), low_counts, IQR_low_thresh, plot_errors)
+                        PV_sect_valid, new_peaks_arr, low_counts, IQR_low_thresh = peak_validation_check(
+                            new_peaks_arr, last_keys, peak_info, rolled_med, 
+                            (section_counter, start_p, end_p),
+                            low_counts, IQR_low_thresh, plot_errors
+                        )
                     else:
                         ecg_data['section_info'][section_counter]['fail_reason'] = "historical"
                         

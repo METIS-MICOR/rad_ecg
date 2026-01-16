@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "rad_ecg", from = "src"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = ">=3.11,<=3.13"
 numpy = "^1.25.0"
 pandas = "^2.0.0"
 rich = "^13.8.0"
@@ -21,6 +21,7 @@ scikit-learn = "^1.7.1"
 seaborn = "^0.13.2"
 xgboost = "^3.0.3"
 pyedflib = "^0.1.42"
+adi-reader = "^0.0.13"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
