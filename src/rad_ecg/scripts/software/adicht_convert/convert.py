@@ -101,7 +101,7 @@ def save_array(data: dict, fp: str):
     # 3. Save the flattened dictionary
     np.savez_compressed(output_path, **flat_data)
     
-    # Optional: Log the size for peace of mind
+    # Log the size for peace of mind
     mb_size = os.path.getsize(output_path) / (1024 * 1024)
     logging.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
