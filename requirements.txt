@@ -1,3 +1,4 @@
+adi-reader==0.0.13
 cachetools==5.5.1
 certifi==2025.1.31
 cffi==1.17.1
@@ -33,6 +34,7 @@ protobuf==5.29.3
 pyasn1==0.6.1
 pyasn1_modules==0.4.1
 pycparser==2.22
+pyEDFlib==0.1.42
 Pygments==2.19.1
 pyparsing==3.2.1
 pytest==7.4.4
