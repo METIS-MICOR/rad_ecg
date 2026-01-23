@@ -49,9 +49,9 @@ class LabChartNavigator:
         self.streams_per_page = 4
         self.total_pages = int(np.ceil(len(self.channels) / self.streams_per_page))
         self.current_page = 0
-        self.window_size = 500
+        self.window_size = 2000
         self.current_pos = 0
-        self.step_size = 5
+        self.step_size = 20
         self.paused = False
         self.alert_timers = {} # Dictionary to store active timers for alerts
         
@@ -115,7 +115,7 @@ class LabChartNavigator:
             line, = ax.plot([], [], lw=1, color='dodgerblue')
             
             # Alert text is hidden by default
-            alert = ax.text(0.98, 0.05, "RESCALED", transform=ax.transAxes, 
+            alert = ax.text(0.98, 0.1, "RESCALED", transform=ax.transAxes, 
                             color='red', fontsize=8, ha='right', va='top', 
                             fontweight='bold', visible=False)
             
@@ -311,7 +311,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/EPICS01P03.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_47132_6Hr_June-2-25.npz"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:

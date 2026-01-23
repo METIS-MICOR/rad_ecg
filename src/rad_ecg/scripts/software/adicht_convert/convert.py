@@ -107,7 +107,7 @@ def save_array(data: dict, fp: str):
 
 def run_batch_convert():
     fp = "src/rad_ecg/data/datasets/sharc_fem/"
-    inputfiles = Path(fp + "/base").iterdir()
+    inputfiles = Path(fp + "/base/sharc").iterdir()
     for adict_f in inputfiles:
         file_path = PurePath(Path.cwd(), Path(adict_f))
         my_data = get_adi_data(file_path)
