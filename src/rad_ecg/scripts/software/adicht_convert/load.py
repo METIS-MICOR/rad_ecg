@@ -200,6 +200,6 @@ class LabChartNavigator:
         if not self.paused: self.ani.resume()
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/EPICS01P03.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/EPICS01P20.npz"
     if target.exists():
         viewer = LabChartNavigator(str(target))

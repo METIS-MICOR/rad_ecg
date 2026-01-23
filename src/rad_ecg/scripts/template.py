@@ -570,7 +570,7 @@ def run_template_extract(
         _type_: _description_
     """
     #Create object to fill in.
-    data = PeakInfo
+    data = PeakInfo()
 
     #Load template data - Original
     wave = template_signal
