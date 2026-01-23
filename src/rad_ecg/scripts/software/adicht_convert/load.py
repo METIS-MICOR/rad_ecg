@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
+from scipy.fft import rfft, rfftfreq
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
@@ -14,28 +15,50 @@ class SignalDataLoader:
         self.full_data = self._stitch_blocks()
 
     def _identify_and_sort_channels(self):
-        raw_names = sorted(list(set([k.split('_block_')[0] for k in self.files])))
-        order = [
+        # robustly extract prefix before '_block_'
+        raw_names = set()
+        for k in self.files:
+            if '_block_' in k:
+                raw_names.add(k.split('_block_')[0])
+            else:
+                raw_names.add(k) # Fallback if naming convention differs
+        
+        raw_list = list(raw_names)
+        
+        # The specific order you requested
+        preferred_order = [
             'ECG', 'HR', 'MAP', 'Temperature', 'LV_Magnitude', 'LV_Phase', 
             'LV_Pressure', 'LV_Volume', 'DBP', 'SBP', 
             'Distal_Aortic_Pressure', 'Proximal_Aortic_Pressure', 
             'Venous_Pressure', 'Expired__CO2'
         ]
-        if all(item in raw_names for item in order) and len(raw_names) == len(order):
-            return order
-        return raw_names
+        
+        # 1. Select found channels that are in the preferred list, in order
+        sorted_channels = [c for c in preferred_order if c in raw_list]
+        
+        # 2. Append any remaining channels that weren't in the preferred list (sorted alpha)
+        remaining = sorted([c for c in raw_list if c not in preferred_order])
+        sorted_channels.extend(remaining)
+        
+        return sorted_channels
 
     def _stitch_blocks(self):
         full_data = {}
         for ch in self.channels:
+            # Filter keys for this channel and sort by block index
             ch_blocks = sorted(
                 [k for k in self.files if k.startswith(f"{ch}_block_")], 
                 key=lambda x: int(x.split('_block_')[-1])
             )
+            
             if ch_blocks:
                 full_data[ch] = np.concatenate([self.container[b] for b in ch_blocks])
             else:
-                full_data[ch] = np.array([])
+                # Fallback: if no blocks found, maybe it's a single file entry
+                if ch in self.files:
+                    full_data[ch] = self.container[ch]
+                else:
+                    full_data[ch] = np.array([])
         return full_data
 
 class LabChartNavigator:
@@ -53,41 +76,53 @@ class LabChartNavigator:
         self.current_pos = 0
         self.step_size = 20
         self.paused = False
-        self.alert_timers = {} # Dictionary to store active timers for alerts
+        self.alert_timers = {} 
+        
+        # Frequency State: 0=Off, 1=Stem, 2=Specgram
+        self.freq_mode = 0 
+        self.sampling_rate = 1000 
         
         # 3. Setup Figure and Events
-        self.fig = plt.figure(figsize=(14, 9))
+        self.fig = plt.figure(figsize=(16, 9))
         self.fig.canvas.mpl_connect('close_event', self._on_close)
         self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump)
-        
-        # --- NEW: Connect Spacebar Event ---
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
         
         self.setup_layout()
         
-        # 4. Initialize Plot Objects (Pooling)
-        self.plot_lines = []   
-        self.alert_texts = [] 
+        # 4. Initialize Plot Objects
+        self.use_blit = True 
         self._init_axes_pool()
         
         # 5. Load Initial Data
         self.load_page_content()
         
         # 6. Start Animation
-        self.ani = FuncAnimation(
-            self.fig, self.update_frame, interval=30, blit=True, cache_frame_data=False
-        )
+        self.start_animation()
         plt.show()
 
+    def start_animation(self):
+        if hasattr(self, 'ani') and self.ani.event_source:
+            self.ani.event_source.stop()
+        
+        self.ani = FuncAnimation(
+            self.fig, self.update_frame, interval=30, blit=self.use_blit, cache_frame_data=False
+        )
+
     def setup_layout(self):
+        """Define GridSpec layout."""
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 1.5], figure=self.fig)
+        
+        # Main plot area
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
             self.streams_per_page + 1, 1, 
             subplot_spec=self.gs_main[0], 
             height_ratios=[3] * self.streams_per_page + [1]
         )
+        
+        # Side controls
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            9, 1, subplot_spec=self.gs_main[1], hspace=0.5
+            11, 1, subplot_spec=self.gs_main[1], hspace=0.5
         )
         self.setup_controls()
 
@@ -97,37 +132,79 @@ class LabChartNavigator:
         self.btn_prev = Button(self.fig.add_subplot(self.gs_side[2]), 'Prev Page')
         self.btn_reset_scale = Button(self.fig.add_subplot(self.gs_side[3]), 'Reset Scale')
         self.btn_gif = Button(self.fig.add_subplot(self.gs_side[4]), 'Export GIF')
-        
-        ax_speed = self.fig.add_subplot(self.gs_side[5])
+        self.btn_freq = Button(self.fig.add_subplot(self.gs_side[5]), 'Freq Mode: OFF')
+
+        ax_speed = self.fig.add_subplot(self.gs_side[6])
         self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.step_size))
+        
+        ax_window = self.fig.add_subplot(self.gs_side[7])
+        self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
         self.btn_pause.on_clicked(self.toggle_pause)
         self.btn_next.on_clicked(self.next_page)
         self.btn_prev.on_clicked(self.prev_page)
         self.btn_reset_scale.on_clicked(self.manual_rescale)
         self.btn_gif.on_clicked(self.export_gif)
+        self.btn_freq.on_clicked(self.toggle_frequency)
+        
         self.txt_speed.on_submit(self.update_speed)
+        self.txt_window.on_submit(self.update_window_size)
 
     def _init_axes_pool(self):
         self.axes_pool = []
+        self.plot_lines = []
+        self.alert_texts = []
+        self.freq_axes_pool = [] 
+        
         for i in range(self.streams_per_page):
-            ax = self.fig.add_subplot(self.gs_plots[i])
+            if self.freq_mode == 0:
+                ax = self.fig.add_subplot(self.gs_plots[i])
+                ax_freq = None
+            else:
+                gs_row = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[i], wspace=0.2)
+                ax = self.fig.add_subplot(gs_row[0])
+                ax_freq = self.fig.add_subplot(gs_row[1])
+
+            # Setup Signal Line
             line, = ax.plot([], [], lw=1, color='dodgerblue')
-            
-            # Alert text is hidden by default
-            alert = ax.text(0.98, 0.1, "RESCALED", transform=ax.transAxes, 
+            alert = ax.text(0.98, 0.9, "RESCALED", transform=ax.transAxes, 
                             color='red', fontsize=8, ha='right', va='top', 
                             fontweight='bold', visible=False)
             
             self.axes_pool.append(ax)
             self.plot_lines.append(line)
             self.alert_texts.append(alert)
+            self.freq_axes_pool.append(ax_freq)
         
+        # Navigator
         self.nav_ax = self.fig.add_subplot(self.gs_plots[-1])
         self.nav_trace, = self.nav_ax.plot([], [], color='black', alpha=0.3, lw=0.5)
         self.nav_cursor = self.nav_ax.axvline(0, color='red', lw=2)
         self.nav_ax.set_yticks([])
         self.nav_ax.set_xlabel("Timeline (Click to Jump) | Press SPACE to Pause", fontsize=8)
+
+    def rebuild_layout(self):
+        if hasattr(self, 'ani'):
+            self.ani.event_source.stop()
+        
+        for ax in self.axes_pool:
+            ax.remove()
+        for axf in self.freq_axes_pool:
+            if axf is not None: axf.remove()
+        self.nav_ax.remove()
+        
+        self._init_axes_pool()
+        self.load_page_content()
+        
+        self.use_blit = (self.freq_mode == 0)
+        self.start_animation()
+        self.fig.canvas.draw_idle()
+
+    def toggle_frequency(self, event):
+        self.freq_mode = (self.freq_mode + 1) % 3
+        labels = {0: "Freq Mode: OFF", 1: "Freq Mode: STEM", 2: "Freq Mode: SPEC"}
+        self.btn_freq.label.set_text(labels[self.freq_mode])
+        self.rebuild_layout()
 
     def load_page_content(self):
         start = self.current_page * self.streams_per_page
@@ -140,17 +217,21 @@ class LabChartNavigator:
             ax = self.axes_pool[i]
             line = self.plot_lines[i]
             alert = self.alert_texts[i]
+            ax_freq = self.freq_axes_pool[i]
             
-            # Reset any lingering alert timers when changing pages
             if alert in self.alert_timers:
                 self.alert_timers[alert].stop()
             
             if i < len(current_channels):
                 ch_name = current_channels[i]
                 data = self.full_data[ch_name]
+                
                 ax.set_visible(True)
+                if ax_freq: ax_freq.set_visible(True)
+                
                 line.set_label(ch_name)
-                ax.legend(loc='upper right', fontsize='small')
+                # MOVED TO LOWER RIGHT
+                ax.legend(loc='lower right', fontsize='small')
                 ax.set_xlim(0, self.window_size)
                 
                 if data.size > 0:
@@ -158,9 +239,10 @@ class LabChartNavigator:
                     self._apply_scale(ax, init_view)
                 
                 alert.set_visible(False)
-                self.active_data_map.append((line, data, ax, alert))
+                self.active_data_map.append((line, data, ax, alert, ax_freq, ch_name))
             else:
                 ax.set_visible(False)
+                if ax_freq: ax_freq.set_visible(False)
 
         if current_channels:
             ref_data = self.full_data[current_channels[0]]
@@ -173,16 +255,86 @@ class LabChartNavigator:
             
         self.fig.canvas.draw_idle()
 
-    # --- NEW: Alert Handling Logic ---
-    def trigger_alert(self, alert_obj):
-        """Shows alert and sets a timer to hide it."""
-        alert_obj.set_visible(True)
+    def update_frame(self, frame):
+        if not self.active_data_map: return []
         
-        # 1. Stop existing timer for this specific alert if it exists
+        if not self.paused:
+            self.current_pos += self.step_size
+            max_len = self.active_data_map[0][1].size
+            if self.current_pos + self.window_size > max_len:
+                self.current_pos = 0
+                for _, _, _, alert, _, _ in self.active_data_map:
+                    alert.set_visible(False)
+
+        updated_artists = []
+        needs_redraw = False
+
+        for line, data, ax, alert, ax_freq, ch_name in self.active_data_map:
+            if data.size == 0: continue
+            
+            end_pos = self.current_pos + self.window_size
+            view = data[self.current_pos : end_pos]
+            
+            # 1. Update Signal
+            line.set_data(np.arange(len(view)), view)
+            updated_artists.append(line)
+            
+            # 2. Auto-Scale
+            if view.size > 0:
+                v_min, v_max = np.min(view), np.max(view)
+                y_min, y_max = ax.get_ylim()
+                if v_min < y_min or v_max > y_max:
+                    self._apply_scale(ax, view)
+                    self.trigger_alert(alert)
+                    needs_redraw = True
+            
+            if alert.get_visible():
+                updated_artists.append(alert)
+
+            # 3. Frequency Update
+            if self.freq_mode > 0 and ax_freq is not None and view.size > 100:
+                ax_freq.cla() 
+                
+                if self.freq_mode == 1: # STEM
+                    fft_samp = np.abs(rfft(view))
+                    freq_list = rfftfreq(len(view), d=1/self.sampling_rate)
+                    
+                    half_point = int(len(view)/2)
+                    freqs = fft_samp[:half_point]
+                    freq_l = freq_list[:half_point]
+                    
+                    ax_freq.plot(freq_l, freqs, color='purple', lw=1, label=f"FFT: {ch_name}")
+                    ax_freq.fill_between(freq_l, freqs, color='purple', alpha=0.3)
+                    # LEGEND ADDED HERE
+                    ax_freq.legend(loc='lower right', fontsize='small')
+                    ax_freq.set_xlim(0, 50) 
+                    
+                elif self.freq_mode == 2: # SPECGRAM
+                    nfft = min(256, len(view))
+                    try:
+                        ax_freq.specgram(
+                            view, NFFT=nfft, Fs=self.sampling_rate, noverlap=nfft//2, cmap='inferno'
+                        )
+                        # Add a fake line just to get a legend entry
+                        ax_freq.plot([], [], color='black', label=f"Spec: {ch_name}")
+                        ax_freq.legend(loc='lower right', fontsize='small')
+                        ax_freq.set_yticks([])
+                    except:
+                        pass
+
+        self.nav_cursor.set_xdata([self.current_pos])
+        updated_artists.append(self.nav_cursor)
+
+        if needs_redraw:
+            pass 
+            
+        return updated_artists
+
+    # --- Helpers ---
+    def trigger_alert(self, alert_obj):
+        alert_obj.set_visible(True)
         if alert_obj in self.alert_timers:
             self.alert_timers[alert_obj].stop()
-        
-        # 2. Create new timer
         timer = self.fig.canvas.new_timer(interval=3000)
         timer.single_shot = True
         timer.add_callback(self._hide_alert, alert_obj)
@@ -190,12 +342,8 @@ class LabChartNavigator:
         timer.start()
 
     def _hide_alert(self, alert_obj):
-        """Callback to hide the alert."""
         alert_obj.set_visible(False)
-        # We don't need a manual draw here; the next update_frame will handle the visual removal
-        # because the artist will no longer be returned to the blit manager.
 
-    # --- NEW: Spacebar Logic ---
     def on_key_press(self, event):
         if event.key == ' ':
             self.toggle_pause()
@@ -206,55 +354,8 @@ class LabChartNavigator:
             pad = (v_max - v_min) * 0.1 if v_max != v_min else 0.1
             ax.set_ylim(v_min - pad, v_max + pad)
 
-    def update_frame(self, frame):
-        if not self.active_data_map: return []
-        
-        if not self.paused:
-            self.current_pos += self.step_size
-            max_len = self.active_data_map[0][1].size
-            if self.current_pos + self.window_size > max_len:
-                self.current_pos = 0
-                for _, _, _, alert in self.active_data_map:
-                    alert.set_visible(False)
-
-        updated_artists = []
-        needs_redraw = False
-
-        for line, data, ax, alert in self.active_data_map:
-            if data.size == 0: continue
-            
-            end_pos = self.current_pos + self.window_size
-            view = data[self.current_pos : end_pos]
-            
-            line.set_data(np.arange(len(view)), view)
-            updated_artists.append(line)
-            
-            # --- Auto-Scale Check ---
-            if view.size > 0:
-                v_min, v_max = np.min(view), np.max(view)
-                y_min, y_max = ax.get_ylim()
-                
-                # Rescale if data clips out of view
-                if v_min < y_min or v_max > y_max:
-                    self._apply_scale(ax, view)
-                    self.trigger_alert(alert) # Trigger the timed alert
-                    needs_redraw = True
-            
-            # Important: Always return the alert if it is currently visible
-            # This ensures it stays on screen during the timer duration
-            if alert.get_visible():
-                updated_artists.append(alert)
-
-        self.nav_cursor.set_xdata([self.current_pos])
-        updated_artists.append(self.nav_cursor)
-
-        if needs_redraw:
-            self.fig.canvas.draw_idle()
-            
-        return updated_artists
-
     def manual_rescale(self, event):
-        for line, data, ax, alert in self.active_data_map:
+        for line, data, ax, alert, _, _ in self.active_data_map:
             view = data[self.current_pos : self.current_pos + self.window_size]
             self._apply_scale(ax, view)
             alert.set_visible(False)
@@ -276,7 +377,6 @@ class LabChartNavigator:
             if self.active_data_map:
                 max_len = self.active_data_map[0][1].size
                 self.current_pos = max(0, min(self.current_pos, max_len - self.window_size))
-            
             if self.paused:
                 self.update_frame(0)
                 self.fig.canvas.draw_idle()
@@ -288,10 +388,20 @@ class LabChartNavigator:
         try: self.step_size = int(text)
         except ValueError: self.txt_speed.set_val(str(self.step_size))
 
+    def update_window_size(self, text):
+        try:
+            new_size = int(text)
+            if new_size > 10:
+                self.window_size = new_size
+                for _, _, ax, _, _, _ in self.active_data_map:
+                    ax.set_xlim(0, self.window_size)
+                self.manual_rescale(None)
+        except ValueError:
+            self.txt_window.set_val(str(self.window_size))
+
     def _on_close(self, event):
         if hasattr(self, 'ani'):
             self.ani.event_source.stop()
-        # Clean up timers
         for timer in self.alert_timers.values():
             timer.stop()
 
@@ -311,7 +421,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_47132_6Hr_June-2-25.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_47131_6Hr_May-29-25.npz"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:
