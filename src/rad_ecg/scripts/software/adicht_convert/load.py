@@ -167,7 +167,7 @@ class LabChartNavigator:
 
             # Setup Signal Line
             line, = ax.plot([], [], lw=1, color='dodgerblue')
-            alert = ax.text(0.98, 0.9, "RESCALED", transform=ax.transAxes, 
+            alert = ax.text(0.98, 0.1, "RESCALED", transform=ax.transAxes, 
                             color='red', fontsize=8, ha='right', va='top', 
                             fontweight='bold', visible=False)
             
@@ -230,8 +230,7 @@ class LabChartNavigator:
                 if ax_freq: ax_freq.set_visible(True)
                 
                 line.set_label(ch_name)
-                # MOVED TO LOWER RIGHT
-                ax.legend(loc='lower right', fontsize='small')
+                ax.legend(loc='upper right', fontsize='small')
                 ax.set_xlim(0, self.window_size)
                 
                 if data.size > 0:
@@ -305,8 +304,7 @@ class LabChartNavigator:
                     
                     ax_freq.plot(freq_l, freqs, color='purple', lw=1, label=f"FFT: {ch_name}")
                     ax_freq.fill_between(freq_l, freqs, color='purple', alpha=0.3)
-                    # LEGEND ADDED HERE
-                    ax_freq.legend(loc='lower right', fontsize='small')
+                    ax_freq.legend(loc='upper right', fontsize='small')
                     ax_freq.set_xlim(0, 50) 
                     
                 elif self.freq_mode == 2: # SPECGRAM
@@ -317,7 +315,7 @@ class LabChartNavigator:
                         )
                         # Add a fake line just to get a legend entry
                         ax_freq.plot([], [], color='black', label=f"Spec: {ch_name}")
-                        ax_freq.legend(loc='lower right', fontsize='small')
+                        ax_freq.legend(loc='upper right', fontsize='small')
                         ax_freq.set_yticks([])
                     except:
                         pass
@@ -421,7 +419,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_47131_6Hr_May-29-25.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_60657_4Hr_Aug-12-25.npz"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:
