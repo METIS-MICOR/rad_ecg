@@ -1,17 +1,27 @@
-from scipy.signal import find_peaks
-from pathlib import Path, PurePath
-from numba import cuda
+import stumpy
 import numpy as np
-from support import logger, console, log_time
-from setup_globals import walk_directory
+from numba import cuda
+from pathlib import Path
 from utils import segment_ECG
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from setup_globals import walk_directory
+from support import logger, console, log_time
+from scipy.stats import wasserstein_distance
+from scipy.signal import find_peaks, stft, welch
 from rich import print
 from rich.tree import Tree
 from rich.text import Text
 from rich.filesize import decimal
 from rich.markup import escape
-
-DTYPES = []
+from rich.progress import (
+    Progress,
+    BarColumn,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+    TimeElapsedColumn
+)
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
@@ -61,27 +71,224 @@ class SignalDataLoader:
 
 class miniRAD():
     def __init__(self, npz_path):
-        # 1. Load Data
+        # 1. load data / params
         self.loader = SignalDataLoader(npz_path)
         self.full_data = self.loader.full_data
         self.channels = self.loader.channels
-        self.dtypes = DTYPES
-        # 2. Choose Stream
+        self.fs = 1000.00 #Hz
+        self.windowsize = 30
+        self.lead = self.pick_lead()
+        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.results = []
+
+    def pick_lead(self):
+        tree = Tree(
+            f":select channel:",
+            guide_style="bold bright_blue",
+        )
+        for idx, channel in enumerate(self.channels):
+            tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
+        print(tree)
+        question = "What channel would you like to load?\n"
+        file_choice = console.input(f"{question}")
+        if file_choice.isnumeric():
+            lead_to_load = self.channels[int(file_choice)]
+            #check output directory exists
+            print(f"lead {lead_to_load} loaded")
+            return lead_to_load
         
-        # 3. section signal
-        self.sections = self.section_ecgs()
-
-    def section_ecgs(self):
-        pass
-
+        else:
+            raise ValueError("Please restart and select an integer of the file you'd like to import")
+        
     def run_stump(self):
-        pass
-        #Use rich progbar as a measure for the stump routine. 
-        #then have it launch mpl
+        """
+        Iterates through signal sections, checks for distribution shifts,
+        calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
+        """
+        # Threshold for Wasserstein distance to consider distributions "similar"
+        WD_THRESHOLD = 0.05 
+        
+        previous_dist = None
+        prog = Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("{task.percentage:>3.0f}%"),
+            TimeRemainingColumn(),
+            console=console
+        )
+        with prog as progress:
+            task = progress.add_task("[cyan]Processing Sections...", total=len(self.sections))
+            for i, section in enumerate(self.sections):
+                start = section[0]
+                end = section[1]
+                sig_section = self.full_data[self.lead][start:end].flatten().astype(np.float64)
 
-    def STFT(self):
-        #For this, lets update the distibution matching to Wasserbein
-        pass
+                # 1. Calculate Distribution (STFT -> PSD)
+                current_dist = self.STFT(sig_section)
+                
+                # 2. Check Distribution Shift (Skip first section)
+                if i > 0 and previous_dist is not None:
+                    wd = wasserstein_distance(previous_dist, current_dist)
+                    
+                    if wd > WD_THRESHOLD:
+                        # Distribution shift detected - skip extraction or flag
+                        logger.warning(f"Section {i}: Major distribution shift detected (WD: {wd:.4f}). Skipping extraction.")
+                        previous_dist = current_dist
+                        progress.advance(task)
+                        continue
+                
+                # Update previous distribution for next iteration
+                previous_dist = current_dist
+                
+                # 3. Extraction: Find R-Peaks to determine 'm'
+                # Distance is ~200ms in samples (0.2 * 1000) to avoid T-wave detection
+                peaks, _ = find_peaks(
+                    sig_section, 
+                    # height=np.mean(sig_section),
+                    height = np.percentile(sig_section, 80),     #90 -> stock
+                    prominence = np.percentile(sig_section, 90), #95 -> stock
+                    distance=int(self.fs * 0.2) 
+                )
+                
+                if len(peaks) < 2:
+                    logger.warning(f"Section {i}: Not enough peaks to calculate motif length 'm'. Skipping.")
+                    progress.advance(task)
+                    continue
+
+                # Calculate average R-to-R interval
+                r_r_intervals = np.diff(peaks)
+                avg_rr = np.mean(r_r_intervals)
+                m = int(avg_rr) # Window size for Stumpy
+                
+                # Safety check for m
+                if m < 3 or m >= len(sig_section):
+                    progress.advance(task)
+                    continue
+
+                # 4. Matrix Profile via GPU Stump
+                # stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
+                try:
+                    mp = stumpy.gpu_stump(sig_section, m=m)
+                    
+                    # 5. Identify Major Discord (Anomaly)
+                    # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
+                    discord_idx = np.argsort(mp[:, 0])[-1]
+                    discord_dist = mp[discord_idx, 0]
+                    
+                    # Store result
+                    self.results.append({
+                        'section_idx': i,
+                        'm': m,
+                        'discord_index': discord_idx,
+                        'discord_score': discord_dist,
+                        'wasserstein_metric': wd if i > 0 else 0.0
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"GPU Stump failed on section {i}: {e}")
+
+                progress.advance(task)
+        
+        # Summary Output
+        if self.results:
+            console.print(f"[bold green]Processing Complete.[/] Analyzed {len(self.results)} valid sections.")
+            # Simple list of top 3 discords found across all sections
+            sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)
+            console.print("[bold]Top 3 Global Discords found:[/]")
+            for d in sorted_discords[:3]:
+                console.print(f"Section {d['section_idx']} | Score: {d['discord_score']:.2f} | m: {d['m']}")
+        else:
+            console.print("[bold red]No valid sections processed.[/]")
+
+    def STFT(self, signal_section):
+        """
+        Runs an STFT over the section and returns a normalized probability distribution 
+        (Power Spectral Density) for comparison via Wasserstein distance.
+        """
+        # Compute STFT
+        f, t, Zxx = stft(signal_section, fs=self.fs, nperseg=256)
+        
+        # Calculate Magnitude Spectrum
+        magnitude = np.abs(Zxx)
+        
+        # Collapse over time to get a frequency distribution (PSD-like) for the whole section
+        # We sum over the time axis
+        freq_dist = np.sum(magnitude, axis=1)
+        
+        # Normalize to sum to 1 to treat as a probability distribution for Wasserstein
+        if np.sum(freq_dist) > 0:
+            freq_dist = freq_dist / np.sum(freq_dist)
+        
+        return freq_dist
+    
+def plot_discords(self, top_n=5, pause_duration=4):
+        """
+        Iterates through the top N discords and displays them in a Matplotlib window
+        with the discord highlighted by a gray patch.
+        """
+        if not self.results:
+            console.print("[red]No results available to plot.[/]")
+            return
+
+        # Sort results to get the top discords
+        sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)[:top_n]
+        
+        console.print(f"[bold yellow]Starting playback of top {len(sorted_discords)} discords...[/]")
+        
+        plt.ion() # Turn on interactive mode
+        fig, ax = plt.subplots(figsize=(14, 6))
+        
+        for i, res in enumerate(sorted_discords):
+            try:
+                # 1. Retrieve the data for this section
+                sec_idx = res['section_idx']
+                start_idx = self.sections[sec_idx][0]
+                end_idx = self.sections[sec_idx][1]
+                data = self.full_data[self.lead][start_idx:end_idx]
+                
+                # 2. Clear and Plot Signal
+                ax.clear()
+                ax.plot(data, color='black', linewidth=1, label='ECG Signal')
+                ax.set_xlim(0, len(data))
+                
+                # 3. Highlight the Discord
+                discord_start = res['discord_index']
+                m = res['m']
+                
+                # Create a gray rectangle patch
+                # Height is based on min/max of the data to cover the vertical area
+                y_min, y_max = np.min(data), np.max(data)
+                height = y_max - y_min
+                rect = patches.Rectangle(
+                    (discord_start, y_min), 
+                    m, 
+                    height, 
+                    linewidth=1, 
+                    edgecolor='red', 
+                    facecolor='gray', 
+                    alpha=0.5, 
+                    label='Discord Motif'
+                )
+                ax.add_patch(rect)
+                
+                # 4. Decoration
+                ax.set_title(f"Discord Rank #{i+1} | Section {sec_idx} | Score: {res['discord_score']:.2f}")
+                ax.set_xlabel("Samples")
+                ax.set_ylabel("Amplitude")
+                ax.legend(loc='upper right')
+                
+                # 5. Render and Pause
+                plt.draw()
+                console.print(f"Displaying Discord #{i+1} (Section {sec_idx})...")
+                plt.pause(pause_duration)
+                
+            except Exception as e:
+                logger.error(f"Error plotting discord {i}: {e}")
+
+        plt.ioff() # Turn off interactive mode
+        plt.close()
+        console.print("[bold green]Playback complete.[/]")
 
 def load_choices(fp:str):
     try:
@@ -118,7 +325,7 @@ def main():
         selected = load_choices(fp)
         rad = miniRAD(str(selected))
         rad.run_stump()
-        #rad.plot_discords()
+        rad.plot_discords(top_n=5)
 
 if __name__ == "__main__":
     main()
