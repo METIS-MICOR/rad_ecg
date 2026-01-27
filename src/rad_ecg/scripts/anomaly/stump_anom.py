@@ -4,7 +4,7 @@ import numpy as np
 import setup_globals
 from numba import cuda
 from collections import deque
-from support import logger, console, log_time
+from scripts.support import logger, console, log_time
 
 def group_numbers(arr, delta:int=10):
     if not isinstance(arr, np.ndarray):

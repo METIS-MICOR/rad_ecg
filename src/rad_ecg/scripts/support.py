@@ -18,7 +18,7 @@ from rich.progress import (
     TimeElapsedColumn)
 from rich.console import Console
 from rich.logging import RichHandler
-from software.lib_ebm.pyebmreader import ebmreader
+from lib_ebm.pyebmreader import ebmreader
 
 ################################# Logger functions ####################################
 #FUNCTION Logging Futures

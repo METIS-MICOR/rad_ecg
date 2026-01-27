@@ -61,7 +61,7 @@ def load_signal_data(file_path:str):
     try:
         match file_type:
             case "ebm": 
-                from software.lib_ebm.pyebmreader import ebmreader
+                from lib_ebm.pyebmreader import ebmreader
                 record, header = ebmreader(
                     filepath = file_path,
                     onlyheader = False
@@ -157,9 +157,10 @@ def load_structures(source:str, datafile:Path):
 
         configs["cam_name"] = datafile.name
         record, header = load_signal_data(configs["cam"])
-        
-        #ECG data
+
+        #Match filetype (could also use suffix)
         match datafile.name[datafile.name.rindex(".") + 1:]:
+            #ECG data
             case "hea":
                 #Signal
                 wave = record.p_signal
@@ -327,8 +328,6 @@ def walk_directory(directory: Path, tree: Tree) -> None:
         # Remove hidden files
         if path.name.startswith("."):
             continue
-        # List the CAM folders
-        #TODO - might need to restructure this
         if path.is_dir():
             style = "dim" if path.name.startswith("__") else ""
             file_size = getfoldersize(path)
@@ -351,13 +350,16 @@ def walk_directory(directory: Path, tree: Tree) -> None:
                 icon = "🤯  "
             elif path.suffix == ".ebm":
                 icon = "🔫 "
+            elif path.suffix == ".npz":
+                icon = "🔫 "
+
         #     elif path.suffix == ".mib":
         #         icon = "👽 "
         #     elif path.suffix == ".zip":
         #         icon = "🤐 "
         #     else:
         #         icon = "📄 "
-        #     tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
+            tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
         
         idx += 1    
     return paths

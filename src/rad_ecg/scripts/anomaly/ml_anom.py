@@ -7,7 +7,7 @@ import setup_globals
 from os.path import exists
 from itertools import cycle, chain
 from collections import Counter
-from support import log_time, console, logger
+from scripts.support import log_time, console, logger
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D

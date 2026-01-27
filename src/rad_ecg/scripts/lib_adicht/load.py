@@ -15,33 +15,24 @@ class SignalDataLoader:
         self.full_data = self._stitch_blocks()
 
     def _identify_and_sort_channels(self):
-        # robustly extract prefix before '_block_'
+        """
+        Identifies unique channel names from NPZ keys and returns them 
+        in a deterministic (alphabetical) order.
+        """
         raw_names = set()
+        
         for k in self.files:
+            # Extract channel name from keys like 'ECG_block_1', 'HR_block_0'
             if '_block_' in k:
-                raw_names.add(k.split('_block_')[0])
+                name = k.split('_block_')[0]
+                raw_names.add(name)
             else:
-                raw_names.add(k) # Fallback if naming convention differs
+                # Catch-all for keys that don't follow the block naming convention
+                raw_names.add(k)
         
-        raw_list = list(raw_names)
-        
-        # The specific order you requested
-        preferred_order = [
-            'ECG', 'HR', 'MAP', 'Temperature', 'LV_Magnitude', 'LV_Phase', 
-            'LV_Pressure', 'LV_Volume', 'DBP', 'SBP', 
-            'Distal_Aortic_Pressure', 'Proximal_Aortic_Pressure', 
-            'Venous_Pressure', 'Expired__CO2'
-        ]
-        
-        # 1. Select found channels that are in the preferred list, in order
-        sorted_channels = [c for c in preferred_order if c in raw_list]
-        
-        # 2. Append any remaining channels that weren't in the preferred list (sorted alpha)
-        remaining = sorted([c for c in raw_list if c not in preferred_order])
-        sorted_channels.extend(remaining)
-        
-        return sorted_channels
-
+        # Sort alphabetically to ensure the plot labels consistently map to the data indices
+        return sorted(list(raw_names))
+    
     def _stitch_blocks(self):
         full_data = {}
         for ch in self.channels:
@@ -170,7 +161,7 @@ class LabChartNavigator:
             alert = ax.text(0.98, 0.1, "RESCALED", transform=ax.transAxes, 
                             color='red', fontsize=8, ha='right', va='top', 
                             fontweight='bold', visible=False)
-            
+
             self.axes_pool.append(ax)
             self.plot_lines.append(line)
             self.alert_texts.append(alert)
@@ -361,14 +352,44 @@ class LabChartNavigator:
 
     def next_page(self, event):
         if self.current_page < self.total_pages - 1:
-            self.current_page += 1
-            self.load_page_content()
+            self._safe_page_update(1)
 
     def prev_page(self, event):
         if self.current_page > 0:
-            self.current_page -= 1
-            self.load_page_content()
+            self._safe_page_update(-1)
 
+    def _safe_page_update(self, direction):
+        # 1. Stop the animation to prevent the loop from overwriting our changes
+        if hasattr(self, 'ani') and self.ani.event_source:
+            self.ani.event_source.stop()
+
+        # 2. Update State
+        self.current_page += direction
+        self.load_page_content()
+
+        # 3. Force a full draw to update the "Background" (Legends, Axis Labels)
+        # This refreshes the blit cache
+        self.fig.canvas.draw()
+        
+        # 4. Restart animation
+        if hasattr(self, 'ani') and self.ani.event_source:
+            self.ani.event_source.start()
+
+    def manual_rescale(self, event):
+        # Apply the same logic here to ensure axis ticks update immediately
+        if hasattr(self, 'ani') and self.ani.event_source:
+            self.ani.event_source.stop()
+
+        for line, data, ax, alert, _, _ in self.active_data_map:
+            view = data[self.current_pos : self.current_pos + self.window_size]
+            self._apply_scale(ax, view)
+            alert.set_visible(False)
+        
+        self.fig.canvas.draw()
+        
+        if hasattr(self, 'ani') and self.ani.event_source:
+            self.ani.event_source.start()
+    
     def on_click_jump(self, event):
         if event.inaxes == self.nav_ax:
             self.current_pos = int(event.xdata)
@@ -419,7 +440,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_60657_4Hr_Aug-12-25.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_60653_4Hr_Aug-19-25.npz"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:
