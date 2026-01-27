@@ -81,6 +81,7 @@ class miniRAD():
         self.windowsize = 30
         self.lead = self.pick_lead()
         self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)#[:200]
+        self.gpu_devices = []
         self.results = []
 
     def pick_lead(self):
@@ -109,18 +110,27 @@ class miniRAD():
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
         WD_THRESHOLD = 0.05 
-        
         previous_dist = None
+
+        try:
+            self.gpu_devices = [device.id for device in cuda.list_devices()]
+        except Exception:
+            self.gpu_devices = []
+
+        if self.gpu_devices:
+            gpu_indicator = "[bold green]GPU[/]"
+        else:
+            gpu_indicator = "[bold red]GPU[/]"
+
         prog = Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),
+            TextColumn(gpu_indicator), 
             BarColumn(),
             TextColumn("{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
             console=console
         )
-
-        gpu_devices = [device.id for device in cuda.list_devices()] 
         with prog as progress:
             task = progress.add_task("[cyan]Processing Sections...", total=len(self.sections))
             for i, section in enumerate(self.sections):
@@ -172,8 +182,11 @@ class miniRAD():
                 # 4. Matrix Profile via GPU Stump
                 # stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
                 try:
-                    mp = stumpy.gpu_stump(sig_section, m=m, device_id=gpu_devices)
-                    
+                    if self.gpu_devices:
+                        mp = stumpy.gpu_stump(sig_section, m=m, device_id=self.gpu_devices)
+                        #Maybe include a boolean here in the progress bar of GPU or not.  
+                    else:
+                        mp = stumpy.stump(sig_section, m=m, device_id=self.gpu_devices)
                     # 5. Identify Major Discord (Anomaly)
                     # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
                     discord_idx = np.argsort(mp[:, 0])[-1]
