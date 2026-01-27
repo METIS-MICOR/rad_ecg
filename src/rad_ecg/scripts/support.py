@@ -166,27 +166,26 @@ def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
 ################################# Saving Funcs ####################################
 #CLASS Numpy encoder
 class NumpyArrayEncoder(json.JSONEncoder):
-    """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized.
-    Source Code found here.  https://pynative.com/python-serialize-numpy-ndarray-into-json/
+    """Custom numpy JSON Encoder.  Takes in any type from an array and formats it to something that can be JSON serialized. Source Code found here. https://pynative.com/python-serialize-numpy-ndarray-into-json/
+    
     Args:
         json (object): Json serialized format
     """	
     def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        elif isinstance(obj, dict):
-            return obj.__dict__
-        elif isinstance(obj, str):
-            return str(obj)
-        elif isinstance(obj, datetime.datetime):
-            return datetime.datetime.strftime(obj, "%m-%d-%Y_%H-%M-%S")
-        else:
-            return super(NumpyArrayEncoder, self).default(obj)
-        
+        match obj:
+            case np.integer():
+                return int(obj)
+            case np.floating():
+                return float(obj)
+            case np.ndarray():
+                return obj.tolist()
+            case dict():
+                return obj.__dict__
+            case datetime.datetime():
+                return datetime.datetime.strftime(obj, "%m-%d-%Y_%H-%M-%S")
+            case _:
+                return super(NumpyArrayEncoder, self).default(obj)
+
 #FUNCTION save results
 def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bool=False):
     #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You

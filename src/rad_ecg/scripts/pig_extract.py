@@ -1,3 +1,4 @@
+import json
 import stumpy
 import numpy as np
 from numba import cuda
@@ -6,9 +7,9 @@ from utils import segment_ECG
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from setup_globals import walk_directory
-from support import logger, console, log_time
 from scipy.stats import wasserstein_distance
 from scipy.signal import find_peaks, stft, welch
+from support import logger, console, log_time, NumpyArrayEncoder
 from rich import print
 from rich.tree import Tree
 from rich.text import Text
@@ -72,13 +73,14 @@ class SignalDataLoader:
 class miniRAD():
     def __init__(self, npz_path):
         # 1. load data / params
-        self.loader = SignalDataLoader(npz_path)
+        self.npz_path = npz_path
+        self.loader = SignalDataLoader(str(self.npz_path))
         self.full_data = self.loader.full_data
         self.channels = self.loader.channels
         self.fs = 1000.00 #Hz
         self.windowsize = 30
         self.lead = self.pick_lead()
-        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)#[:200]
         self.results = []
 
     def pick_lead(self):
@@ -117,6 +119,8 @@ class miniRAD():
             TimeRemainingColumn(),
             console=console
         )
+
+        gpu_devices = [device.id for device in cuda.list_devices()] 
         with prog as progress:
             task = progress.add_task("[cyan]Processing Sections...", total=len(self.sections))
             for i, section in enumerate(self.sections):
@@ -145,9 +149,8 @@ class miniRAD():
                 # Distance is ~200ms in samples (0.2 * 1000) to avoid T-wave detection
                 peaks, _ = find_peaks(
                     sig_section, 
-                    # height=np.mean(sig_section),
-                    height = np.percentile(sig_section, 80),     #90 -> stock
-                    prominence = np.percentile(sig_section, 90), #95 -> stock
+                    height = np.percentile(sig_section, 90),     #90 -> stock
+                    prominence = np.percentile(sig_section, 95), #95 -> stock
                     distance=int(self.fs * 0.2) 
                 )
                 
@@ -169,7 +172,7 @@ class miniRAD():
                 # 4. Matrix Profile via GPU Stump
                 # stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
                 try:
-                    mp = stumpy.gpu_stump(sig_section, m=m)
+                    mp = stumpy.gpu_stump(sig_section, m=m, device_id=gpu_devices)
                     
                     # 5. Identify Major Discord (Anomaly)
                     # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
@@ -222,7 +225,7 @@ class miniRAD():
         
         return freq_dist
     
-def plot_discords(self, top_n=5, pause_duration=4):
+    def plot_discords(self, top_n=5, pause_duration=4):
         """
         Iterates through the top N discords and displays them in a Matplotlib window
         with the discord highlighted by a gray patch.
@@ -238,7 +241,6 @@ def plot_discords(self, top_n=5, pause_duration=4):
         
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(14, 6))
-        
         for i, res in enumerate(sorted_discords):
             try:
                 # 1. Retrieve the data for this section
@@ -290,6 +292,25 @@ def plot_discords(self, top_n=5, pause_duration=4):
         plt.close()
         console.print("[bold green]Playback complete.[/]")
 
+    def save_results(self):
+        """
+        Saves the analysis results to a JSON file in the same directory as the source file.
+        """
+        if not self.results:
+            logger.warning("No results to save.")
+            return
+
+        # Generate output filename: original_name + _results.json
+        out_name = self.npz_path.stem + "_results.json"
+        out_path = self.npz_path.parent / out_name
+        
+        try:
+            with open(out_path, 'w') as f:
+                json.dump(self.results, f, cls=NumpyArrayEncoder, indent=4)
+            console.print(f"[bold green]Results successfully saved to:[/]\n[link file://{out_path}]{out_path}[/link]")
+        except Exception as e:
+            logger.error(f"Failed to save results to JSON: {e}")
+
 def load_choices(fp:str):
     try:
         tree = Tree(
@@ -323,8 +344,9 @@ def main():
         logger.warning(f"Warning: File {fp} not found.")
     else:
         selected = load_choices(fp)
-        rad = miniRAD(str(selected))
+        rad = miniRAD(selected)
         rad.run_stump()
+        rad.save_results()
         rad.plot_discords(top_n=5)
 
 if __name__ == "__main__":
