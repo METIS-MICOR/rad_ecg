@@ -70,7 +70,7 @@ class SignalDataLoader:
                     full_data[ch] = np.array([])
         return full_data
 
-class miniRAD():
+class MiniRAD():
     def __init__(self, npz_path):
         # 1. load data / params
         self.npz_path = npz_path
@@ -161,7 +161,7 @@ class miniRAD():
                     sig_section, 
                     height = np.percentile(sig_section, 90),     #90 -> stock
                     prominence = np.percentile(sig_section, 95), #95 -> stock
-                    distance=int(self.fs * 0.2) 
+                    distance = int(self.fs * 0.2) 
                 )
                 
                 if len(peaks) < 2:
@@ -184,9 +184,9 @@ class miniRAD():
                 try:
                     if self.gpu_devices:
                         mp = stumpy.gpu_stump(sig_section, m=m, device_id=self.gpu_devices)
-                        #Maybe include a boolean here in the progress bar of GPU or not.  
                     else:
                         mp = stumpy.stump(sig_section, m=m, device_id=self.gpu_devices)
+                    
                     # 5. Identify Major Discord (Anomaly)
                     # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
                     discord_idx = np.argsort(mp[:, 0])[-1]
@@ -304,7 +304,18 @@ class miniRAD():
         plt.ioff() # Turn off interactive mode
         plt.close()
         console.print("[bold green]Playback complete.[/]")
-
+    def load_results(self, json_path):
+        """
+        Loads analysis results from a JSON file.
+        """
+        try:
+            with open(json_path, 'r') as f:
+                self.results = json.load(f)
+            console.print(f"[bold green]Successfully loaded {len(self.results)} entries from results file.[/]")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load results from {json_path}: {e}")
+            return False
     def save_results(self):
         """
         Saves the analysis results to a JSON file in the same directory as the source file.
@@ -351,17 +362,21 @@ def load_choices(fp:str):
 def main():
     #target data folder goes here.
     fp = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted" #converted/SHARC2_60653_4Hr_Aug-19-25.npz"
-      
+    
     #Check file existence, load mini detection scheme.  
     if not fp.exists():
         logger.warning(f"Warning: File {fp} not found.")
     else:
         selected = load_choices(fp)
-        rad = miniRAD(selected)
-        rad.run_stump()
-        rad.save_results()
+        fp_save = Path(selected).parent / (Path(selected).stem + "_results.json")
+        rad = MiniRAD(selected)
+        if fp_save.exists():
+            rad.load_results(fp_save)
+        else:
+            rad.run_stump()
+            rad.save_results()
+        
         rad.plot_discords(top_n=5)
-
 if __name__ == "__main__":
     main()
 
