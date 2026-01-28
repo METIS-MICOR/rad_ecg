@@ -1,5 +1,6 @@
 import gc
 import json
+import utils
 import stumpy
 import numpy as np
 from numba import cuda
@@ -296,14 +297,12 @@ class PigRAD():
         with the discord highlighted by a gray patch.
         """
         if not self.results:
-            console.print("[red]No results available to plot.[/]")
+            logger.warning("No results available to plot.")
             return
 
         # Sort results to get the top discords
         sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)[:top_n]
-        
         console.print(f"[bold yellow]Starting playback of top {len(sorted_discords)} discords...[/]")
-        
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(14, 6))
         for i, res in enumerate(sorted_discords):
@@ -316,13 +315,12 @@ class PigRAD():
                 
                 # 2. Clear and Plot Signal
                 ax.clear()
-                ax.plot(data, color='black', linewidth=1, label='ECG Signal')
-                ax.set_xlim(0, len(data))
+                ax.plot(range(start_idx, end_idx), data, color='black', linewidth=1, label='ECG Signal')
+                ax.set_xlim(start_idx, end_idx)
                 
                 # 3. Highlight the Discord
-                discord_start = res['discord_index']
+                discord_start = res['discord_index'] + start_idx
                 m = res['m']
-                
                 # Create a gray rectangle patch
                 # Height is based on min/max of the data to cover the vertical area
                 y_min, y_max = np.min(data), np.max(data)
@@ -338,18 +336,17 @@ class PigRAD():
                     label='Discord Motif'
                 )
                 ax.add_patch(rect)
-                
                 # 4. Decoration
-                ax.set_title(f"Discord Rank #{i+1} | Section {sec_idx} | Score: {res['discord_score']:.2f}")
-                ax.set_xlabel("Samples")
-                ax.set_ylabel("Amplitude")
+                ax.set_title(f"Discord Rank #{i+1} | Section {sec_idx} | Score: {res['discord_score']:.2f} | M: {m}")
+                ax.set_xlabel("Time index")
+                ax.set_ylabel("Amplitude (mV)")
                 ax.legend(loc='upper right')
-                
+                ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
                 # 5. Render and Pause
                 plt.draw()
                 console.print(f"Displaying Discord #{i+1} (Section {sec_idx})...")
                 plt.pause(pause_duration)
-                
+
             except Exception as e:
                 logger.error(f"Error plotting discord {i}: {e}")
 
