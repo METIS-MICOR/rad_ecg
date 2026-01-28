@@ -78,9 +78,9 @@ class MiniRAD():
         self.full_data = self.loader.full_data
         self.channels = self.loader.channels
         self.fs = 1000.00 #Hz
-        self.windowsize = 30
+        self.windowsize = 20
         self.lead = self.pick_lead()
-        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)#[:200]
+        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.gpu_devices = []
         self.results = []
 
@@ -150,6 +150,7 @@ class MiniRAD():
                         logger.warning(f"Section {i}: Major distribution shift detected (WD: {wd:.4f}). Skipping extraction.")
                         previous_dist = current_dist
                         progress.advance(task)
+                        self.sections[i, 2] = 0
                         continue
                 
                 # Update previous distribution for next iteration
@@ -176,16 +177,16 @@ class MiniRAD():
                 
                 # Safety check for m
                 if m < 3 or m >= len(sig_section):
+                    logger.warning(f"m {m} is out of the window 3 or {len(sig_section)}")
                     progress.advance(task)
                     continue
 
-                # 4. Matrix Profile via GPU Stump
-                # stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
+                # 4. Matrix Profile via GPU Stump.  stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
                 try:
                     if self.gpu_devices:
                         mp = stumpy.gpu_stump(sig_section, m=m, device_id=self.gpu_devices)
                     else:
-                        mp = stumpy.stump(sig_section, m=m, device_id=self.gpu_devices)
+                        mp = stumpy.stump(sig_section, m=m)
                     
                     # 5. Identify Major Discord (Anomaly)
                     # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
@@ -203,7 +204,9 @@ class MiniRAD():
                     
                 except Exception as e:
                     logger.error(f"GPU Stump failed on section {i}: {e}")
-
+                if i // 10 == 0:
+                    #Every 10 sections pop in a print
+                    logger.info(f"section {i}")
                 progress.advance(task)
         
         # Summary Output
@@ -316,6 +319,7 @@ class MiniRAD():
         except Exception as e:
             logger.error(f"Failed to load results from {json_path}: {e}")
             return False
+        
     def save_results(self):
         """
         Saves the analysis results to a JSON file in the same directory as the source file.
@@ -358,10 +362,11 @@ def load_choices(fp:str):
         return file_to_load
     else:
         raise ValueError("Please restart and select an integer of the file you'd like to import")
-        
+
+@log_time
 def main():
     #target data folder goes here.
-    fp = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted" #converted/SHARC2_60653_4Hr_Aug-19-25.npz"
+    fp = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted"
     
     #Check file existence, load mini detection scheme.  
     if not fp.exists():
@@ -375,8 +380,8 @@ def main():
         else:
             rad.run_stump()
             rad.save_results()
-        
-        rad.plot_discords(top_n=5)
+        rad.plot_discords(top_n=8)
+
 if __name__ == "__main__":
     main()
 

@@ -71,7 +71,7 @@ def get_logger(console:Console, log_dir:Path)->logging.Logger:
     logger.addHandler(file_handler)
     #Load rich handler for how to display the log in the console
     rich_handler = get_rich_handler(console)
-    rich_handler.setLevel(logging.CRITICAL)
+    rich_handler.setLevel(logging.INFO)
     logger.addHandler(rich_handler)
     logger.propagate = False
     return logger
