@@ -10,6 +10,7 @@ from setup_globals import walk_directory
 from scipy.stats import wasserstein_distance
 from scipy.signal import find_peaks, stft, welch
 from support import logger, console, log_time, NumpyArrayEncoder
+import warnings
 from rich import print
 from rich.tree import Tree
 from rich.text import Text
@@ -23,6 +24,9 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn
 )
+#Ignore numba error
+from numba.core.errors import NumbaPerformanceWarning
+warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
@@ -81,10 +85,13 @@ class PigRAD():
         self.windowsize :int = 20 #size of window 
         self.lead       :str = self.pick_lead()
         self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        #Add HR
+        self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices:list = []     #available cuda devices
         self.results    :list = []     #Stumpy results container
         self.shifts     :list = []     #Track distribution shifts
         self.plot_shifts:bool = True   
+        self.p_errors   :bool = True   
 
     def pick_lead(self):
         tree = Tree(
@@ -112,7 +119,7 @@ class PigRAD():
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
-        WD_THRESHOLD = 0.05 
+        WD_THRESHOLD = 0.03
         previous_dist = None
 
         try:
@@ -177,9 +184,11 @@ class PigRAD():
                     distance = int(self.fs * 0.2) 
                 )
                 
-                if len(peaks) < 2:
+                if len(peaks) < 4:
                     logger.warning(f"Section {i}: Not enough peaks to calculate motif length 'm'. Skipping.")
-                    self.plot_errors(i, peaks, peak_info)
+                    if self.p_errors:
+                        self.plot_peaks(i, peaks, peak_info)
+                    self.sections[i, 2] = 0
                     progress.advance(task)
                     continue
 
@@ -187,12 +196,21 @@ class PigRAD():
                 r_r_intervals = np.diff(peaks)
                 avg_rr = np.mean(r_r_intervals)
                 m = int(avg_rr) # Window size for Stumpy
-                
-                # Safety check for m
+
+                # Safety check for m.  make sure its within the bounds
                 if m < 3 or m >= len(sig_section):
                     logger.warning(f"m {m} is out of the window 3 or {len(sig_section)}")
                     progress.advance(task)
                     continue
+
+                # Store heart rate
+                RR_diffs = np.diff(peaks)
+                RR_diffs_time = np.abs(np.diff((RR_diffs / self.fs) * 1000)) #Formats to time domain in milliseconds
+                HR = np.round((60 / (RR_diffs / self.fs)), 2) #Formatted for BPM
+                Avg_HR = np.round(np.mean(HR), 2)
+                RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
+                self.sections[i, 2] = Avg_HR
+                self.sections[i, 3] = RMSSD
 
                 # 4. Matrix Profile via GPU Stump.  stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
                 try:
@@ -209,6 +227,8 @@ class PigRAD():
                     # Store result
                     self.results.append({
                         'section_idx': i,
+                        'hr':HR,
+                        'rmssd':RMSSD,
                         'm': m,
                         'discord_index': discord_idx,
                         'discord_score': discord_dist,
@@ -218,7 +238,8 @@ class PigRAD():
                 except Exception as e:
                     logger.error(f"GPU Stump failed on section {i}: {e}")
                 if i % 100 == 0:
-                    #Every 10 sections pop in a print
+                    #Every 100 sections pop in a print
+                    self.plot_peaks(i, peaks, peak_info)
                     logger.info(f"section {i}")
                 # Mark section as valid and advance progbar
                 self.sections[i, 2] = 1
@@ -361,20 +382,20 @@ class PigRAD():
         plt.close()
         console.print("[bold green]Distribution shift replay complete.[/]")
 
-    def plot_errors(self, i:int, peaks:np.array, peak_info:dict, pause_duration:int=3):
+    def plot_peaks(self, i:int, peaks:np.array, peak_info:dict, pause_duration:int=3):
         """
-        Plots the R peak search when minimal peaks are found
+        Plots the scipy.find_peaks R peak search
         """
-        console.print("[bold yellow]Displaying faulty R peak search[/]")
 
-        plt.ion()
+        logger.info(f"section {i}: displaying R peaks")
+
         fig, ax = plt.subplots(figsize=(10, 6))
         try:
             #Plot the main wave
             start = self.sections[i, 0]
-            end = self.sections[i, 0]
-            ax.plot(range(self.sections[start], self.sections[end]), self.full_data[self.lead][start:end], label='Waveform', color='blue', alpha=0.6, linewidth=2)
-            ax.plot(peaks, label='R peaks', color='red', alpha=0.8, linestyle='--')
+            end = self.sections[i, 1]
+            ax.plot(range(start, end), self.full_data[self.lead][start:end], label='Waveform', color='blue', alpha=0.6, linewidth=2)
+            ax.scatter(peaks + start, peak_info['peak_heights'], marker='D', color='red', label='R peaks')
             ax.set_title(f"Faulty R peaks")
             ax.set_xlabel("Time index")
             ax.set_ylabel("Amplitude (mV)")
@@ -386,9 +407,7 @@ class PigRAD():
         except Exception as e:
             logger.error(f"Error plotting R peaks: {e}")
 
-        plt.ioff()
         plt.close()
-        console.print("[bold green]Distribution shift replay complete.[/]")
 
     def load_results(self, json_path):
         """
