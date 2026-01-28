@@ -84,11 +84,10 @@ class PigRAD():
         self.full_data  :dict = self.loader.full_data
         self.channels   :list = self.loader.channels
         self.fs         :float = 1000.00 #Hz
-        self.windowsize :int = 20 #size of window 
+        self.windowsize :int = 20  #size of section window 
         self.lead       :str = self.pick_lead()
-        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)[:1000]
-        #Add HR, RMSSD cols
-        self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
+        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1) #Add HR, RMSSD cols
         self.gpu_devices:list = []     #available cuda devices
         self.results    :list = []     #Stumpy results container
         self.shifts     :list = []     #Track distribution shifts
@@ -183,7 +182,7 @@ class PigRAD():
                     sig_section, 
                     height = np.percentile(sig_section, 90),     #90 -> stock
                     prominence = np.percentile(sig_section, 95), #95 -> stock
-                    distance = int(self.fs * 0.2) 
+                    distance = int(self.fs * 0.3)                #300 bpm limit for porcine
                 )
                 
                 if len(peaks) < 4:
@@ -232,8 +231,8 @@ class PigRAD():
                     # Store result
                     self.results.append({
                         'section_idx': i,
-                        'hr':HR,
-                        'rmssd':RMSSD,
+                        'hr':int(Avg_HR),
+                        'rmssd':round(RMSSD, 5),
                         'm': m,
                         'discord_index': discord_idx,
                         'discord_score': discord_dist,
@@ -246,7 +245,7 @@ class PigRAD():
                 if i % 100 == 0:
                     #Every 100 sections pop in a print
                     self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
-                    logger.info(f"section {i} Current HR: {Avg_HR}")
+                    logger.info(f"section {i} Current HR: {Avg_HR:.0f}")
 
                 #Memory cleanup
                 del sig_section
@@ -254,7 +253,9 @@ class PigRAD():
                     del mp
                 #Take out the garbage every 50 loops
                 if i % 50 == 0:
+                    plt.close('all')
                     gc.collect()
+                    logger.info("garbage collected")
                 # Mark section as valid and advance progbar
                 self.sections[i, 2] = 1
                 progress.update(task, advance=1, gpu=gpu_indicator)
@@ -351,7 +352,7 @@ class PigRAD():
                 logger.error(f"Error plotting discord {i}: {e}")
 
         plt.ioff() # Turn off interactive mode
-        plt.close()
+        plt.close(fig)
         console.print("[bold green]Playback complete.[/]")
 
     def plot_distribution_shifts(self, pause_duration=3):
@@ -389,7 +390,7 @@ class PigRAD():
                 logger.error(f"Error plotting shift: {e}")
             
         plt.ioff()
-        plt.close()
+        plt.close(fig)
 
     def plot_rpeaks(self, i:int, peaks:np.array=None, peak_info:dict=None, with_scipy=False, pause_duration:int=3):
         """
@@ -409,6 +410,7 @@ class PigRAD():
                 ax.set_title(f"Section {i}")
             ax.set_xlabel("Time index")
             ax.set_ylabel("Amplitude (mV)")
+            ax.set_xticks(ax.get_xticks(), labels = utils.label_formatter(ax.get_xticks()) , rotation=-30)
             ax.legend()
             ax.grid(True, alpha=0.3)
             plt.draw()
