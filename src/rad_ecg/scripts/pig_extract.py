@@ -70,19 +70,21 @@ class SignalDataLoader:
                     full_data[ch] = np.array([])
         return full_data
 
-class MiniRAD():
+class PigRAD():
     def __init__(self, npz_path):
         # 1. load data / params
-        self.npz_path = npz_path
-        self.loader = SignalDataLoader(str(self.npz_path))
-        self.full_data = self.loader.full_data
-        self.channels = self.loader.channels
-        self.fs = 1000.00 #Hz
-        self.windowsize = 20
-        self.lead = self.pick_lead()
-        self.sections = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
-        self.gpu_devices = []
-        self.results = []
+        self.npz_path   :Path = npz_path
+        self.loader     :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        self.full_data  :dict = self.loader.full_data
+        self.channels   :list = self.loader.channels
+        self.fs         :float = 1000.00 #Hz
+        self.windowsize :int = 20 #size of window 
+        self.lead       :str = self.pick_lead()
+        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.gpu_devices:list = []     #available cuda devices
+        self.results    :list = []     #Stumpy results container
+        self.shifts     :list = []     #Track distribution shifts
+        self.plot_shifts:bool = True   
 
     def pick_lead(self):
         tree = Tree(
@@ -102,8 +104,9 @@ class MiniRAD():
         
         else:
             raise ValueError("Please restart and select an integer of the file you'd like to import")
-        
-    def run_stump(self):
+    
+    @log_time
+    def run_search(self):
         """
         Iterates through signal sections, checks for distribution shifts,
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
@@ -138,19 +141,28 @@ class MiniRAD():
                 end = section[1]
                 sig_section = self.full_data[self.lead][start:end].flatten().astype(np.float64)
 
-                # 1. Calculate Distribution (STFT -> PSD)
+                # 1. Calculate Distribution (STFT -> Magnitude spectrum)
                 current_dist = self.STFT(sig_section)
                 
                 # 2. Check Distribution Shift (Skip first section)
                 if i > 0 and previous_dist is not None:
+                    #Calc earth movers distance between distributions
                     wd = wasserstein_distance(previous_dist, current_dist)
                     
                     if wd > WD_THRESHOLD:
                         # Distribution shift detected - skip extraction or flag
                         logger.warning(f"Section {i}: Major distribution shift detected (WD: {wd:.4f}). Skipping extraction.")
+                        self.shifts.append({
+                            'section_idx': i,
+                            'wd': wd,
+                            'prev_dist': previous_dist.copy(),
+                            'curr_dist': current_dist.copy()}
+                        )
                         previous_dist = current_dist
-                        progress.advance(task)
+                        #Mark section invalid
                         self.sections[i, 2] = 0
+                        self.plot_distribution_shifts()
+                        progress.add_task(task)
                         continue
                 
                 # Update previous distribution for next iteration
@@ -158,7 +170,7 @@ class MiniRAD():
                 
                 # 3. Extraction: Find R-Peaks to determine 'm'
                 # Distance is ~200ms in samples (0.2 * 1000) to avoid T-wave detection
-                peaks, _ = find_peaks(
+                peaks, peak_info = find_peaks(
                     sig_section, 
                     height = np.percentile(sig_section, 90),     #90 -> stock
                     prominence = np.percentile(sig_section, 95), #95 -> stock
@@ -167,6 +179,7 @@ class MiniRAD():
                 
                 if len(peaks) < 2:
                     logger.warning(f"Section {i}: Not enough peaks to calculate motif length 'm'. Skipping.")
+                    self.plot_errors(i, peaks, peak_info)
                     progress.advance(task)
                     continue
 
@@ -204,9 +217,11 @@ class MiniRAD():
                     
                 except Exception as e:
                     logger.error(f"GPU Stump failed on section {i}: {e}")
-                if i // 10 == 0:
+                if i % 100 == 0:
                     #Every 10 sections pop in a print
                     logger.info(f"section {i}")
+                # Mark section as valid and advance progbar
+                self.sections[i, 2] = 1
                 progress.advance(task)
         
         # Summary Output
@@ -307,6 +322,74 @@ class MiniRAD():
         plt.ioff() # Turn off interactive mode
         plt.close()
         console.print("[bold green]Playback complete.[/]")
+
+    def plot_distribution_shifts(self, pause_duration=3):
+        """
+        Replays the distribution shifts detected during processing.
+        Plots the Previous (Baseline) vs Current (Shifted) Frequency Distribution.
+        """
+        shifts = self.shifts[-2:]
+        if not shifts:
+             console.print("[yellow]No major distribution shifts detected to replay.[/]")
+             return
+        
+        console.print("[bold yellow]Replaying Distribution Shifts...[/]")
+
+        plt.ion()
+        fig, ax = plt.subplots(figsize=(10, 6))
+        for event in shifts:
+            try:
+                ax.clear()
+                # Plot Previous Distribution (Baseline for this comparison)
+                ax.plot(event['prev_dist'], label='Previous Section', color='blue', alpha=0.6, linewidth=2)
+                # Plot Current Distribution (The Shift)
+                ax.plot(event['curr_dist'], label='Current Section (Shifted)', color='red', alpha=0.8, linestyle='--')
+                # Fill intersection/difference for visual effect
+                ax.fill_between(range(len(event['prev_dist'])), event['prev_dist'], event['curr_dist'], color='gray', alpha=0.2)
+                ax.set_title(f"Distribution Shift Detected @ Section {event['section_idx']} | Wasserstein Dist: {event['wd']:.4f}")
+                ax.set_xlabel("Frequency Bins")
+                ax.set_ylabel("Normalized Power/Probability")
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                plt.draw()
+                plt.pause(pause_duration)
+
+            except Exception as e:
+                logger.error(f"Error plotting shift: {e}")
+            
+        plt.ioff()
+        plt.close()
+        console.print("[bold green]Distribution shift replay complete.[/]")
+
+    def plot_errors(self, i:int, peaks:np.array, peak_info:dict, pause_duration:int=3):
+        """
+        Plots the R peak search when minimal peaks are found
+        """
+        console.print("[bold yellow]Displaying faulty R peak search[/]")
+
+        plt.ion()
+        fig, ax = plt.subplots(figsize=(10, 6))
+        try:
+            #Plot the main wave
+            start = self.sections[i, 0]
+            end = self.sections[i, 0]
+            ax.plot(range(self.sections[start], self.sections[end]), self.full_data[self.lead][start:end], label='Waveform', color='blue', alpha=0.6, linewidth=2)
+            ax.plot(peaks, label='R peaks', color='red', alpha=0.8, linestyle='--')
+            ax.set_title(f"Faulty R peaks")
+            ax.set_xlabel("Time index")
+            ax.set_ylabel("Amplitude (mV)")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            plt.draw()
+            plt.pause(pause_duration)
+
+        except Exception as e:
+            logger.error(f"Error plotting R peaks: {e}")
+
+        plt.ioff()
+        plt.close()
+        console.print("[bold green]Distribution shift replay complete.[/]")
+
     def load_results(self, json_path):
         """
         Loads analysis results from a JSON file.
@@ -363,7 +446,6 @@ def load_choices(fp:str):
     else:
         raise ValueError("Please restart and select an integer of the file you'd like to import")
 
-@log_time
 def main():
     #target data folder goes here.
     fp = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted"
@@ -374,11 +456,11 @@ def main():
     else:
         selected = load_choices(fp)
         fp_save = Path(selected).parent / (Path(selected).stem + "_results.json")
-        rad = MiniRAD(selected)
+        rad = PigRAD(selected)
         if fp_save.exists():
             rad.load_results(fp_save)
         else:
-            rad.run_stump()
+            rad.run_search()
             rad.save_results()
         rad.plot_discords(top_n=8)
 
