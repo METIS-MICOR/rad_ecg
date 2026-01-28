@@ -1,3 +1,4 @@
+import gc
 import json
 import stumpy
 import numpy as np
@@ -119,7 +120,8 @@ class PigRAD():
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
-        WD_THRESHOLD = 0.03
+        WD_THRESHOLD = 0.02
+        CPU_CUTOFF = 50000
         previous_dist = None
 
         try:
@@ -214,7 +216,8 @@ class PigRAD():
 
                 # 4. Matrix Profile via GPU Stump.  stumpy.gpu_stump returns the Matrix Profile (MP) and Matrix Profile Index (MPI)
                 try:
-                    if self.gpu_devices:
+                    use_gpu = self.gpu_devices and len(sig_section) > CPU_CUTOFF
+                    if use_gpu:
                         mp = stumpy.gpu_stump(sig_section, m=m, device_id=self.gpu_devices)
                     else:
                         mp = stumpy.stump(sig_section, m=m)
@@ -241,6 +244,13 @@ class PigRAD():
                     #Every 100 sections pop in a print
                     self.plot_peaks(i, peaks, peak_info)
                     logger.info(f"section {i}")
+                #Memory cleanup
+                del sig_section
+                if 'mp' in locals(): 
+                    del mp
+                #Take out the garbage every 50 loops
+                if i % 50 == 0:
+                    gc.collect()
                 # Mark section as valid and advance progbar
                 self.sections[i, 2] = 1
                 progress.advance(task)
