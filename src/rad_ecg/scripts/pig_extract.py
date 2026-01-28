@@ -86,7 +86,7 @@ class PigRAD():
         self.windowsize :int = 20 #size of window 
         self.lead       :str = self.pick_lead()
         self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)[:1000]
-        #Add HR, RMSSD
+        #Add HR, RMSSD cols
         self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices:list = []     #available cuda devices
         self.results    :list = []     #Stumpy results container
@@ -120,7 +120,7 @@ class PigRAD():
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
-        WD_THRESHOLD = 0.002
+        WD_THRESHOLD = 0.005
         CPU_CUTOFF = 50000
         previous_dist = None
 
@@ -245,7 +245,8 @@ class PigRAD():
                 if i % 100 == 0:
                     #Every 100 sections pop in a print
                     self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
-                    logger.info(f"section {i}")
+                    logger.info(f"section {i} Current HR: {Avg_HR}")
+
                 #Memory cleanup
                 del sig_section
                 if 'mp' in locals(): 
@@ -397,8 +398,6 @@ class PigRAD():
         """
         Plots the scipy.find_peaks R peak search
         """
-
-        logger.info(f"section {i}: displaying R peaks")
 
         fig, ax = plt.subplots(figsize=(10, 6))
         try:
