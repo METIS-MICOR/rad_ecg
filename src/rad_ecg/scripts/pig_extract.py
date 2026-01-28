@@ -85,8 +85,8 @@ class PigRAD():
         self.fs         :float = 1000.00 #Hz
         self.windowsize :int = 20 #size of window 
         self.lead       :str = self.pick_lead()
-        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
-        #Add HR
+        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)[:1000]
+        #Add HR, RMSSD
         self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices:list = []     #available cuda devices
         self.results    :list = []     #Stumpy results container
@@ -120,31 +120,29 @@ class PigRAD():
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
-        WD_THRESHOLD = 0.02
+        WD_THRESHOLD = 0.002
         CPU_CUTOFF = 50000
         previous_dist = None
 
         try:
             self.gpu_devices = [device.id for device in cuda.list_devices()]
+            gpu_indicator = "[bold green]GPU[/]"
         except Exception:
             self.gpu_devices = []
-
-        if self.gpu_devices:
-            gpu_indicator = "[bold green]GPU[/]"
-        else:
             gpu_indicator = "[bold red]GPU[/]"
 
         prog = Progress(
             SpinnerColumn(),
+            TimeElapsedColumn(),
             TextColumn("[progress.description]{task.description}"),
-            TextColumn(gpu_indicator), 
+            TextColumn("{task.fields[gpu]}"), 
             BarColumn(),
             TextColumn("{task.percentage:>3.0f}%"),
             TimeRemainingColumn(),
             console=console
         )
         with prog as progress:
-            task = progress.add_task("[cyan]Processing Sections...", total=len(self.sections))
+            task = progress.add_task("[cyan]Processing Sections...", total=len(self.sections), gpu=gpu_indicator)
             for i, section in enumerate(self.sections):
                 start = section[0]
                 end = section[1]
@@ -170,8 +168,9 @@ class PigRAD():
                         previous_dist = current_dist
                         #Mark section invalid
                         self.sections[i, 2] = 0
-                        self.plot_distribution_shifts()
-                        progress.add_task(task)
+                        self.plot_distribution_shifts(pause_duration=2)
+                        self.plot_rpeaks(i=i, pause_duration=2)
+                        progress.update(task, advance=1, gpu=gpu_indicator)
                         continue
                 
                 # Update previous distribution for next iteration
@@ -189,9 +188,9 @@ class PigRAD():
                 if len(peaks) < 4:
                     logger.warning(f"Section {i}: Not enough peaks to calculate motif length 'm'. Skipping.")
                     if self.p_errors:
-                        self.plot_peaks(i, peaks, peak_info)
+                        self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
                     self.sections[i, 2] = 0
-                    progress.advance(task)
+                    progress.update(task, advance=1, gpu=gpu_indicator)
                     continue
 
                 # Calculate average R-to-R interval
@@ -202,7 +201,7 @@ class PigRAD():
                 # Safety check for m.  make sure its within the bounds
                 if m < 3 or m >= len(sig_section):
                     logger.warning(f"m {m} is out of the window 3 or {len(sig_section)}")
-                    progress.advance(task)
+                    progress.update(task, advance=1, gpu=gpu_indicator)
                     continue
 
                 # Store heart rate
@@ -218,10 +217,12 @@ class PigRAD():
                 try:
                     use_gpu = self.gpu_devices and len(sig_section) > CPU_CUTOFF
                     if use_gpu:
+                        gpu_indicator = "[bold green]GPU[/]"
                         mp = stumpy.gpu_stump(sig_section, m=m, device_id=self.gpu_devices)
                     else:
+                        gpu_indicator = "[bold red]GPU[/]"
                         mp = stumpy.stump(sig_section, m=m)
-                    
+
                     # 5. Identify Major Discord (Anomaly)
                     # The discord is the subsequence with the largest Nearest Neighbor Distance (max value in MP)
                     discord_idx = np.argsort(mp[:, 0])[-1]
@@ -240,9 +241,10 @@ class PigRAD():
                     
                 except Exception as e:
                     logger.error(f"GPU Stump failed on section {i}: {e}")
+
                 if i % 100 == 0:
                     #Every 100 sections pop in a print
-                    self.plot_peaks(i, peaks, peak_info)
+                    self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
                     logger.info(f"section {i}")
                 #Memory cleanup
                 del sig_section
@@ -253,7 +255,7 @@ class PigRAD():
                     gc.collect()
                 # Mark section as valid and advance progbar
                 self.sections[i, 2] = 1
-                progress.advance(task)
+                progress.update(task, advance=1, gpu=gpu_indicator)
         
         # Summary Output
         if self.results:
@@ -361,10 +363,10 @@ class PigRAD():
         """
         shifts = self.shifts[-2:]
         if not shifts:
-             console.print("[yellow]No major distribution shifts detected to replay.[/]")
+            #  console.print("[yellow]No major distribution shifts detected to replay.[/]")
              return
         
-        console.print("[bold yellow]Replaying Distribution Shifts...[/]")
+        logger.info("Showing Distribution Shifts")
 
         plt.ion()
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -390,9 +392,8 @@ class PigRAD():
             
         plt.ioff()
         plt.close()
-        console.print("[bold green]Distribution shift replay complete.[/]")
 
-    def plot_peaks(self, i:int, peaks:np.array, peak_info:dict, pause_duration:int=3):
+    def plot_rpeaks(self, i:int, peaks:np.array=None, peak_info:dict=None, with_scipy=False, pause_duration:int=3):
         """
         Plots the scipy.find_peaks R peak search
         """
@@ -405,8 +406,11 @@ class PigRAD():
             start = self.sections[i, 0]
             end = self.sections[i, 1]
             ax.plot(range(start, end), self.full_data[self.lead][start:end], label='Waveform', color='blue', alpha=0.6, linewidth=2)
-            ax.scatter(peaks + start, peak_info['peak_heights'], marker='D', color='red', label='R peaks')
-            ax.set_title(f"Faulty R peaks")
+            if with_scipy:
+                ax.scatter(peaks + start, peak_info['peak_heights'], marker='D', color='red', label='R peaks')
+                ax.set_title(f"Section {i} with R peaks")
+            else:
+                ax.set_title(f"Section {i}")
             ax.set_xlabel("Time index")
             ax.set_ylabel("Amplitude (mV)")
             ax.legend()
