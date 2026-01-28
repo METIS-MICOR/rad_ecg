@@ -84,15 +84,15 @@ class PigRAD():
         self.full_data  :dict = self.loader.full_data
         self.channels   :list = self.loader.channels
         self.fs         :float = 1000.00 #Hz
-        self.windowsize :int = 20  #size of section window 
+        self.windowsize :int = 30  #size of section window 
         self.lead       :str = self.pick_lead()
         self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1) #Add HR, RMSSD cols
         self.gpu_devices:list = []     #available cuda devices
         self.results    :list = []     #Stumpy results container
         self.shifts     :list = []     #Track distribution shifts
-        self.plot_shifts:bool = True   
-        self.p_errors   :bool = True   
+        self.plot_shifts:bool = False   
+        self.make_plots :bool = False   
 
     def pick_lead(self):
         tree = Tree(
@@ -120,7 +120,7 @@ class PigRAD():
         calculates dynamic matrix profiles using GPU-STUMP, and identifies discords.
         """
         # Threshold for Wasserstein distance to consider distributions "similar"
-        WD_THRESHOLD = 0.005
+        WD_THRESHOLD = 0.001
         CPU_CUTOFF = 50000
         previous_dist = None
 
@@ -168,8 +168,11 @@ class PigRAD():
                         previous_dist = current_dist
                         #Mark section invalid
                         self.sections[i, 2] = 0
-                        self.plot_distribution_shifts(pause_duration=2)
-                        self.plot_rpeaks(i=i, pause_duration=2)
+                        if self.make_plots:
+                            self.plot_rpeaks(i = i - 1, pause_duration=2)
+                            self.plot_rpeaks(i = i, pause_duration=2)
+                        if self.plot_shifts:
+                            self.plot_distribution_shifts(pause_duration=2)
                         progress.update(task, advance=1, gpu=gpu_indicator)
                         continue
                 
@@ -208,7 +211,7 @@ class PigRAD():
                 RR_diffs = np.diff(peaks)
                 RR_diffs_time = np.abs(np.diff((RR_diffs / self.fs) * 1000)) #Formats to time domain in milliseconds
                 HR = np.round((60 / (RR_diffs / self.fs)), 2) #Formatted for BPM
-                Avg_HR = np.round(np.mean(HR), 2)
+                Avg_HR = int(np.mean(HR))
                 RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
                 self.sections[i, 2] = Avg_HR
                 self.sections[i, 3] = RMSSD
@@ -255,7 +258,7 @@ class PigRAD():
                 if i % 50 == 0:
                     plt.close('all')
                     gc.collect()
-                    logger.info("garbage collected")
+                    logger.debug("garbage collected")
                 # Mark section as valid and advance progbar
                 self.sections[i, 2] = 1
                 progress.update(task, advance=1, gpu=gpu_indicator)
@@ -493,7 +496,7 @@ def main():
         else:
             rad.run_search()
             rad.save_results()
-        rad.plot_discords(top_n=8)
+        rad.plot_discords(top_n=5)
 
 if __name__ == "__main__":
     main()
