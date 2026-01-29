@@ -26,6 +26,7 @@ from rich.progress import (
     TimeRemainingColumn,
     TimeElapsedColumn
 )
+
 #Ignore numba error
 from numba.core.errors import NumbaPerformanceWarning
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)

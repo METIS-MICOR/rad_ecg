@@ -2,7 +2,6 @@ import numpy as np
 from scipy.signal import savgol_filter
 
 #Dev note:Functions are organized most to least important
-
 #FUNCTION Segment ECG
 def segment_ECG(
     wave:np.array, 

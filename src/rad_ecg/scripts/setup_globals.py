@@ -28,7 +28,7 @@ def init(source:str):
             - wave = EKG to analyze in question
             - fs = Sampling Frequency of the wave
             - configs = global configuration settings
-    """     
+    """
     #Load config variables
     global configs
     configs = load_config()
@@ -56,7 +56,7 @@ def load_signal_data(file_path:str):
     if "." in file_path:
         file_type = file_path[file_path.rindex(".") + 1:].lower()
     else:
-        file_type = "hea" # I for some reason stirpped the .hea file extension here.  #TODO - Come back and fix
+        file_type = "hea" # I for some reason stripped the .hea file extension here.  #TODO - Come back and fix
     
     try:
         match file_type:
