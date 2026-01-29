@@ -190,7 +190,7 @@ class PigRAD():
                 
                 if len(peaks) < 4:
                     logger.warning(f"Section {i}: Not enough peaks to calculate motif length 'm'. Skipping.")
-                    if self.p_errors:
+                    if self.make_plots:
                         self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
                     self.sections[i, 2] = 0
                     progress.update(task, advance=1, gpu=gpu_indicator)
@@ -247,7 +247,8 @@ class PigRAD():
 
                 if i % 100 == 0:
                     #Every 100 sections pop in a print
-                    self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
+                    if self.make_plots:
+                        self.plot_rpeaks(i, peaks, peak_info, with_scipy=True)
                     logger.info(f"section {i} Current HR: {Avg_HR:.0f}")
 
                 #Memory cleanup
@@ -268,8 +269,8 @@ class PigRAD():
             console.print(f"[bold green]Processing Complete.[/] Analyzed {len(self.results)} valid sections.")
             # Simple list of top 3 discords found across all sections
             sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)
-            console.print("[bold]Top 3 Global Discords found:[/]")
-            for d in sorted_discords[:3]:
+            console.print("[bold]Top 10 Global Discords found:[/]")
+            for d in sorted_discords[:10]:
                 console.print(f"Section {d['section_idx']} | Score: {d['discord_score']:.2f} | m: {d['m']}")
         else:
             console.print("[bold red]No valid sections processed.[/]")
@@ -305,7 +306,7 @@ class PigRAD():
             return
 
         # Sort results to get the top discords
-        sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)[:top_n]
+        sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)[10:20]
         console.print(f"[bold yellow]Starting playback of top {len(sorted_discords)} discords...[/]")
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(14, 6))
@@ -395,7 +396,7 @@ class PigRAD():
         plt.ioff()
         plt.close(fig)
 
-    def plot_rpeaks(self, i:int, peaks:np.array=None, peak_info:dict=None, with_scipy=False, pause_duration:int=3):
+    def plot_rpeaks(self, i:int, peaks:np.array=None, peak_info:dict=None, with_scipy:bool=False, pause_duration:int=3):
         """
         Plots the scipy.find_peaks R peak search
         """
@@ -496,7 +497,7 @@ def main():
         else:
             rad.run_search()
             rad.save_results()
-        rad.plot_discords(top_n=5)
+        rad.plot_discords(top_n=10)
 
 if __name__ == "__main__":
     main()
