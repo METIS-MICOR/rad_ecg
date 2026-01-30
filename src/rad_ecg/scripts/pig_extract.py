@@ -153,7 +153,7 @@ class RegimeViewer:
     def _init_plots(self):
         # --- ECG Line ---
         self.line_ecg, = self.ax_ecg.plot([], [], color='black', lw=1)
-        self.ax_ecg.set_ylabel("ECG Amplitude")
+        self.ax_ecg.set_ylabel("ECG (mV)")
         self.regime_lines_ecg = [] # Store vertical lines for regimes
         
         # --- CAC Line ---
