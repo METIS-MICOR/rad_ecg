@@ -89,11 +89,11 @@ class PigRAD():
         self.lead       :str = self.pick_lead()
         self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1) #Add HR, RMSSD cols
-        self.gpu_devices:list = []     #available cuda devices
+        self.gpu_devices:list = [device.id for device in cuda.list_devices()]     #available cuda devices
         self.results    :list = []     #Stumpy results container
         self.shifts     :list = []     #Track distribution shifts
-        self.plot_shifts:bool = False   
-        self.make_plots :bool = False   
+        self.plot_shifts:bool = True   
+        self.make_plots :bool = True
 
     def pick_lead(self):
         tree = Tree(
@@ -114,6 +114,91 @@ class PigRAD():
         else:
             raise ValueError("Please restart and select an integer of the file you'd like to import")
     
+    def detect_regime_changes(self, m_override: int = None, n_regimes: int = 2):
+        """
+        Uses stumpy FLUSS to find semantic boundaries (regime changes) in the signal.
+        Useful for detecting the onset of ischemia, arrhythmias, or other morphology shifts.
+        """
+        console.print("[bold cyan]Running Semantic Segmentation (FLUSS)...[/]")
+        
+        # select the fully loaded lead
+        data = self.full_data[self.lead].astype(np.float64)
+        
+        # 2. Determine 'm' (Subsequence Length)
+        # If not provided, we estimate it. For ECG morphology changes, 
+        # m should cover a full heartbeat (P-QRS-T). ~400ms is a safe standard for pigs/humans.
+        if m_override:
+            m = m_override
+        else:
+            m = int(self.fs * 0.4) 
+        
+        console.print(f"Using window size m={m} for segmentation.")
+
+        # 3. Compute Matrix Profile (We specifically need the MPI - Matrix Profile Index)
+        try:
+            # Use GPU if available
+            if self.gpu_devices:
+                console.print("using GPU")
+                # gpu_stump returns [MP, MPI]
+                mp = stumpy.gpu_stump(data, m=m, device_id=self.gpu_devices)
+                mpi = mp[:, 1]
+
+            else:
+                console.print("using CPU")
+                # stump returns [MP, MPI, ...]
+                mp = stumpy.stump(data, m=m)
+                mpi = mp[:, 1]
+                
+        except Exception as e:
+            logger.error(f"Failed to compute MP for segmentation: {e}")
+            return
+
+        # 4. Compute Corrected Arc Curve (CAC) using FLUSS
+        # L is the subsequence length (m)
+        # n_regimes is the expected number of distinct behaviors (optional, helps find exact indices)
+        cac, regime_locs = stumpy.fluss(mpi, L=m, n_regimes=n_regimes, excl_factor=5)
+
+        # 5. Plotting the Regime Changes
+        self._plot_regimes(data, cac, regime_locs, m)
+        
+        return regime_locs
+
+    def _plot_regimes(self, data, cac, regime_locs, m):
+        """
+        Helper to visualize the Arc Curve aligned with the ECG signal.
+        """
+        fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(14, 8), gridspec_kw={'height_ratios': [2, 1]})
+        
+        # Top: ECG Signal
+        ax1.plot(data, color='black', linewidth=1, alpha=0.8)
+        
+        # Highlight the detected regime change boundaries
+        for loc in regime_locs:
+            ax1.axvline(x=loc, color='red', linestyle='--', linewidth=2, label='Detected Change')
+            ax2.axvline(x=loc, color='red', linestyle='--', linewidth=2)
+
+        ax1.set_ylabel("Amplitude (mV)")
+        ax1.set_title(f"ECG Signal with Detected Regime Changes (m={m})")
+        ax1.legend(loc='upper right')
+
+        # Bottom: Corrected Arc Curve (CAC)
+        # Ideally, we pad the CAC to match data length for alignment (it is shorter by m-1)
+        # STUMPY CAC is usually len(data) - m + 1
+        x_axis = np.arange(len(cac))
+        
+        ax2.plot(x_axis, cac, color='blue', linewidth=1.5, label='Arc Curve (CAC)')
+        ax2.set_ylabel("Arc Curve Value (0-1)")
+        ax2.set_xlabel("Time Index")
+        ax2.set_title("Semantic Segmentation: Low values indicate morphology change")
+        ax2.fill_between(x_axis, 0, cac, color='blue', alpha=0.1)
+        ax2.grid(True, alpha=0.3)
+
+        # Mark the regime locations on the curve
+        ax2.scatter(regime_locs, cac[regime_locs], color='red', zorder=5)
+
+        plt.tight_layout()
+        plt.show()
+
     @log_time
     def run_search(self):
         """
@@ -125,11 +210,9 @@ class PigRAD():
         CPU_CUTOFF = 50000
         previous_dist = None
 
-        try:
-            self.gpu_devices = [device.id for device in cuda.list_devices()]
+        if self.gpu_devices:
             gpu_indicator = "[bold green]GPU[/]"
-        except Exception:
-            self.gpu_devices = []
+        else:
             gpu_indicator = "[bold red]GPU[/]"
 
         prog = Progress(
@@ -156,7 +239,6 @@ class PigRAD():
                 if i > 0 and previous_dist is not None:
                     #Calc earth movers distance between distributions
                     wd = wasserstein_distance(previous_dist, current_dist)
-                    
                     if wd > WD_THRESHOLD:
                         # Distribution shift detected - skip extraction or flag
                         logger.warning(f"Section {i}: Major distribution shift detected (WD: {wd:.4f}). Skipping extraction.")
@@ -176,7 +258,7 @@ class PigRAD():
                             self.plot_distribution_shifts(pause_duration=2)
                         progress.update(task, advance=1, gpu=gpu_indicator)
                         continue
-                
+
                 # Update previous distribution for next iteration
                 previous_dist = current_dist
                 
@@ -296,8 +378,8 @@ class PigRAD():
             freq_dist = freq_dist / np.sum(freq_dist)
         
         return freq_dist
-    
-    def plot_discords(self, top_n=5, pause_duration=4):
+
+    def plot_discords(self, top_n:int=5, pause_duration:int=10):
         """
         Iterates through the top N discords and displays them in a Matplotlib window
         with the discord highlighted by a gray patch.
@@ -307,7 +389,7 @@ class PigRAD():
             return
 
         # Sort results to get the top discords
-        sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)[10:20]
+        sorted_discords = sorted(self.results, key=lambda x: x['discord_score'], reverse=True)
         console.print(f"[bold yellow]Starting playback of top {len(sorted_discords)} discords...[/]")
         plt.ion() # Turn on interactive mode
         fig, ax = plt.subplots(figsize=(14, 6))
@@ -496,9 +578,9 @@ def main():
         if fp_save.exists():
             rad.load_results(fp_save)
         else:
-            rad.run_search()
-            rad.save_results()
-        rad.plot_discords(top_n=10)
+            regimes = rad.detect_regime_changes(n_regimes=3)
+            # rad.save_results()
+        # rad.plot_discords(top_n=10)
 
 if __name__ == "__main__":
     main()

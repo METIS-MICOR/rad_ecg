@@ -440,7 +440,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_60653_4Hr_Aug-19-25.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_46589_6Hr_May-6-25.npz"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:
