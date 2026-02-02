@@ -1,10 +1,11 @@
 #################################  main libraries #######################################
-import datetime
 import time
 import json
 import logging
+import datetime
 import subprocess
 import numpy as np
+import multiprocessing
 from pathlib import Path
 from collections import Counter
 
@@ -113,7 +114,21 @@ def get_time():
 ########################## Global Variables to return ##########################################
 DATE_JSON = get_time().strftime("%m-%d-%Y_%H-%M-%S")
 console = Console(color_system="auto", stderr=True)
-logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
+# logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
+
+# Determine if we are in the Main Process or a Worker Process
+if multiprocessing.current_process().name == "MainProcess":
+    # MAIN PROCESS: Calculate time and create the log file
+    logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log")
+else:
+    # WORKER PROCESS: Do NOT create a file. Just attach the console handler.
+    # This prevents workers from generating new log files with new timestamps.
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(get_rich_handler(console))
+    
+    # If you need DATE_JSON defined to avoid NameErrors in workers (though unlikely used there):
+    DATE_JSON = "WORKER_PROCESS"
 
 ################################# Rich Spinner Control ####################################
 #FUNCTION Progress bar

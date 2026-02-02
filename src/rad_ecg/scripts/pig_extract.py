@@ -9,13 +9,10 @@ from utils import segment_ECG
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.gridspec as gridspec
-from matplotlib.widgets import Button, TextBox
-from matplotlib.animation import FuncAnimation
 from setup_globals import walk_directory
 from scipy.stats import wasserstein_distance
 from scipy.signal import find_peaks, stft, welch
 from support import logger, console, log_time, NumpyArrayEncoder
-import warnings
 from rich import print
 from rich.tree import Tree
 from rich.text import Text
@@ -32,6 +29,7 @@ from rich.progress import (
 
 #Ignore numba error
 from numba.core.errors import NumbaPerformanceWarning
+import warnings
 warnings.simplefilter('ignore', category=NumbaPerformanceWarning)
 
 class SignalDataLoader:
@@ -82,215 +80,89 @@ class SignalDataLoader:
 
 class RegimeViewer:
     """
-    Interactive viewer for FLUSS Regime Segmentation.
-    Top: ECG Signal
-    Middle: Corrected Arc Curve (CAC)
-    Bottom: Global Navigation
+    Non-interactive exporter for FLUSS Regime Segmentation.
+    Generates a static summary image or multi-page PDF for remote viewing.
     """
-    def __init__(self, ecg_data, cac_data, regime_locs, m, sampling_rate=1000):
-        # 1. Data Setup
+    def __init__(self, ecg_data, cac_data, regime_locs, m, sampling_rate=1000, save_path="regime_report.png"):
         self.ecg = ecg_data
         self.cac = cac_data
         self.regime_locs = regime_locs
         self.m = m
         self.fs = sampling_rate
         
-        # 2. State Settings
-        self.window_size = 2000  # Samples to show at once
-        self.current_pos = 0
-        self.step_size = 20      # Animation speed
-        self.paused = False
-        
-        # 3. Setup Figure
-        self.fig = plt.figure(figsize=(16, 9))
-        self.fig.canvas.mpl_connect('close_event', self._on_close)
-        self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump)
-        self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
-        
+        # Use a non-interactive backend for SSH environments
+        import matplotlib
+        matplotlib.use('Agg') 
+        import matplotlib.pyplot as plt
+
+        self.fig = plt.figure(figsize=(16, 10))
         self.setup_layout()
-        self._init_plots()
+        self._render_static_plots()
         
-        # 4. Start Animation
-        self.ani = FuncAnimation(
-            self.fig, self.update_frame, interval=30, blit=True, cache_frame_data=False
-        )
-        plt.show()
+        plt.savefig(save_path, bbox_inches='tight', dpi=150)
+        print(f"[bold green]Static report saved to:[/] {save_path}")
+        plt.close(self.fig)
 
     def setup_layout(self):
-        self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 1], figure=self.fig)
-        
-        # Plot Area: 3 Rows (ECG, CAC, Nav)
-        self.gs_plots = gridspec.GridSpecFromSubplotSpec(
-            3, 1, subplot_spec=self.gs_main[0], height_ratios=[2, 2, 0.5], hspace=0.1
-        )
-        
-        # Side Controls
-        self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            6, 1, subplot_spec=self.gs_main[1], hspace=0.3
-        )
+        # 3 Rows: ECG, Arc Curve, and a Timeline/Overview
+        self.gs = gridspec.GridSpec(2, 1, height_ratios=[2, 2], hspace=0.3)
+        self.ax_ecg = self.fig.add_subplot(self.gs[0])
+        self.ax_cac = self.fig.add_subplot(self.gs[1], sharex=self.ax_ecg)
+        # self.ax_nav = self.fig.add_subplot(self.gs[2])
 
-        # Create Axes
-        self.ax_ecg = self.fig.add_subplot(self.gs_plots[0])
-        self.ax_cac = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ecg)
-        self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
-        
-        # Hide x-labels for top plots
-        plt.setp(self.ax_ecg.get_xticklabels(), visible=False)
-        plt.setp(self.ax_cac.get_xticklabels(), visible=False)
+    def _render_static_plots(self):
+        time_axis = np.arange(len(self.ecg)) / self.fs
 
-        # Setup Controls
-        self.btn_pause = Button(self.fig.add_subplot(self.gs_side[0]), 'Pause/Play')
-        self.btn_pause.on_clicked(self.toggle_pause)
-        
-        ax_speed = self.fig.add_subplot(self.gs_side[1])
-        self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.step_size))
-        self.txt_speed.on_submit(self.update_speed)
-        
-        ax_window = self.fig.add_subplot(self.gs_side[2])
-        self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
-        self.txt_window.on_submit(self.update_window_size)
-
-    def _init_plots(self):
-        # --- ECG Line ---
-        self.line_ecg, = self.ax_ecg.plot([], [], color='black', lw=1)
+        # 1. ECG Plot
+        self.ax_ecg.plot(time_axis, self.ecg, color='black', lw=0.5, alpha=0.8)
         self.ax_ecg.set_ylabel("ECG (mV)")
-        self.regime_lines_ecg = [] # Store vertical lines for regimes
-        
-        # --- CAC Line ---
-        self.line_cac, = self.ax_cac.plot([], [], color='blue', lw=1.5)
-        self.ax_cac.set_ylabel("Arc Curve (0-1)")
-        self.ax_cac.set_ylim(0, 1.05)
-        # We fill under the curve for visual emphasis
-        self.poly_cac = self.ax_cac.fill_between([], [], color='blue', alpha=0.1)
+        self.ax_ecg.set_title(f"Semantic Segmentation Overview (m={self.m})")
 
-        # --- Navigation Bar ---
-        # Plot a downsampled version of the whole CAC for context
-        ds = max(1, len(self.cac) // 5000)
-        self.ax_nav.plot(np.arange(0, len(self.cac), ds), self.cac[::ds], color='gray', alpha=0.5)
-        
-        # Mark all regime changes on Nav
+        # 2. CAC Plot
+        # Align CAC (it's often padded or slightly shorter)
+        cac_axis = np.arange(len(self.cac)) / self.fs
+        self.ax_cac.plot(cac_axis, self.cac, color='dodgerblue', lw=1.5)
+        self.ax_cac.fill_between(cac_axis, self.cac, color='dodgerblue', alpha=0.1)
+        self.ax_cac.set_ylabel("Corrected Arc Curve")
+        self.ax_cac.set_ylim(0, 1.1)
+
+        # 3. Mark Regimes on both
         for loc in self.regime_locs:
-            self.ax_nav.axvline(loc, color='red', alpha=0.5, lw=1)
-            
-        self.nav_cursor = self.ax_nav.axvline(0, color='dodgerblue', lw=2)
-        self.ax_nav.set_yticks([])
-        self.ax_nav.set_xlim(0, len(self.cac))
-        self.ax_nav.set_xlabel("Click to Jump | Space to Pause")
+            loc_time = loc / self.fs
+            self.ax_ecg.axvline(loc_time, color='red', linestyle='--', alpha=0.7)
+            self.ax_cac.axvline(loc_time, color='red', linestyle='--', alpha=0.7)
+            # Add text label for the transition index
+            self.ax_ecg.text(
+                loc_time, self.ax_ecg.get_ylim()[1], f'Idx: {loc}', 
+                rotation=90, verticalalignment='top', color='red', fontsize=8
+            )
 
-    def update_frame(self, frame):
-        if not self.paused:
-            self.current_pos += self.step_size
-            if self.current_pos + self.window_size > len(self.ecg):
-                self.current_pos = 0 # Loop
-
-        # Data Slicing
-        s = self.current_pos
-        e = s + self.window_size
-        ecg_view = self.ecg[s:e]
-        
-        # CAC might be shorter by m-1, handle bounds
-        cac_len = len(self.cac)
-        if s < cac_len:
-            cac_view = self.cac[s : min(e, cac_len)]
-            # If at the very end, pad for consistent array size
-            if len(cac_view) < (e-s):
-                pad = np.zeros((e-s) - len(cac_view))
-                cac_view = np.concatenate((cac_view, pad))
-        else:
-            cac_view = np.zeros(self.window_size)
-
-        x_data = np.arange(s, e)
-        
-        # Update Data
-        self.line_ecg.set_data(x_data, ecg_view)
-        self.line_cac.set_data(x_data, cac_view)
-        
-        # Update Fill (PolyCollection is tricky to animate efficiently, clearer to just redraw lines)
-        # For 'blit=True', we must return artists. fill_between is hard to blit. 
-        # We will skip animating the fill for performance or use a simple line.
-        
-        # Handle Dynamic Regime Markers (Vertical Lines)
-        # Remove old lines
-        for line in self.regime_lines_ecg:
-            line.remove()
-        self.regime_lines_ecg = []
-        
-        # Find regimes in current window
-        local_regimes = [r for r in self.regime_locs if s <= r < e]
-        
-        artists = [self.line_ecg, self.line_cac, self.nav_cursor]
-        
-        for r in local_regimes:
-            # Draw on ECG
-            l1 = self.ax_ecg.axvline(r, color='red', linestyle='--', alpha=0.8)
-            # Draw on CAC
-            l2 = self.ax_cac.axvline(r, color='red', linestyle='--', alpha=0.8)
-            self.regime_lines_ecg.extend([l1, l2])
-            artists.extend([l1, l2])
-
-        # Auto Scale ECG
-        if len(ecg_view) > 0:
-            mn, mx = np.min(ecg_view), np.max(ecg_view)
-            self.ax_ecg.set_ylim(mn - 0.1, mx + 0.1)
-            self.ax_ecg.set_xlim(s, e)
-            self.ax_cac.set_xlim(s, e)
-
-        # Update Nav Cursor
-        self.nav_cursor.set_xdata([s])
-        
-        return artists
-
-    def on_click_jump(self, event):
-        if event.inaxes == self.ax_nav:
-            self.current_pos = int(event.xdata)
-            self.current_pos = max(0, min(self.current_pos, len(self.ecg) - self.window_size))
-            if self.paused:
-                self.update_frame(0) # Force update if paused
-                self.fig.canvas.draw_idle()
-
-    def toggle_pause(self, event=None):
-        self.paused = not self.paused
-
-    def update_speed(self, text):
-        try: 
-            self.step_size = int(text)
-        except ValueError: 
-            pass
-
-    def update_window_size(self, text):
-        try: 
-            self.window_size = int(text)
-        except ValueError: 
-            pass
-            
-    def on_key_press(self, event):
-        if event.key == ' ':
-            self.toggle_pause()
-
-    def _on_close(self, event):
-        if hasattr(self, 'ani'):
-            self.ani.event_source.stop()
-
+        # # 4. Timeline / Navigation view
+        # self.ax_nav.plot(cac_axis, self.cac, color='gray', alpha=0.3)
+        # for loc in self.regime_locs:
+        #     self.ax_nav.axvline(loc / self.fs, color='red', lw=1)
+        # self.ax_nav.set_yticks([])
+        # self.ax_nav.set_xlabel("Time (seconds)")
 
 class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
-        self.npz_path   :Path = npz_path
-        self.loader     :SignalDataLoader = SignalDataLoader(str(self.npz_path))
-        self.full_data  :dict = self.loader.full_data
-        self.channels   :list = self.loader.channels
-        self.fs         :float = 1000.00 #Hz
-        self.windowsize :int = 30  #size of section window 
-        self.lead       :str = self.pick_lead()
-        self.sections   :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
-        self.sections   :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1) #Add HR, RMSSD cols
-        self.gpu_devices:list = [device.id for device in cuda.list_devices()]     #available cuda devices
-        self.results    :list = []     #Stumpy results container
-        self.shifts     :list = []     #Track distribution shifts
-        self.plot_shifts:bool = True   
-        self.make_plots :bool = True
-        self.regime_shifts:list = []
-
+        self.npz_path     :Path = npz_path
+        self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        self.full_data    :dict = self.loader.full_data
+        self.channels     :list = self.loader.channels
+        self.fs           :float = 1000.00 #Hz
+        self.windowsize   :int = 30  #size of section window 
+        self.lead         :str = self.pick_lead()
+        self.sections     :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1) #Add HR, RMSSD cols
+        self.gpu_devices  :list = [device.id for device in cuda.list_devices()]     #available cuda devices
+        self.shifts       :list = []   #Track distribution shifts
+        self.regime_shifts:list = []   #Track regime shifts
+        self.results      :list = []   #Stumpy results container
+        self.plot_shifts  :bool = True   
+        self.make_plots   :bool = True
+        
     def pick_lead(self):
         tree = Tree(
             f":select channel:",
@@ -317,7 +189,7 @@ class PigRAD:
         Launches interactive RegimeViewer.
         """
         logger.info("Running Semantic Segmentation (FLUSS)...")
-        data = self.full_data[self.lead][5700000:].astype(np.float64)
+        data = self.full_data[self.lead].astype(np.float64)
         
         # Determine 'm' (Subsequence Length)
         # If not provided, we estimate it. For ECG morphology changes, 
@@ -353,7 +225,6 @@ class PigRAD:
             self.regime_results = {
                 "m": m,
                 "regime_indices": regime_locs,
-                "cac": cac
             }
             self.save_regime_results()
 
@@ -390,7 +261,6 @@ class PigRAD:
             "lead": self.lead,
             "m": int(self.regime_results['m']),
             "regime_indices": self.regime_results['regime_indices'].tolist(),
-            "cac": self.regime_results['cac'].tolist()
         }
         
         try:
@@ -812,7 +682,6 @@ def main():
     if not fp.exists():
         logger.warning(f"Warning: File {fp} not found.")
     else:
-        test()
         selected = load_choices(fp)
         fp_save = Path(selected).parent / (Path(selected).stem + "_regimes.json")
         rad = PigRAD(selected)
