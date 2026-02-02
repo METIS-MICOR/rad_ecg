@@ -272,7 +272,7 @@ class RegimeViewer:
             self.ani.event_source.stop()
 
 
-class PigRAD():
+class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
         self.npz_path   :Path = npz_path
@@ -317,7 +317,7 @@ class PigRAD():
         Launches interactive RegimeViewer.
         """
         logger.info("Running Semantic Segmentation (FLUSS)...")
-        data = self.full_data[self.lead].astype(np.float64)
+        data = self.full_data[self.lead][5700000:].astype(np.float64)
         
         # Determine 'm' (Subsequence Length)
         # If not provided, we estimate it. For ECG morphology changes, 
@@ -332,9 +332,11 @@ class PigRAD():
         try:
             # Calculate MP and MPI
             if self.gpu_devices:
+                logger.info("using GPU")
                 mp = stumpy.gpu_stump(data, m=m, device_id=self.gpu_devices)
                 mpi = mp[:, 1]
             else:
+                logger.info("using CPU")
                 mp = stumpy.stump(data, m=m)
                 mpi = mp[:, 1]
                 
@@ -372,6 +374,7 @@ class PigRAD():
             "file": "filename",
             "m": 400,
             "regime_indices": [10500, 23000, ...]
+            "cac": [] Corrected Arc Curve
         }
         """
         if not hasattr(self, 'regime_results'):
@@ -386,16 +389,17 @@ class PigRAD():
             "source_file": str(self.npz_path.name),
             "lead": self.lead,
             "m": int(self.regime_results['m']),
-            "regime_indices": self.regime_results['regime_indices'].tolist() 
+            "regime_indices": self.regime_results['regime_indices'].tolist(),
+            "cac": self.regime_results['cac'].tolist()
         }
         
         try:
             with open(out_path, 'w') as f:
                 json.dump(output_data, f, indent=2, cls=NumpyArrayEncoder)
-            console.print(f"[bold green]Regime data saved to:[/]\n[link file://{out_path}]{out_path}[/link]")
+            logger.info("regime data saved")
+
         except Exception as e:
             logger.error(f"Failed to save regime JSON: {e}")
-
 
     def _plot_regimes(self, data, cac, regime_locs, m):
         """
@@ -770,7 +774,7 @@ class PigRAD():
         
         try:
             with open(out_path, 'w') as f:
-                json.dump(self.results, f, cls=NumpyArrayEncoder, indent=4)
+                json.dump(self.results, f, cls=NumpyArrayEncoder, indent=2)
             console.print(f"[bold green]Results successfully saved to:[/]\n[link file://{out_path}]{out_path}[/link]")
         except Exception as e:
             logger.error(f"Failed to save results to JSON: {e}")
@@ -781,7 +785,7 @@ def load_choices(fp:str):
             f":open_file_folder: [link file://{fp}]{fp}",
             guide_style="bold bright_blue",
         )
-        files = walk_directory(Path(fp), tree)
+        walk_directory(Path(fp), tree)
         print(tree)
     
     except IndexError:
@@ -793,7 +797,8 @@ def load_choices(fp:str):
     question = "What file would you like to load?\n"
     file_choice = console.input(f"{question}")
     if file_choice.isnumeric():
-        file_to_load = files[int(file_choice) - 1]
+        files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+        file_to_load = files[int(file_choice)]
         #check output directory exists
         return file_to_load
     else:
@@ -807,8 +812,9 @@ def main():
     if not fp.exists():
         logger.warning(f"Warning: File {fp} not found.")
     else:
+        test()
         selected = load_choices(fp)
-        fp_save = Path(selected).parent / (Path(selected).stem + "_results.json")
+        fp_save = Path(selected).parent / (Path(selected).stem + "_regimes.json")
         rad = PigRAD(selected)
         if fp_save.exists():
             rad.load_results(fp_save)
@@ -844,3 +850,6 @@ if __name__ == "__main__":
 #in the pig ecg there is an R and Rprime peak.  Which... Apparnetly is the whole QRS?
 #T and P peaks show up as inverted u waves.  
 #There's no jpoint to distinguish between stages. 
+
+#FLUSS
+#Same idea but over the whole signal now.  Might not be able to fit all of that into memory

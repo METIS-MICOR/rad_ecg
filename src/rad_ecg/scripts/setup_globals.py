@@ -283,7 +283,6 @@ def create_endpoint(test_sp:str):
         else:
             return e
 
-
 ################################# TUI Funcs ############################################
 #FUNCTION Launch TUI
 def launch_tui(configs:dict):
@@ -306,14 +305,15 @@ def launch_tui(configs:dict):
     question = "What file would you like to load?\n"
     file_choice = "0" #console.input(f"{question}")
     if file_choice.isnumeric():
+
         file_to_load = files[int(file_choice) - 1]
         #check output directory exists
         return file_to_load
     else:
         raise ValueError("Please restart and select an integer of the file you'd like to import")
-    
+
 #FUNCTION Walk Directory
-def walk_directory(directory: Path, tree: Tree) -> None:
+def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
     """Build a Tree with directory contents.
     Source Code: https://github.com/Textualize/rich/blob/master/examples/tree.py
 
@@ -323,7 +323,7 @@ def walk_directory(directory: Path, tree: Tree) -> None:
         Path(directory).iterdir(),
         key=lambda path: (path.is_file(), path.name.lower()),
     )
-    idx = 1
+    idx = 0
     for path in paths:
         # Remove hidden files
         if path.name.startswith("."):
@@ -336,7 +336,6 @@ def walk_directory(directory: Path, tree: Tree) -> None:
                 style=style,
                 guide_style=style,
             )
-            
             walk_directory(path, branch)
         else:
             text_filename = Text(path.name, "green")
@@ -349,18 +348,14 @@ def walk_directory(directory: Path, tree: Tree) -> None:
             elif path.suffix == ".hea":
                 icon = "🤯  "
             elif path.suffix == ".ebm":
-                icon = "🔫 "
+                icon = "� "
             elif path.suffix == ".npz":
                 icon = "🔫 "
-
         #     elif path.suffix == ".mib":
-        #         icon = "👽 "
+        #         icon = "� "
         #     elif path.suffix == ".zip":
         #         icon = "🤐 "
         #     else:
-        #         icon = "📄 "
+        #         icon = "� "
             tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
-        
-        idx += 1    
-    return paths
-
+        idx += 1
