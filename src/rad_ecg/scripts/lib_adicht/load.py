@@ -19,7 +19,12 @@ class SignalDataLoader:
             self.container = np.load(file_path, allow_pickle=True)
             self.full_data = self.container.to_dict(orient="series")
             self.channels = self.container.columns.to_list()
-            
+            if "ShockClass" in self.channels:
+                self.outcomes = self.full_data.pop("ShockClass")
+                self.channels.pop(self.channels.index("ShockClass"))
+            else:
+                self.outcomes = None
+
     def _identify_and_sort_channels(self):
         """
         Identifies unique channel names from NPZ keys and returns them 
@@ -187,7 +192,8 @@ class LabChartNavigator:
         for ax in self.axes_pool:
             ax.remove()
         for axf in self.freq_axes_pool:
-            if axf is not None: axf.remove()
+            if axf is not None: 
+                axf.remove()
         self.nav_ax.remove()
         
         self._init_axes_pool()
@@ -207,10 +213,10 @@ class LabChartNavigator:
         start = self.current_page * self.streams_per_page
         end = start + self.streams_per_page
         current_channels = self.channels[start:end]
-        
         self.active_data_map = [] 
-        
         for i in range(self.streams_per_page):
+            if self.full_data[current_channels[i]].dtype.name != "float64":
+                continue
             ax = self.axes_pool[i]
             line = self.plot_lines[i]
             alert = self.alert_texts[i]
@@ -224,7 +230,8 @@ class LabChartNavigator:
                 data = self.full_data[ch_name]
                 
                 ax.set_visible(True)
-                if ax_freq: ax_freq.set_visible(True)
+                if ax_freq: 
+                    ax_freq.set_visible(True)
                 
                 line.set_label(ch_name)
                 ax.legend(loc='upper right', fontsize='small')
@@ -238,7 +245,8 @@ class LabChartNavigator:
                 self.active_data_map.append((line, data, ax, alert, ax_freq, ch_name))
             else:
                 ax.set_visible(False)
-                if ax_freq: ax_freq.set_visible(False)
+                if ax_freq: 
+                    ax_freq.set_visible(False)
 
         if current_channels:
             ref_data = self.full_data[current_channels[0]]
@@ -252,7 +260,8 @@ class LabChartNavigator:
         self.fig.canvas.draw_idle()
 
     def update_frame(self, frame):
-        if not self.active_data_map: return []
+        if not self.active_data_map: 
+            return []
         
         if not self.paused:
             self.current_pos += self.step_size
@@ -266,7 +275,8 @@ class LabChartNavigator:
         needs_redraw = False
 
         for line, data, ax, alert, ax_freq, ch_name in self.active_data_map:
-            if data.size == 0: continue
+            if data.size == 0:
+                continue
             
             end_pos = self.current_pos + self.window_size
             view = data[self.current_pos : end_pos]
@@ -410,8 +420,10 @@ class LabChartNavigator:
         self.paused = not self.paused
 
     def update_speed(self, text):
-        try: self.step_size = int(text)
-        except ValueError: self.txt_speed.set_val(str(self.step_size))
+        try: 
+            self.step_size = int(text)
+        except ValueError: 
+            self.txt_speed.set_val(str(self.step_size))
 
     def update_window_size(self, text):
         try:
@@ -446,8 +458,11 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/JT/ACT1_08206_ECMO_Dec-18-24.pkl"
-    if not target.exists():
-        print(f"Warning: File {target} not found.")
+    base = Path.cwd() / "src/rad_ecg/data/datasets/JT/ACT1_17948_ResThor_Nov-20-24.pkl"
+    # targets = sorted(base.iterdir())
+    # for target in targets:
+    if not base.exists() and not base.is_file():
+        print(f"Warning: File {base} not found.")
     else:
-        viewer = LabChartNavigator(str(target))
+        viewer = LabChartNavigator(str(base))
+    print(f"{base.name} closed")
