@@ -461,8 +461,8 @@ if __name__ == "__main__":
     base = Path.cwd() / "src/rad_ecg/data/datasets/JT/"
     targets = sorted(base.iterdir())
     for target in targets:
-        if not target.exists() and not target.is_file():
-            print(f"Warning: File {target} not found.")
-        else:
+        if target.exists() and target.is_file():
             viewer = LabChartNavigator(str(target))
+        else:
+            print(f"Warning: File {target} not found.")
         print(f"{target.name} closed")
