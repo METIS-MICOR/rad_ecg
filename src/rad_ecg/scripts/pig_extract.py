@@ -16,7 +16,7 @@ from rich import print
 from rich.tree import Tree
 from rich.text import Text
 from rich.progress import (
-    Progress, SpinnerColumn, TextColumn, BarColumn, TimeRemainingColumn, TimeElapsedColumn
+    Progress, SpinnerColumn, TextColumn, BarColumn
 )
 from utils import segment_ECG, label_formatter
 from setup_globals import walk_directory
@@ -35,14 +35,22 @@ class CardiacPhaseTools:
         self.c = bandwidth_parameter
 
     def complex_morlet_cwt(self, data, center_freq):
-        """Performs CWT and returns envelope and phase."""
+        """Performs CWT and returns envelope and phase.
+
+        Args:
+            data (np.array): view of the signal
+            center_freq (int): Main Frequency to focus on
+
+        Returns:
+            _type_: _description_
+        """        
+        
         w_desired = 2 * np.pi * center_freq
         s = self.c * self.fs / w_desired
         M = int(2 * 4 * s) + 1
         t = np.arange(-M//2 + 1, M//2 + 1)
         norm = 1 / np.sqrt(s)
         wavelet = norm * np.exp(1j * self.c * t / s) * np.exp(-0.5 * (t / s)**2)
-        
         cwt_complex = convolve(data, wavelet, mode='same')
         return np.abs(cwt_complex), np.angle(cwt_complex)
 
@@ -54,7 +62,10 @@ class CardiacPhaseTools:
         3. Calculates Phase Variance across a rolling window of beats.
         """
         # 1. Find Peaks
-        peaks, _ = find_peaks(signal, distance=int(self.fs * 0.4), height=np.mean(signal))
+        #TODO - peak params
+            # This could be improved upon - ie parameter adjustments
+
+        peaks, _ = find_peaks(signal, distance=int(self.fs * 0.4), height=np.mean(signal)) 
         if len(peaks) < window_beats:
             return np.zeros_like(signal)
 
@@ -204,23 +215,41 @@ class RegimeViewer:
     Interactive viewer for signal, Semantic Segmentation (CAC), and Phase Variance.
     Includes frequency analysis and custom navigation.
     """
-    def __init__(self, signal_data, cac_data, regime_locs, m, sampling_rate=1000):
+    def __init__(
+        self, 
+        signal_data  :np.array, 
+        cac_data     :np.array, 
+        regime_locs  :np.array, 
+        m            :int, 
+        sampling_rate:float=1000.0, 
+        lead         :str='Carotid (TS420)'
+        ):
+        """
+        Args:
+            signal_data (np.array): np.array of the signal data
+            cac_data (np.array): np.array of CAC curve data
+            regime_locs (np.array): np.array of regime change locations
+            m (int): stumpy search window width
+            sampling_rate (float): in Hz. Defaults to 1000.0
+            lead (str): Signal being analyzed
+        """        
         # 1. Data Setup
         self.signal = signal_data
         self.cac = cac_data
         self.regime_locs = regime_locs
         self.m = m
         self.fs = sampling_rate
-        
+        self.lead = lead        
+
         # Calculate Phase Variance Stream
         console.print("[cyan]Pre-computing Phase Variance Stream...[/]")
         self.ptools = CardiacPhaseTools(fs=self.fs)
         self.phase_var_stream = self.ptools.compute_continuous_phase_metric(self.signal)
         
         # 2. State Settings
-        self.window_size = 2000
+        self.window_size = 10_000
         self.current_pos = 0
-        self.step_size = 30
+        self.step_size = 20
         self.paused = False
         
         # Frequency State: 0=Off, 1=Stem, 2=Specgram
@@ -259,6 +288,8 @@ class RegimeViewer:
         self.setup_controls()
 
     def setup_controls(self):
+        """This will set all the objects you need into their respective axes
+        """        
         self.btn_pause = Button(self.fig.add_subplot(self.gs_side[0]), 'Pause/Play')
         self.btn_freq = Button(self.fig.add_subplot(self.gs_side[1]), 'Freq: OFF')
         self.btn_reset = Button(self.fig.add_subplot(self.gs_side[2]), 'Reset Scale')
@@ -278,6 +309,8 @@ class RegimeViewer:
         self.txt_window.on_submit(self.update_window_size)
 
     def _init_axes_pool(self):
+        """to initlizae the axis.  Plot empty figures for faster filling at animation time
+        """        
         # --- Row 1: signal + Frequency ---
         if self.freq_mode == 0:
             self.ax_sig = self.fig.add_subplot(self.gs_plots[0])
@@ -287,8 +320,8 @@ class RegimeViewer:
             self.ax_sig = self.fig.add_subplot(gs_row[0])
             self.ax_freq = self.fig.add_subplot(gs_row[1])
 
-        self.line_sig, = self.ax_sig.plot([], [], color='black', lw=1, label="signal")
-        self.ax_sig.set_ylabel("signal (mV)")
+        self.line_sig, = self.ax_sig.plot([], [], color='black', lw=1, label=f"lead {self.lead}")
+        self.ax_sig.set_ylabel(f"{self.lead}")
         self.ax_sig.legend(loc="upper right")
         
         # --- Row 2: CAC ---
@@ -360,6 +393,7 @@ class RegimeViewer:
         
         # Auto-scale signal y-axis roughly
         if len(view_sig) > 0:
+            # self._apply_scale(ax=self.ax_sig, view_data=view_sig)
             mn, mx = np.min(view_sig), np.max(view_sig)
             self.ax_sig.set_xlim(s, e)
             self.ax_sig.set_ylim(mn - 0.2, mx + 0.2)
@@ -398,22 +432,24 @@ class RegimeViewer:
         # 5. Frequency Plot
         if self.freq_mode > 0 and self.ax_freq:
             self.ax_freq.cla()
-            if self.freq_mode == 1: # STEM
+            # STEM
+            if self.freq_mode == 1: 
                 yf = np.abs(rfft(view_sig))                 #fft sample
                 xf = rfftfreq(len(view_sig), 1 / self.fs)   #frequency list
                 half_point = int(len(view_sig)/2)           #Find nyquist freq
                 freqs = yf[:half_point]
                 freq_l = xf[:half_point]
-                self.ax_freq.plot(freq_l, freqs, color='purple', lw=1, label=f"FFT")
+                self.ax_freq.plot(freq_l, freqs, color='purple', lw=1, label=f"FFT_{self.lead}")
                 self.ax_freq.fill_between(freq_l, freqs, color='purple', alpha=0.3)
-                self.ax_freq.set_xlim(0, 50) # Zoom on relevant signal bands
-                self.ax_freq.set_title("FFT")
-
-            elif self.freq_mode == 2: # SPECGRAM
+                self.ax_freq.set_xlim(0, 50)                # Zoom on relevant signal bands
+                self.ax_freq.set_title(f"FFT {self.lead}")
+            # SPECGRAM  
+            elif self.freq_mode == 2: 
                 try:
                     self.ax_freq.specgram(view_sig, NFFT=128, Fs=self.fs, noverlap=64, cmap='inferno')
                     self.ax_freq.set_yticks([])
-                except: pass
+                except Exception as e:
+                    logger.error(f"{e}")
 
         # 6. Nav Cursor
         self.nav_cursor.set_xdata([s])
@@ -471,7 +507,7 @@ class RegimeViewer:
         logger.info(f"Exporting GIF to {f_path}...")
         writer = PillowWriter(fps=15)
         with writer.saving(self.fig, f_path, dpi=80):
-            for _ in range(40):
+            for _ in range(60):
                 self.current_pos += self.step_size
                 self.update_frame(0)
                 self.fig.canvas.draw()
@@ -486,8 +522,8 @@ class PigRAD:
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
-        self.fs           :float = 1000.00 #Hz
-        self.windowsize   :int = 20  #size of section window 
+        self.fs           :float = 1000.0                   #Hz
+        self.windowsize   :int = 20                         #size of section window 
         self.lead         :str = self.pick_lead()
         self.sections     :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
@@ -495,6 +531,15 @@ class PigRAD:
         self.results      :list = []
         
     def pick_lead(self):
+        """Picks the lead you'd like to analyze
+
+        Raises:
+            ValueError: Gotta pick an integer
+
+        Returns:
+            _type_(int): the integer you picked!
+        """
+
         tree = Tree(f":select channel:", guide_style="bold bright_blue")
         for idx, channel in enumerate(self.channels):
             tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
@@ -509,11 +554,14 @@ class PigRAD:
             raise ValueError("Invalid selection")
     
     @log_time
-    def detect_regime_changes(self, m_override: int = None, n_regimes: int = 4):
-        """
-        Uses STUMPY FLUSS to find semantic boundaries (regime changes).
+    def detect_regime_changes(self, m_override: int = None, n_regimes: int = 5) -> None:
+        """Uses STUMPY FLUSS to find semantic boundaries (regime changes).
         Launches interactive RegimeViewer.
-        """
+
+        Args:
+            m_override (int, optional): window search overide if you'd like to try something else. Defaults to None.
+            n_regimes (int, optional): number of regime changes you hope to find.  Being that there are 4 stages of hem shock, we'll shoot for 5 regimes. Defaults to 5.
+        """        
         logger.info("Running Semantic Segmentation (FLUSS)...")
         data = self.full_data[self.lead].astype(np.float64)
         
@@ -554,7 +602,7 @@ class PigRAD:
 
             # Launch Interactive Navigator
             # NOTE: Phase Variance calc happens inside RegimeViewer init
-            RegimeViewer(data, cac, regime_locs, m, self.fs)
+            RegimeViewer(data, cac, regime_locs, m, self.fs, self.lead)
             
             return regime_locs
 
@@ -565,7 +613,10 @@ class PigRAD:
             return []
 
     def save_regime_results(self):
-        if not hasattr(self, 'regime_results'): return
+        """Saves the locations of the regime changes to json
+        """
+        if not hasattr(self, 'regime_results'): 
+            return
         out_name = self.npz_path.stem + "_regimes.json"
         out_path = self.npz_path.parent / out_name
         output_data = {
@@ -581,7 +632,15 @@ class PigRAD:
         except Exception as e:
             logger.error(f"Failed to save regime JSON: {e}")
 
-    def load_results(self, json_path):
+    def load_results(self, json_path:str):
+        """Loads said json path
+
+        Args:
+            json_path (str): path to json file
+
+        Returns:
+            bool: Whether the JSON was loaded
+        """        
         try:
             with open(json_path, 'r') as f:
                 self.results = json.load(f)
@@ -593,6 +652,17 @@ class PigRAD:
 
 # --- Entry Point ---
 def load_choices(fp:str):
+    """_summary_
+
+    Args:
+        fp (str): _description_
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """    
     try:
         tree = Tree(f":open_file_folder: [link file://{fp}]{fp}", guide_style="bold bright_blue")
         walk_directory(Path(fp), tree)
@@ -613,7 +683,7 @@ def main():
     selected = load_choices(fp)
     fp_save = Path(selected).parent / (Path(selected).stem + "_regimes.json")
     rad = PigRAD(selected)
-    rad.detect_regime_changes(n_regimes=3)
+    rad.detect_regime_changes(n_regimes=5)
 
 if __name__ == "__main__":
     main()
