@@ -8,12 +8,18 @@ from scipy.fft import rfft, rfftfreq
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
-    def __init__(self, npz_path):
-        self.container = np.load(npz_path)
-        self.files = self.container.files
-        self.channels = self._identify_and_sort_channels()
-        self.full_data = self._stitch_blocks()
+    def __init__(self, file_path):
+        if file_path.endswith("npz"):
+            self.container = np.load(file_path)
+            self.files = self.container.files
+            self.channels = self._identify_and_sort_channels()
+            self.full_data = self._stitch_blocks()
 
+        elif file_path.endswith("pkl"):
+            self.container = np.load(file_path, allow_pickle=True)
+            self.full_data = self.container.to_dict(orient="series")
+            self.channels = self.container.columns.to_list()
+            
     def _identify_and_sort_channels(self):
         """
         Identifies unique channel names from NPZ keys and returns them 
@@ -440,7 +446,7 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    target = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted/SHARC2_46589_6Hr_May-6-25.npz"
+    target = Path.cwd() / "src/rad_ecg/data/datasets/JT/ACT1_08206_ECMO_Dec-18-24.pkl"
     if not target.exists():
         print(f"Warning: File {target} not found.")
     else:

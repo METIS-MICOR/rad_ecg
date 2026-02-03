@@ -676,7 +676,7 @@ def load_choices(fp:str):
 
 def main():
     #target data folder goes here.
-    fp = Path.cwd() / "src/rad_ecg/data/datasets/sharc_fem/converted"
+    fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     
     #Check file existence, load mini detection scheme.  
     if not fp.exists():
@@ -695,7 +695,11 @@ def main():
 if __name__ == "__main__":
     main()
 
-#This script will be for extraction of heart rhythms within porcine data. 
+#Problem statement.  
+# We're looking to classify the 4 stages of hemorhagic shock. 
+# This looks to be mostly based on 
+
+
 #Gameplan is as follows. 
 #1. Rewrite the peak detect but with just the STFT on the front end. 
 #2. Use annotated guided vectors to look at the EKG and ABP at the point of exanguation. 
@@ -715,10 +719,6 @@ if __name__ == "__main__":
 #7. Use Wasserbein distribution test for low power majority vote (log reg / SVM?)
 
 
-#Notes. 
-#in the pig ecg there is an R and Rprime peak.  Which... Apparnetly is the whole QRS?
-#T and P peaks show up as inverted u waves.  
-#There's no jpoint to distinguish between stages. 
-
 #FLUSS
 #Same idea but over the whole signal now.  Might not be able to fit all of that into memory
+    #This takes forever to run.  Not going to be a feasible candidate for live classification. 
