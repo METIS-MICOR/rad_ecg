@@ -1,4 +1,4 @@
-import gc
+import os
 import json
 import numpy as np
 import stumpy
@@ -6,7 +6,6 @@ from pathlib import Path
 from numba import cuda
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
-import matplotlib.patches as patches
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
 from scipy.signal import find_peaks, stft, welch, convolve
@@ -212,7 +211,7 @@ class SignalDataLoader:
 # --- Advanced Viewer ---
 class RegimeViewer:
     """
-    Interactive viewer for signal, Semantic Segmentation (CAC), and Phase Variance.
+    Interactive viewer for signal, Semantic Segmentation via minimum CAC (Corrected Arc Curve), and Phase Variance.
     Includes frequency analysis and custom navigation.
     """
     def __init__(
@@ -297,7 +296,6 @@ class RegimeViewer:
 
         ax_speed = self.fig.add_subplot(self.gs_side[4])
         self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.step_size))
-        
         ax_window = self.fig.add_subplot(self.gs_side[5])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
@@ -398,7 +396,7 @@ class RegimeViewer:
             self.ax_sig.set_xlim(s, e)
             self.ax_sig.set_ylim(mn - 0.2, mx + 0.2)
 
-        # 2. Update CAC
+        # 2. Update CAC (Corrected Arc Curve)
         view_cac = self.cac[s : min(e, len(self.cac))]
         # Pad if short
         if len(view_cac) < (e-s):
@@ -519,6 +517,8 @@ class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
         self.npz_path     :Path = npz_path
+        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_regimes.json")  # For saving Corrected Arc Curve
+        self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")       # For saving regime locations
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
@@ -617,7 +617,7 @@ class PigRAD:
         """
         if not hasattr(self, 'regime_results'): 
             return
-        out_name = self.npz_path.stem + "_regimes.json"
+        out_name = self.fp_save
         out_path = self.npz_path.parent / out_name
         output_data = {
             "source_file": str(self.npz_path.name),
@@ -631,6 +631,29 @@ class PigRAD:
             logger.info("regime data saved")
         except Exception as e:
             logger.error(f"Failed to save regime JSON: {e}")
+    
+    def save_cac_results(self):
+        """Saves the Corrected Arc Curve Results
+        """
+        if not hasattr(self, 'regime_results'): 
+            return
+        out_name = self.fp_dos
+        out_path = self.npz_path.parent / out_name
+        output_path = Path(fp).with_suffix('.npz')
+        flat_data = {}
+        for channel_name, blocks in data.items():
+            for i, block_array in enumerate(blocks):
+                # Clean the channel name for filenames (remove spaces/special chars)
+                clean_name = "".join([c if c.isalnum() else "_" for c in channel_name])
+                key = f"{clean_name}_block_{i+1}"
+                flat_data[key] = block_array
+
+        # 3. Save the flattened dictionary
+        np.savez_compressed(output_path, **flat_data)
+        
+        # Log the size for peace of mind
+        mb_size = os.path.getsize(output_path) / (1024 * 1024)
+        logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
     def load_results(self, json_path:str):
         """Loads said json path
@@ -681,38 +704,23 @@ def load_choices(fp:str):
 def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
-    fp_save = Path(selected).parent / (Path(selected).stem + "_regimes.json")
+
     rad = PigRAD(selected)
     rad.detect_regime_changes(n_regimes=5)
 
 if __name__ == "__main__":
     main()
 
-
 #Problem statement.  
 # We're looking to classify the 4 stages of hemorhagic shock. 
-# This looks to be mostly based on 
+# We'll look for 5 regime changes and hope for the best!  
 
-
-#Gameplan is as follows. 
-#1. Rewrite the peak detect but with just the STFT on the front end. 
-#2. Use annotated guided vectors to look at the EKG and ABP at the point of exanguation. 
-#3. Have a visual scrolling result popup after runtime. 
-    #Confirming both the point of which ABP gets in the 30 to 40 range. 
-    #Immediately firing off a discord search before and after the moment to look for irregularities. 
-    #Definition of irregularities
-
-#Steps
-#1. Load numpy arrays
-#2. Choose signal lead
-#3. Choose ABP lead
-#4. Run section division of signal into sections (20 second sections)
-#5. Begin iterating and extraction. 
-#6. Run STFT to test for lower power freq signal.
-    #6b.  Also need logic to turn STFT on and off.  Something simpler than previous
-#7. Use Wasserbein distribution test for low power majority vote (log reg / SVM?)
-
-
-#FLUSS
-#Same idea but over the whole signal now.  Might not be able to fit all of that into memory
-    #This takes forever to run.  Not going to be a feasible candidate for live classification. 
+#Workflow
+#File choice and signal loading
+#Pigrad initialization kicks off stumpy matrix profile calculation
+#Runs FLUSS algorithm to look for semantic shifts in the morphology of the signal
+#Loads stumpy CAC () curve results to RegimeViewer matplotlib GUI
+#During that load, we calculate the phase variance over time with each beat
+#To do that we need to isolate the beats and then set a standard window before and after
+#Align all of them and then look for the variance in the aligned beat to run the wavelet over.
+#Gives the phase variance a kind of a step curve.
