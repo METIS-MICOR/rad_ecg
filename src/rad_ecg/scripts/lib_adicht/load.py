@@ -458,11 +458,11 @@ class LabChartNavigator:
         self.paused = was_paused
 
 if __name__ == "__main__":
-    base = Path.cwd() / "src/rad_ecg/data/datasets/JT/ACT1_17948_ResThor_Nov-20-24.pkl"
-    # targets = sorted(base.iterdir())
-    # for target in targets:
-    if not base.exists() and not base.is_file():
-        print(f"Warning: File {base} not found.")
-    else:
-        viewer = LabChartNavigator(str(base))
-    print(f"{base.name} closed")
+    base = Path.cwd() / "src/rad_ecg/data/datasets/JT/"
+    targets = sorted(base.iterdir())
+    for target in targets:
+        if not target.exists() and not target.is_file():
+            print(f"Warning: File {target} not found.")
+        else:
+            viewer = LabChartNavigator(str(target))
+        print(f"{target.name} closed")
