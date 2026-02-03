@@ -1,6 +1,5 @@
 import utils #from rad_ecg.scripts 
 import numpy as np
-
 import logging
 import json
 import os
@@ -50,13 +49,13 @@ def load_config()->json:
 
 #FUNCTION Load Signal Data
 def load_signal_data(file_path:str):
-    record, header = None, None
-
+    record = None
+    header = None
     #Load signal data
     if "." in file_path:
         file_type = file_path[file_path.rindex(".") + 1:].lower()
     else:
-        file_type = "hea" # I for some reason stripped the .hea file extension here.  #TODO - Come back and fix
+        file_type = "hea"
     
     try:
         match file_type:
@@ -72,6 +71,8 @@ def load_signal_data(file_path:str):
                 pass
             case "hea":
                 from wfdb import rdrecord
+                # cam = file_path.split("/")[-1]
+                # file_path = file_path[:file_path.rindex(cam)]
                 record = rdrecord(
                     file_path,
                     sampfrom=0,
@@ -128,7 +129,7 @@ def load_structures(source:str, datafile:Path):
             if overwrite.lower() == "n":
                 exit()
         else:
-            os.makedirs(configs["save_path"], exist_ok=True)
+            os.makedirs(test_sp, exist_ok=True)
             logger.info(f"folder created @ {test_sp} ")
 
         if configs["gcp_bucket"]:
@@ -157,11 +158,11 @@ def load_structures(source:str, datafile:Path):
 
         configs["cam_name"] = datafile.name
         record, header = load_signal_data(configs["cam"])
-
+        ftype = record.file_name[0].split(".")[-1]
         #Match filetype (could also use suffix)
-        match datafile.name[datafile.name.rindex(".") + 1:]:
+        match ftype:
             #ECG data
-            case "hea":
+            case "dat":
                 #Signal
                 wave = record.p_signal
                 
@@ -174,7 +175,7 @@ def load_structures(source:str, datafile:Path):
                 #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
                 wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
 
-            case "ebm":
+            case record.file_name.endswith("ebm"):
                 wave = record[3]
                 fs =  float(header["frequency"])
                 windowsi = 5
@@ -299,13 +300,16 @@ def launch_tui(configs:dict):
             f":open_file_folder: [link file://{directory}]{directory}",
             guide_style="bold bright_blue",
         )
-        files = walk_directory(Path(directory), tree)
+        walk_directory(Path(directory), tree)
         print(tree)
         
     question = "What file would you like to load?\n"
-    file_choice = "0" #console.input(f"{question}")
+    file_choice = console.input(f"{question}")
     if file_choice.isnumeric():
-
+        files = sorted(
+            Path(directory).iterdir(),
+            key=lambda path: (path.is_file(), path.name.lower()),
+        )
         file_to_load = files[int(file_choice) - 1]
         #check output directory exists
         return file_to_load
@@ -343,19 +347,20 @@ def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
             text_filename.stylize(f"link file://{path}")
             file_size = path.stat().st_size
             text_filename.append(f" ({decimal(file_size)})", "blue")
-            if path.suffix == "py":
-                icon = "🐍 "
-            elif path.suffix == ".hea":
-                icon = "🤯  "
-            elif path.suffix == ".ebm":
-                icon = "� "
-            elif path.suffix == ".npz":
-                icon = "🔫 "
+        #     if path.suffix == "py":
+        #         icon = "🐍 "
+        #     elif path.suffix == ".hea":
+        #         icon = "🤯  "
+        #     elif path.suffix == ".ebm":
+        #         icon = "� "
+        #     elif path.suffix == ".npz":
+        #         icon = "🔫 "
         #     elif path.suffix == ".mib":
         #         icon = "� "
         #     elif path.suffix == ".zip":
         #         icon = "🤐 "
         #     else:
         #         icon = "� "
-            tree.add(Text(f'{idx} ', "blue") + Text(icon) + text_filename)
+
+            tree.add(Text(f'{idx} ', "blue") + text_filename)
         idx += 1
