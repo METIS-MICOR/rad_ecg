@@ -90,7 +90,7 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     if datafile.name in inputdirs:
         idx = inputdirs.index(datafile.name)
         input_path = PurePath(Path(configs["data_path"]), Path(datafile.name), Path(inputdirs[idx]))
-        record = load_signal_data(input_path)
+        record, header = load_signal_data(str(input_path))
     else: 
         logger.warning(f"Input data for {datafile.name} not found")
         logger.warning("Make sure base waveform data is stored in the data/inputdata folder")
@@ -310,7 +310,7 @@ def launch_tui(configs:dict):
             Path(directory).iterdir(),
             key=lambda path: (path.is_file(), path.name.lower()),
         )
-        file_to_load = files[int(file_choice) - 1]
+        file_to_load = files[int(file_choice)]
         #check output directory exists
         return file_to_load
     else:
@@ -362,5 +362,5 @@ def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
         #     else:
         #         icon = "� "
 
-            tree.add(Text(f'{idx} ', "blue") + text_filename)
+            tree.add(Text(f'{idx} ', "blue") + text_filename) # + Text(icon)
         idx += 1
