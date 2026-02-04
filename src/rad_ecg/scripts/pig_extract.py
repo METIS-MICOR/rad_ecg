@@ -41,9 +41,9 @@ class CardiacPhaseTools:
             center_freq (int): Main Frequency to focus on
 
         Returns:
-            _type_: _description_
-        """        
-        
+            envelope, phase: _description_
+        """
+
         w_desired = 2 * np.pi * center_freq
         s = self.c * self.fs / w_desired
         M = int(2 * 4 * s) + 1
@@ -529,7 +529,7 @@ class PigRAD:
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.results      :list = []
-        self.view_gui     :bool = False
+        self.view_gui     :bool = True
 
     def pick_lead(self):
         """Picks the lead you'd like to analyze
@@ -686,7 +686,7 @@ class PigRAD:
                 )
         else:
             console.print("[yellow]No saved data found. Running STUMPY algorithms...[/]")
-            self.detect_regime_changes(n_regimes=n_regimes)
+            self.detect_regime_changes(m_override=420, n_regimes=n_regimes)
 
 # --- Entry Point ---
 def load_choices(fp:str):
@@ -720,7 +720,7 @@ def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
     rad = PigRAD(selected)
-    rad.run_pipeline(n_regimes=4)
+    rad.run_pipeline(n_regimes=5)
 
 if __name__ == "__main__":
     main()
