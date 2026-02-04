@@ -17,7 +17,7 @@ from rich.text import Text
 from rich.progress import (
     Progress, SpinnerColumn, TextColumn, BarColumn
 )
-from utils import segment_ECG, label_formatter
+from utils import segment_ECG
 from setup_globals import walk_directory
 from support import logger, console, log_time, NumpyArrayEncoder
 
@@ -53,13 +53,20 @@ class CardiacPhaseTools:
         cwt_complex = convolve(data, wavelet, mode='same')
         return np.abs(cwt_complex), np.angle(cwt_complex)
 
-    def compute_continuous_phase_metric(self, signal, window_beats=10):
-        """
-        Generates a continuous time-series metric representing phase stability.
-        1. Finds Peaks.
+    def compute_continuous_phase_metric(self, signal, window_beats=10) -> np.array:
+        """Generates a continuous time-series metric representing phase stability.
+        1. Finds Peaks. (scipy)
         2. Segments Signal.
         3. Calculates Phase Variance across a rolling window of beats.
+
+        Args:
+            signal (np.array): Signal you want to look at
+            window_beats (int, optional): default number of beats. Defaults to 10.
+
+        Returns:
+            metric_curve (np.array): Chunked array of the phase variance over time
         """
+
         # 1. Find Peaks
         #TODO - peak params
             # This could be improved upon - ie parameter adjustments
@@ -532,14 +539,14 @@ class PigRAD:
         self.results      :list = []
         self.view_gui     :bool = True
 
-    def pick_lead(self):
+    def pick_lead(self) -> str:
         """Picks the lead you'd like to analyze
 
         Raises:
             ValueError: Gotta pick an integer
 
         Returns:
-            _type_(int): the integer you picked!
+            lead (str): the lead you picked!
         """
 
         tree = Tree(f":select channel:", guide_style="bold bright_blue")
@@ -687,7 +694,7 @@ class PigRAD:
                 )
         else:
             console.print("[yellow]No saved data found. Running STUMPY algorithms...[/]")
-            self.detect_regime_changes(m_override=420, n_regimes=n_regimes)
+            self.detect_regime_changes(m_override=410, n_regimes=n_regimes)
 
 # --- Entry Point ---
 def load_choices(fp:str):
@@ -739,3 +746,7 @@ if __name__ == "__main__":
 #To do that we need to isolate the beats and then set a standard window before and after
 #Align all of them and then look for the variance in the aligned beat to run the wavelet over.
 #Gives the phase variance a kind of a step curve.
+
+#Good results
+#sep-3-24
+#
