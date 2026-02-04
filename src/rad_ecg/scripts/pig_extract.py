@@ -517,16 +517,14 @@ class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
         self.npz_path     :Path = npz_path
-        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_regimes.json")  # For saving Corrected Arc Curve
-        self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")       # For saving regime locations
+        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_regimes.json")  # For saving regime indices
+        self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")       # For saving Corrected Arc Curve
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
         self.fs           :float = 1000.0                   #Hz
         self.windowsize   :int = 20                         #size of section window 
         self.lead         :str = self.pick_lead()
-        if os.exists(self.fp_save) & os.exists(self.fp_dos):
-            pass
         self.sections     :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
@@ -653,40 +651,39 @@ class PigRAD:
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
-    def load_json(self, file_path:str):
-        """Loads said json path
-
-        Args:
-            file_path (str): path to json file
-
-        Returns:
-            bool: Whether the JSON was loaded
-        """        
-        try:
-            with open(file_path, 'r') as f:
-                self.results = json.load(f)
-            console.print(f"[bold green]Successfully loaded {len(self.results)} entries.[/]")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to load results: {e}")
-            return False
-        
-    def load_cac(self, file_path:str):
-        """Loads CAC path
-
-        Args:
-            file_path (str): path to array file
-
-        Returns:
-            bool: Whether the array was loaded
-        """        
-        try:
-            self.cac = np.load(file_path)
-            console.print(f"[bold green]Successfully loaded {len(self.cac)} entries.[/]")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to load results: {e}")
-            return False
+    def run_pipeline(self, n_regimes=5):
+        """Checks for existing save files. If found, loads them to save computation time.
+        If not found, runs the full STUMPY detection suite.
+        """
+        # 1. Check if files exist
+        if self.fp_save.exists() and self.fp_dos.exists():
+            console.print(f"[green]Found saved files for {self.lead}. Loading...[/]")
+            
+            # Load Regime JSON
+            with open(self.fp_save, 'r') as f:
+                meta = json.load(f)
+                m = meta['m']
+                regime_locs = np.array(meta['regime_indices'])
+            
+            # Load CAC NPZ
+            # np.savez_compressed saves unnamed args as arr_0
+            container = np.load(self.fp_dos)
+            cac = container['arr_0'] 
+            
+            console.print("[bold green]Data loaded. Launching Viewer...[/]")
+            
+            # Launch Viewer
+            RegimeViewer(
+                signal_data=self.full_data[self.lead].astype(np.float64),
+                cac_data=cac,
+                regime_locs=regime_locs,
+                m=m,
+                sampling_rate=self.fs,
+                lead=self.lead
+            )
+        else:
+            console.print("[yellow]No saved data found. Running STUMPY algorithms...[/]")
+            self.detect_regime_changes(n_regimes=n_regimes)
 
 # --- Entry Point ---
 def load_choices(fp:str):
@@ -720,7 +717,8 @@ def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
     rad = PigRAD(selected)
-    rad.detect_regime_changes(n_regimes=4)
+    # Use the new pipeline function instead of calling detect directly
+    rad.run_pipeline(n_regimes=4)
 
 if __name__ == "__main__":
     main()
