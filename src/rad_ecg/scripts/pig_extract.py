@@ -529,7 +529,8 @@ class PigRAD:
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.results      :list = []
-        
+        self.view_gui     :bool = False
+
     def pick_lead(self):
         """Picks the lead you'd like to analyze
 
@@ -604,7 +605,8 @@ class PigRAD:
 
             # Launch Interactive Navigator
             # NOTE: Phase Variance calc happens inside RegimeViewer init
-            RegimeViewer(data, cac, regime_locs, m, self.fs, self.lead)
+            if self.view_gui:
+                RegimeViewer(data, cac, regime_locs, m, self.fs, self.lead)
             
             return regime_locs
 
@@ -672,15 +674,16 @@ class PigRAD:
             
             console.print("[bold green]Data loaded. Launching Viewer...[/]")
             
-            # Launch Viewer
-            RegimeViewer(
-                signal_data=self.full_data[self.lead].astype(np.float64),
-                cac_data=cac,
-                regime_locs=regime_locs,
-                m=m,
-                sampling_rate=self.fs,
-                lead=self.lead
-            )
+            if self.view_gui:
+                # Launch Viewer
+                RegimeViewer(
+                    signal_data=self.full_data[self.lead].astype(np.float64),
+                    cac_data=cac,
+                    regime_locs=regime_locs,
+                    m=m,
+                    sampling_rate=self.fs,
+                    lead=self.lead
+                )
         else:
             console.print("[yellow]No saved data found. Running STUMPY algorithms...[/]")
             self.detect_regime_changes(n_regimes=n_regimes)
