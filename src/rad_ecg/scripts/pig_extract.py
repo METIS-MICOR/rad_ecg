@@ -525,6 +525,8 @@ class PigRAD:
         self.fs           :float = 1000.0                   #Hz
         self.windowsize   :int = 20                         #size of section window 
         self.lead         :str = self.pick_lead()
+        if os.exists(self.fp_save) & os.exists(self.fp_dos):
+            pass
         self.sections     :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
@@ -598,7 +600,9 @@ class PigRAD:
                 "m": m,
                 "regime_indices": regime_locs,
             }
+            self.results = cac
             self.save_regime_results()
+            self.save_cac_results()
 
             # Launch Interactive Navigator
             # NOTE: Phase Variance calc happens inside RegimeViewer init
@@ -628,7 +632,10 @@ class PigRAD:
         try:
             with open(out_path, 'w') as f:
                 json.dump(output_data, f, indent=2, cls=NumpyArrayEncoder)
-            logger.info("regime data saved")
+                # Log the size
+                mb_size = os.path.getsize(out_path) / (1024 * 1024)
+                logger.warning(f"Saved {out_path.name} ({mb_size:.2f} MB)")
+
         except Exception as e:
             logger.error(f"Failed to save regime JSON: {e}")
     
@@ -639,35 +646,43 @@ class PigRAD:
             return
         out_name = self.fp_dos
         out_path = self.npz_path.parent / out_name
-        output_path = Path(fp).with_suffix('.npz')
-        flat_data = {}
-        for channel_name, blocks in data.items():
-            for i, block_array in enumerate(blocks):
-                # Clean the channel name for filenames (remove spaces/special chars)
-                clean_name = "".join([c if c.isalnum() else "_" for c in channel_name])
-                key = f"{clean_name}_block_{i+1}"
-                flat_data[key] = block_array
-
-        # 3. Save the flattened dictionary
-        np.savez_compressed(output_path, **flat_data)
+        output_path = Path(out_path).with_suffix('.npz')
+        np.savez_compressed(output_path, self.results)
         
-        # Log the size for peace of mind
+        # Log the size
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
-    def load_results(self, json_path:str):
+    def load_json(self, file_path:str):
         """Loads said json path
 
         Args:
-            json_path (str): path to json file
+            file_path (str): path to json file
 
         Returns:
             bool: Whether the JSON was loaded
         """        
         try:
-            with open(json_path, 'r') as f:
+            with open(file_path, 'r') as f:
                 self.results = json.load(f)
             console.print(f"[bold green]Successfully loaded {len(self.results)} entries.[/]")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to load results: {e}")
+            return False
+        
+    def load_cac(self, file_path:str):
+        """Loads CAC path
+
+        Args:
+            file_path (str): path to array file
+
+        Returns:
+            bool: Whether the array was loaded
+        """        
+        try:
+            self.cac = np.load(file_path)
+            console.print(f"[bold green]Successfully loaded {len(self.cac)} entries.[/]")
             return True
         except Exception as e:
             logger.error(f"Failed to load results: {e}")
@@ -704,9 +719,8 @@ def load_choices(fp:str):
 def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
-
     rad = PigRAD(selected)
-    rad.detect_regime_changes(n_regimes=5)
+    rad.detect_regime_changes(n_regimes=4)
 
 if __name__ == "__main__":
     main()
