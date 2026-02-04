@@ -76,7 +76,7 @@ class CardiacPhaseTools:
         pre_peak = int(0.2 * self.fs)
         
         # Center frequency for analysis (High freq usually shows jitter best)
-        target_freq = 30 
+        target_freq = 20 #30 
         
         # Pre-allocate beat segments
         beats = []
@@ -130,6 +130,7 @@ class CardiacPhaseTools:
                 
                 # 3. Variance of deviations
                 phase_dev = phases - mean_phase
+                
                 # Wrap phase differences to [-pi, pi] for correct variance
                 phase_dev = (phase_dev + np.pi) % (2 * np.pi) - np.pi
                 
