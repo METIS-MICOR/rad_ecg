@@ -687,10 +687,10 @@ class PigRAD:
 
 # --- Entry Point ---
 def load_choices(fp:str):
-    """_summary_
+    """Loads whatever file you pick
 
     Args:
-        fp (str): _description_
+        fp (str): file path
 
     Raises:
         ValueError: _description_
@@ -717,7 +717,6 @@ def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
     rad = PigRAD(selected)
-    # Use the new pipeline function instead of calling detect directly
     rad.run_pipeline(n_regimes=4)
 
 if __name__ == "__main__":
