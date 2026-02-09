@@ -757,6 +757,10 @@ def main():
 if __name__ == "__main__":
     main()
 
+#NOTE - File run
+    #Move file to scripts folder for runtime
+
+
 #Problem statement.  
 # We're looking to classify the 4 stages of hemorhagic shock. 
 # We'll look for 5 regime changes and hope for the best!  
