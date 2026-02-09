@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
-from scipy.signal import find_peaks, stft, welch, convolve
+from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt
 from scipy.fft import rfft, rfftfreq
 from scipy.stats import wasserstein_distance
 from rich import print
@@ -538,6 +538,7 @@ class PigRAD:
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.results      :list = []
         self.view_gui     :bool = True
+        self.multi_stump  :bool = False
 
     def pick_lead(self) -> str:
         """Picks the lead you'd like to analyze
@@ -562,6 +563,13 @@ class PigRAD:
         else:
             raise ValueError("Invalid selection")
     
+    def bandpass_filter(data, lowcut=0.5, highcut=40.0, fs=1000.0, order=4):
+        nyq = 0.5 * fs
+        low = lowcut / nyq
+        high = highcut / nyq
+        b, a = butter(order, [low, high], btype='band')
+        return filtfilt(b, a, data)
+    
     @log_time
     def detect_regime_changes(self, m_override: int = None, n_regimes: int = 5) -> None:
         """Uses STUMPY FLUSS to find semantic boundaries (regime changes).
@@ -583,33 +591,42 @@ class PigRAD:
         logger.info(f"Using window size m={m}...")
 
         try:
-            # Calculate MP and MPI
-            if self.gpu_devices:
-                logger.info("using GPU for MP")
-                mp = stumpy.gpu_stump(data, m=m, device_id=self.gpu_devices)
-                mpi = mp[:, 1]
+            if self.multi_stump:
+                pass
+                #TODO - Multi stump. 
+                    #Issue - FLUSS isn't really able to identify major morpohological shifts.  Increase and decrease in heart rate tend to screw things up
+                    #Upgrade
+                    #Idea here is that the euclidean distance istn'.... quite doing enough of what i need
+                    #for finding segmentation.  As such, we're going to open it up to some other infomration
+                    #streams we have.  Create consensus motif, and look for segmentation in that. 
             else:
-                logger.info("using CPU for MP")
-                mp = stumpy.stump(data, m=m)
-                mpi = mp[:, 1]
+                # Calculate MP and MPI
+                if self.gpu_devices:
+                    logger.info("using GPU for MP")
+                    mp = stumpy.gpu_stump(data, m=m, device_id=self.gpu_devices)
+                    mpi = mp[:, 1]
+                else:
+                    logger.info("using CPU for MP")
+                    mp = stumpy.stump(data, m=m)
+                    mpi = mp[:, 1]
+                    
+                # Calculate FLUSS
+                logger.info("Calculating FLUSS (Arc Curve)...")
+                cac, regime_locs = stumpy.fluss(mpi, L=m, n_regimes=n_regimes, excl_factor=5)
                 
-            # Calculate FLUSS
-            logger.info("Calculating FLUSS (Arc Curve)...")
-            cac, regime_locs = stumpy.fluss(mpi, L=m, n_regimes=n_regimes, excl_factor=5)
+                # Normalize CAC length to match data for plotting
+                pad_width = len(data) - len(cac)
+                if pad_width > 0:
+                    cac = np.pad(cac, (0, pad_width), 'constant', constant_values=1.0)
             
-            # Normalize CAC length to match data for plotting
-            pad_width = len(data) - len(cac)
-            if pad_width > 0:
-                cac = np.pad(cac, (0, pad_width), 'constant', constant_values=1.0)
-            
-            # Save Logic
-            self.regime_results = {
-                "m": m,
-                "regime_indices": regime_locs,
-            }
-            self.results = cac
-            self.save_regime_results()
-            self.save_cac_results()
+                # Save Logic
+                self.regime_results = {
+                    "m": m,
+                    "regime_indices": regime_locs,
+                }
+                self.results = cac
+                self.save_regime_results()
+                self.save_cac_results()
 
             # Launch Interactive Navigator
             # NOTE: Phase Variance calc happens inside RegimeViewer init
