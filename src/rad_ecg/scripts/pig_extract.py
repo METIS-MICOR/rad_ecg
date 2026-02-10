@@ -107,11 +107,12 @@ class CardiacPhaseTools:
         
         # Progress bar since this can be slow
         with Progress(
-            SpinnerColumn(), BarColumn(), TextColumn("[progress.description]{task.description}"),
+            SpinnerColumn(), 
+            BarColumn(), 
+            TextColumn("[progress.description]{task.description}"),
             transient=True
         ) as progress:
             task = progress.add_task("Calculating Phase Variance...", total=n_beats)
-            
             for i in range(n_beats):
                 # Define rolling window indices
                 start_b = max(0, i - half_w)
@@ -563,7 +564,7 @@ class PigRAD:
         else:
             raise ValueError("Invalid selection")
     
-    def bandpass_filter(data, lowcut=0.5, highcut=40.0, fs=1000.0, order=4):
+    def bandpass_filter(data, lowcut=0.1, highcut=40.0, fs=1000.0, order=4):
         nyq = 0.5 * fs
         low = lowcut / nyq
         high = highcut / nyq
@@ -773,4 +774,50 @@ if __name__ == "__main__":
 
 #Good results
 #sep-3-24
-#
+
+#NOTES 2-10-26
+#FLUSS not performing as well as I'd like. 
+#Possible problems. 
+    #an m that changes throughout the signal because the signal I want to look at is too long.  
+        # Could section the ecg according to the phase labels in BSOS data.  
+    
+    #It also could be that the  periodicity of the carotid flow is so strong it completely obliterates
+    #any smaller signal change.  Which we did see in the freqwuency spectrum as the power for that signal
+    #was really large.  
+
+    #Additionally, euclidean distance's might break down in this instance because the change isn't immediate.  
+    #It's gradual over time which FLUSS won't be able to see.  s
+
+    #Mortlet Wavelet might not be suitable (meant for ecg's not flow traces)
+    #debauchies 4/ symlet 5 and gaussian may be more appropriate
+
+
+
+#IDEA 
+#What about shooting for a change point detection algorithm.  BOCPD (Bayesian optimized change point detection) might work here.  
+#Could isolate the dicrotic notch of the carotid.  The R peak of the ecg.  then create a time based feature of the difference between them. representing depolarization speeds
+#Could also use the slopes off the carotid as an indicator of pressure. 
+#Proposed outline
+#1. Downsample if necessary (not in this case)
+#2. apply a zero-phase butterworth bandpass filter (0.5 - 30 Hz) on the carotid and LAD
+    #traces in order to remove wander and artifacts. 
+#3. dicrotic notch index (DNI)
+    # Find the r peak. Use scipy find_peaks 
+    # find the systolic peak(SBP) and diastolic trough (DBP)
+    # use the second deriv to get the local maxima (aka the dichrotic notch)
+    # dni =  (Pnotch - DBP) / (SBP - DBP)
+    # Supposedly falls off quickly from hem stages 2 and up.
+#4. Pulse wave reflection ratios
+    #p1 - percussion wave - initial upstroke by lv ejection
+    #p2 - tidal wave - reflection from the upper body and renal
+    #p3 - dicrotic wave - reflection from the lower body. 
+#5. Systolic + Diastolic Slopes 
+    #max slope - max value of the first derivative during the upstroke. 
+        #gets greater in class 1.  decreases in following
+    #Decay time constant
+        #fir an exponential decay func p(t) = P0e^-t/T to the diastolic portion - notch to end diastole
+#6. Use AUC for calculating MAP
+#7  Calcualte shannon energy maybe?
+#8. Calculate diastolic retrograde fraction
+    # Don't really understand this one, so will need to come back. 
+
