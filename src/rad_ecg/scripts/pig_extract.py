@@ -538,8 +538,7 @@ class PigRAD:
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.results      :list = []
-        self.view_gui     :bool = True
-        self.multi_stump  :bool = False
+        self.view_gui     :bool = False
 
     def pick_lead(self) -> str:
         """Picks the lead you'd like to analyze
@@ -570,114 +569,34 @@ class PigRAD:
         high = highcut / nyq
         b, a = butter(order, [low, high], btype='band')
         return filtfilt(b, a, data)
+
+    # def save_regime_results(self):
+    #     """Saves the locations of the regime changes to json
+    #     """
+    #     if not hasattr(self, 'regime_results'): 
+    #         return
+    #     out_name = self.fp_save
+    #     out_path = self.npz_path.parent / out_name
+    #     output_data = {
+    #         "source_file": str(self.npz_path.name),
+    #         "lead": self.lead,
+    #         "m": int(self.regime_results['m']),
+    #         "regime_indices": self.regime_results['regime_indices'].tolist(),
+    #     }
+    #     try:
+    #         with open(out_path, 'w') as f:
+    #             json.dump(output_data, f, indent=2, cls=NumpyArrayEncoder)
+    #             # Log the size
+    #             mb_size = os.path.getsize(out_path) / (1024 * 1024)
+    #             logger.warning(f"Saved {out_path.name} ({mb_size:.2f} MB)")
+
+    #     except Exception as e:
+    #         logger.error(f"Failed to save regime JSON: {e}")
     
-    @log_time
-    def detect_regime_changes(self, m_override: int = None, n_regimes: int = 5) -> None:
-        """Uses STUMPY FLUSS to find semantic boundaries (regime changes).
-        Launches interactive RegimeViewer.
-
-        Args:
-            m_override (int, optional): window search overide if you'd like to try something else. Defaults to None.
-            n_regimes (int, optional): number of regime changes you hope to find.  Being that there are 4 stages of hem shock, we'll shoot for 5 regimes. Defaults to 5.
-        """        
-        logger.info("Running Semantic Segmentation (FLUSS)...")
-        data = self.full_data[self.lead].astype(np.float64)
-        
-        if m_override:
-            m = m_override
-        else:
-            # Default to ~400ms (one beat)
-            m = int(self.fs * 0.4) 
-        
-        logger.info(f"Using window size m={m}...")
-
-        try:
-            if self.multi_stump:
-                pass
-                #TODO - Multi stump. 
-                    #Issue - FLUSS isn't really able to identify major morpohological shifts.  Increase and decrease in heart rate tend to screw things up
-                    #Euclidean distance isn't .... quite cutting it.  
-                    #Solution
-                        #1. Multi Stump
-                            # For finding hem shock stages.
-                            # Use the other input streams to determine shape change
-            
-                        #2. Self- Join comparison
-                            #Self join of the initial x minutes.  Then compare sections thereafter to that initial loop with stumpy
-
-                        #3. 
-
-            else:
-                # Calculate MP and MPI
-                if self.gpu_devices:
-                    logger.info("using GPU for MP")
-                    mp = stumpy.gpu_stump(data, m=m, device_id=self.gpu_devices)
-                    mpi = mp[:, 1]
-                else:
-                    logger.info("using CPU for MP")
-                    mp = stumpy.stump(data, m=m)
-                    mpi = mp[:, 1]
-                    
-                # Calculate FLUSS
-                logger.info("Calculating FLUSS (Arc Curve)...")
-                cac, regime_locs = stumpy.fluss(mpi, L=m, n_regimes=n_regimes, excl_factor=5)
-                
-                # Normalize CAC length to match data for plotting
-                pad_width = len(data) - len(cac)
-                if pad_width > 0:
-                    cac = np.pad(cac, (0, pad_width), 'constant', constant_values=1.0)
-            
-                # Save Logic
-                self.regime_results = {
-                    "m": m,
-                    "regime_indices": regime_locs,
-                }
-                self.results = cac
-                self.save_regime_results()
-                self.save_cac_results()
-
-            # Launch Interactive Navigator
-            # NOTE: Phase Variance calc happens inside RegimeViewer init
-            if self.view_gui:
-                RegimeViewer(data, cac, regime_locs, m, self.fs, self.lead)
-            
-            return regime_locs
-
-        except Exception as e:
-            logger.error(f"Failed during FLUSS segmentation: {e}")
-            import traceback
-            traceback.print_exc()
-            return []
-
-    def save_regime_results(self):
-        """Saves the locations of the regime changes to json
-        """
-        if not hasattr(self, 'regime_results'): 
-            return
-        out_name = self.fp_save
-        out_path = self.npz_path.parent / out_name
-        output_data = {
-            "source_file": str(self.npz_path.name),
-            "lead": self.lead,
-            "m": int(self.regime_results['m']),
-            "regime_indices": self.regime_results['regime_indices'].tolist(),
-        }
-        try:
-            with open(out_path, 'w') as f:
-                json.dump(output_data, f, indent=2, cls=NumpyArrayEncoder)
-                # Log the size
-                mb_size = os.path.getsize(out_path) / (1024 * 1024)
-                logger.warning(f"Saved {out_path.name} ({mb_size:.2f} MB)")
-
-        except Exception as e:
-            logger.error(f"Failed to save regime JSON: {e}")
-    
-    def save_cac_results(self):
+    def save_results(self):
         """Saves the Corrected Arc Curve Results
         """
-        if not hasattr(self, 'regime_results'): 
-            return
-        out_name = self.fp_dos
+        out_name = self.fp_save
         out_path = self.npz_path.parent / out_name
         output_path = Path(out_path).with_suffix('.npz')
         np.savez_compressed(output_path, self.results)
@@ -687,7 +606,8 @@ class PigRAD:
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
     
     def create_features(self):
-        pass
+        lad = self.channels.index("LAD")
+        carotid = self.channels.index("Carotid")
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -703,8 +623,7 @@ class PigRAD:
                 m = meta['m']
                 regime_locs = np.array(meta['regime_indices'])
             
-            # Load CAC NPZ
-            # np.savez_compressed saves unnamed args as arr_0
+            # Load NPZ
             container = np.load(self.fp_save)
             cac = container['arr_0']
             
@@ -725,7 +644,7 @@ class PigRAD:
             console.print("[yellow]No saved data found. Running XGBOOST algorithm...[/]")
             self.create_features()
             self.prep_data()
-            self.model_data()
+            self.xgboost_time()
             self.show_results()
 
 # --- Entry Point ---
@@ -819,12 +738,11 @@ if __name__ == "__main__":
     #max slope - max value of the first derivative during the upstroke. 
         #gets greater in class 1.  decreases in following
     #Decay time constant
-        #fir an exponential decay func p(t) = P0e^-t/T to the diastolic portion - notch to end diastole
+        #for an exponential decay func p(t) = P0e^-t/T to the diastolic portion - notch to end diastole
 #6. Use AUC for calculating MAP
 #7  Calculate shannon energy maybe?
 #8. Calculate diastolic retrograde fraction
-    # Don't really understand this one, will need to come back. 
-
-#9.  Maybe use a clustering approach for labeling. 
+    # Don't really understand this one, need to come back. 
+#9.  Maybe use a clustering approach for labeling sections
 #10. Throw it all at an XGBOOST and look at feature importance. 
 
