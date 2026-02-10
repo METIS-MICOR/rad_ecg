@@ -526,8 +526,8 @@ class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
         self.npz_path     :Path = npz_path
-        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_regimes.json")  # For saving regime indices
-        self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")       # For saving Corrected Arc Curve
+        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")    # For saving features
+        # self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")     # For saving Corrected Arc Curve
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
@@ -685,13 +685,16 @@ class PigRAD:
         # Log the size
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
+    
+    def create_features(self):
+        pass
 
-    def run_pipeline(self, n_regimes=5):
+    def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
-        If not found, runs the full STUMPY detection suite.
+        If not found, runs the feature creation and modeling pipeline
         """
         # 1. Check if files exist
-        if self.fp_save.exists() and self.fp_dos.exists():
+        if self.fp_save.exists():
             console.print(f"[green]Found saved files for {self.lead}. Loading...[/]")
             
             # Load Regime JSON
@@ -702,13 +705,14 @@ class PigRAD:
             
             # Load CAC NPZ
             # np.savez_compressed saves unnamed args as arr_0
-            container = np.load(self.fp_dos)
-            cac = container['arr_0'] 
+            container = np.load(self.fp_save)
+            cac = container['arr_0']
             
             console.print("[bold green]Data loaded. Launching Viewer...[/]")
             
             if self.view_gui:
                 # Launch Viewer
+                #TODO - Will need to update this
                 RegimeViewer(
                     signal_data=self.full_data[self.lead].astype(np.float64),
                     cac_data=cac,
@@ -718,8 +722,11 @@ class PigRAD:
                     lead=self.lead
                 )
         else:
-            console.print("[yellow]No saved data found. Running STUMPY algorithms...[/]")
-            self.detect_regime_changes(m_override=410, n_regimes=n_regimes)
+            console.print("[yellow]No saved data found. Running XGBOOST algorithm...[/]")
+            self.create_features()
+            self.prep_data()
+            self.model_data()
+            self.show_results()
 
 # --- Entry Point ---
 def load_choices(fp:str):
@@ -793,20 +800,17 @@ if __name__ == "__main__":
 
 
 
-#IDEA 
+#IDEA - New Modeling path
 #What about shooting for a change point detection algorithm.  BOCPD (Bayesian optimized change point detection) might work here.  
-#Could isolate the dicrotic notch of the carotid.  The R peak of the ecg.  then create a time based feature of the difference between them. representing depolarization speeds
-#Could also use the slopes off the carotid as an indicator of pressure. 
 #Proposed outline
-#1. Downsample if necessary (not in this case)
-#2. apply a zero-phase butterworth bandpass filter (0.5 - 30 Hz) on the carotid and LAD
-    #traces in order to remove wander and artifacts. 
+#1. Downsample if necessary
+#2. apply a zero-phase butterworth bandpass filter (0.5 - 30 Hz) on the carotid and LAD traces in order to remove wander and artifacts. 
 #3. dicrotic notch index (DNI)
-    # Find the r peak. Use scipy find_peaks 
+    # find the r peak. Use scipy find_peaks
     # find the systolic peak(SBP) and diastolic trough (DBP)
     # use the second deriv to get the local maxima (aka the dichrotic notch)
     # dni =  (Pnotch - DBP) / (SBP - DBP)
-    # Supposedly falls off quickly from hem stages 2 and up.
+    # supposedly falls off quickly from hem stages 2 and up.
 #4. Pulse wave reflection ratios
     #p1 - percussion wave - initial upstroke by lv ejection
     #p2 - tidal wave - reflection from the upper body and renal
@@ -817,7 +821,10 @@ if __name__ == "__main__":
     #Decay time constant
         #fir an exponential decay func p(t) = P0e^-t/T to the diastolic portion - notch to end diastole
 #6. Use AUC for calculating MAP
-#7  Calcualte shannon energy maybe?
+#7  Calculate shannon energy maybe?
 #8. Calculate diastolic retrograde fraction
-    # Don't really understand this one, so will need to come back. 
+    # Don't really understand this one, will need to come back. 
+
+#9.  Maybe use a clustering approach for labeling. 
+#10. Throw it all at an XGBOOST and look at feature importance. 
 
