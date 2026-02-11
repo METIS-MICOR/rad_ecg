@@ -10,6 +10,7 @@ from itertools import cycle, chain
 from collections import Counter
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
@@ -22,7 +23,7 @@ from rich.progress import (
     Progress, SpinnerColumn, TextColumn, BarColumn
 )
 from scipy.fft import rfft, rfftfreq
-from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt
+from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt, savgol_filter
 from scipy.stats import wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm
 
 ########################### Custom imports ###############################
@@ -1844,7 +1845,7 @@ class CardiacPhaseTools:
         #TODO - peak params
             # This could be improved upon - ie parameter adjustments
 
-        peaks, _ = find_peaks(signal, distance=int(self.fs * 0.4), height=np.mean(signal)) 
+        peaks, _ = find_peaks(signal, distance=int(self.fs * 0.4), height=np.mean(signal))
         if len(peaks) < window_beats:
             return np.zeros_like(signal)
 
@@ -2306,13 +2307,31 @@ class PigRAD:
         self.channels     :list = self.loader.channels
         self.fs           :float = 1000.0                   #Hz
         self.windowsize   :int = 20                         #size of section window 
-        self.ecg_lead     :str = self.pick_lead("ECG")      #pick the ecg lead
-        self.lad_lead     :str = self.pick_lead("Lad")      #pick the lad lead'
-        self.car_lead     :str = self.pick_lead("Cartoid")
+        self.ecg_lead     :str = self.pick_lead("ECG")      #pick the ECG lead
+        self.lad_lead     :str = self.pick_lead("Lad")      #pick the Lad lead
+        self.car_lead     :str = self.pick_lead("Cartoid")  #pick the Carotid lead
+        self.ss1_lead     :str = self.pick_lead("SS1")      #pick the SS1 lead
         self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
-        self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
+        self.dtypes = [
+            ('start'   , 'i4'),
+            ('end'     , 'i4'),
+            ('valid'   , 'i4'),
+            ('dni'     , 'f4'),
+            ('sys_sl'  , 'f4'),
+            ('dia_sl'  , 'f4'),
+            ('p1'      , 'f4'),
+            ('p2'      , 'f4'),
+            ('p3'      , 'f4'),
+            ('HR'      , 'f4'), 
+            ('MAP'     , 'f4')  #NOTE-USE AUC
+        ]
+        self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.dtypes)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
-        self.outcomes     :list = []
+        self.view_eda     :bool = False
+        self.results["start"] = self.sections[:, 0]
+        self.results["end"] = self.sections[:, 1]
+        self.results["valid"] = self.sections[:, 2]
+        del self.sections
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -2338,7 +2357,7 @@ class PigRAD:
         else:
             raise ValueError("Invalid selection")
     
-    def bandpass_filter(data, lowcut=0.1, highcut=40.0, fs=1000.0, order=4):
+    def bandpass_filter(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
         nyq = 0.5 * fs
         low = lowcut / nyq
         high = highcut / nyq
@@ -2356,27 +2375,77 @@ class PigRAD:
         # Log the size
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
+
+    def _derivative(self, signal):
+        """Calculates 1st and 2nd derivatives using Savitzky-Golay for smoothing."""
+        # Window length must be odd; approx 20-30ms is usually good for smoothing derivatives
+        window = int(0.03 * self.fs) 
+        if window % 2 == 0: 
+            window += 1
+        
+        d1 = savgol_filter(signal, window_length=window, polyorder=3, deriv=1)
+        d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
+        return pd.Series(d1), pd.Series(d2)
     
     def create_features(self):
-        #BUG - Data container
-            #I've got a sections value that can log section averages, 
-            #but i still need another container for the interior stuff
-            #Namely peak locations, notch locations. slopes, 
-        
-        lad = [x for x, y in enumerate(self.channels) if "LAD" in y]
-        carotid = [x for x, y in enumerate(self.channels) if "Carotid" in y]
-        ecg = [x for x, y in enumerate(self.channels) if "ECG1" in y]
-        #NOTE - Might want a way to test signal quality
-            #Reason being the ECG traces are sometimes bad.  
-            #phase variance?
-
         #Bandpass the flow streams
-        for lead in [lad, carotid]:
-            self.full_data[lead] = self.bandpass_filter(self.full_data[lead])
-        for section in self.sections:
-            #Find R peaks
-            peaks, _ = find_peaks(self)
-            #Calculate MAP
+        for lead in [self.lad_lead, self.car_lead]:
+            self.full_data[self.channels[lead]] = self.bandpass_filter(data=self.full_data[self.channels[lead]])
+        
+        # Progress bar for section iteration
+        with Progress(
+            SpinnerColumn(), 
+            BarColumn(), 
+            TextColumn("[progress.description]{task.description}"),
+            transient=True
+        ) as progress:
+            task = progress.add_task("Calculating Features...", total=self.results.shape[0])
+            for idx, section in enumerate(self.results):
+                #Find R peaks
+                start = section[0].item()
+                end = section[1].item()
+                wave = self.full_data[self.channels[self.ecg_lead]][start:end]
+                #NOTE could put STFT here for clean signal check
+                #or phase variance. 
+
+                peaks, _ = find_peaks(
+                    x = wave,
+                    prominence = np.percentile(wave, 95),  #99 -> stock
+                    height = np.percentile(wave, 90),      #95 -> stock
+                    distance = round(self.fs*(0.200))           #Can't have a heart rate faster than 300ms
+                )
+
+                if len(peaks) < 3:
+                    logger.info(f"sect {idx} not enough peaks")
+                else:                
+                    #Calc HR
+                    RR_diffs = np.diff(peaks)
+                    HR = np.round((60 / (RR_diffs / self.fs)), 2)
+                    self.results["HR"][idx] = np.round(np.mean(HR), 2)
+
+                #Calculate MAP
+                wave = self.full_data[self.channels[self.ss1_lead]][start:end]
+                peaks, heights = find_peaks(
+                    x = wave,
+                    prominence = (np.max(wave) - np.min(wave)) * 0.20,
+                    height = np.percentile(wave, 85),      #95 -> stock
+                    distance = round(self.fs*(0.300))      #Can't have a heart rate faster than 300ms
+                )
+
+                if len(peaks) < 3:
+                    logger.info(f"sect {idx} no peaks in SS1")
+                
+                else:
+                    results = []
+                    for idx, peak in enumerate(peaks):
+                        subwave = wave[peak.item():heights["right_bases"][idx].item()]
+                        d1, d2 = self._derivative(subwave)
+                        pass
+
+                    self.results["DNI"][idx] = np.round(np.mean(results), 2)
+
+                #Move the progbar
+                progress.advance(task)
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -2406,7 +2475,7 @@ class PigRAD:
         else:
             console.print("[yellow]No saved data found. Running pipeline...[/]")
             console.print("[green]creating features...[/]")
-            # self.create_features()
+            self.create_features()
             #Load up the EDA class
             ml = EDA(
                 self.full_data, 
@@ -2418,9 +2487,12 @@ class PigRAD:
                 self.lad_lead,
                 self.car_lead
             )
+            ml.clean_data()
             console.print("[green]prepping data...[/]")
             if self.view_eda:
                 pass
+                # ml.corr_heatmap()
+                # ml.eda_plot()
                 
             ml.prep_data()
             console.print("[green]Running XGBOOST algorithm...[/]")
@@ -2523,11 +2595,11 @@ if __name__ == "__main__":
     # Don't really understand this one, need to come back. 
 #9.  Maybe use a clustering approach for labeling sections
 #10. Throw it all at an XGBOOST and look at feature importance. 
+#11. Couldn't hurt to verify feature importance with some SHAP values
 
-# This means I'll also need to transfer the data from class to class. 
-# I'm going to use the classifier code from ML_template... Do i need the 
-# entire pipeline process?  yeeeees.  I'll probably want it at some point
-# down the road. Lets run 3 models.  SVM, Xgboost annnnd isoforest
+
+#Lets run 3 models.  
+    #SVM, Xgboost annnnd isoforest
 
 #New Data containers
 #### self.sections ####
