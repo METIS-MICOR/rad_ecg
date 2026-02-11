@@ -8,6 +8,7 @@ from numba import cuda
 from os.path import exists
 from itertools import cycle, chain
 from collections import Counter
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
@@ -49,23 +50,33 @@ from xgboost import XGBClassifier, DMatrix
 
 #CLASS EDA
 class EDA(object):
-    def __init__(self):
-        self.dataset = self.pig_data
-        self.wave = wave
-        self.names_interior = [
-            "p_peak", "q_peak", "r_peak", "s_peak", "t_peak", "valid_qrs",
-            "pr_intr", "pr_seg", "qrs_comp", "st_seg", "qt_intr", "p_onset",
-            "q_onset", "t_onset", "t_offset", "j_point"
-        ]
-        self.interior_peaks = pd.DataFrame(self.dataset["interior_peaks"], columns=self.names_interior)
+    def __init__(
+            self,
+            pig_data:dict,
+            channels:list,
+            fs:float,
+            gpu_devices:list,
+            target:list,
+            ecg_lead:int,
+            lad_lead:int, 
+            car_lead:int,
+        ):
+        self.dataset = pig_data
+        self.feature_names = channels
+        self.gpu_devices = gpu_devices
+        self.fs = fs
+        self.ecg_lead = ecg_lead
+        self.lad_lead = lad_lead
+        self.car_lead = car_lead
         self.task = "classification"
-        self.data = pd.DataFrame(self.dataset["section_info"])
-        self.feature_names =[self.data.columns[x] for x in range(5, self.data.shape[1])]
-        self.target = pd.Series(ecg_data["section_info"]["valid"], name="valid")
-        self.target_names = ["anomaly", "stable"]
+        self.target = pd.Series(target, name="ShockClass")
+        self.target_names = ["baseline", "class_1", "class_2", "class_3", "class_4"]
         self.rev_target_dict = {
-            0:"anomaly",
-            1:"stable"
+            0:"baseline",
+            1:"class_1",
+            2:"class_2",
+            3:"class_3",
+            4:"class_4"
         }
 
     #FUNCTION clean_data
@@ -1114,8 +1125,6 @@ class ModelTraining(object):
         self._model_params = {
             #MEAS Model params
             "isoforest":{
-                #Notes. 
-                    ##!MUSTCHANGEME
                 "model_name":"isoforest",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
@@ -1769,10 +1778,7 @@ class ModelTraining(object):
         grid.fit(self.X_train, self.y_train)
         logger.info(f"{model_name} best params\n{grid.best_params_}")
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
-
-        #IDEA Perhaps update this to dual cross validation as well. 		
-
-        fp = "././scripts/phd/gridresults.txt"
+        fp = "./data/datasets/JT/gridresults.txt"
         t = time.localtime()
         current_time = time.strftime("%m-%d-%Y %H:%M:%S", t)
         #Check to see if the file can be opened.
@@ -2300,15 +2306,19 @@ class PigRAD:
         self.channels     :list = self.loader.channels
         self.fs           :float = 1000.0                   #Hz
         self.windowsize   :int = 20                         #size of section window 
-        self.lead         :str = self.pick_lead()
-        self.sections     :np.array = segment_ECG(self.full_data[self.lead], self.fs, self.windowsize)
+        self.ecg_lead     :str = self.pick_lead("ECG")      #pick the ecg lead
+        self.lad_lead     :str = self.pick_lead("Lad")      #pick the lad lead'
+        self.car_lead     :str = self.pick_lead("Cartoid")
+        self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.sections     :np.array = np.concatenate((self.sections, np.zeros((self.sections.shape[0], 2), dtype=int)), axis=1)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
-        self.results      :list = []
-        self.view_gui     :bool = False
+        self.outcomes     :list = []
 
-    def pick_lead(self) -> str:
+    def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
+
+        Args:
+            col (str): Lead you want to pick
 
         Raises:
             ValueError: Gotta pick an integer
@@ -2316,17 +2326,15 @@ class PigRAD:
         Returns:
             lead (str): the lead you picked!
         """
-
         tree = Tree(f":select channel:", guide_style="bold bright_blue")
         for idx, channel in enumerate(self.channels):
             tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
         pprint(tree)
-        question = "What channel would you like to load?\n"
+        question = f"Please select the {col} channel?\n"
         file_choice = console.input(f"{question}")
         if file_choice.isnumeric():
-            lead_to_load = self.channels[int(file_choice)]
-            pprint(f"lead {lead_to_load} loaded")
-            return lead_to_load
+            pprint(f"lead {col} loaded")
+            return int(file_choice)
         else:
             raise ValueError("Invalid selection")
     
@@ -2381,7 +2389,6 @@ class PigRAD:
             # Load NPZ
             container = np.load(self.fp_save)
             cac = container['arr_0']
-            
             console.print("[bold green]Data loaded. Launching Viewer...[/]")
             
             if self.view_gui:
@@ -2400,12 +2407,25 @@ class PigRAD:
             console.print("[yellow]No saved data found. Running pipeline...[/]")
             console.print("[green]creating features...[/]")
             # self.create_features()
-            ml = EDA()
-            console.print("[green]prepping data...[/]") 
-            self.prep_data()
+            #Load up the EDA class
+            ml = EDA(
+                self.full_data, 
+                self.channels, 
+                self.fs, 
+                self.gpu_devices, 
+                self.outcomes,
+                self.ecg_lead,
+                self.lad_lead,
+                self.car_lead
+            )
+            console.print("[green]prepping data...[/]")
+            if self.view_eda:
+                pass
+                
+            ml.prep_data()
             console.print("[green]Running XGBOOST algorithm...[/]")
-            self.run_xgboost()
-            self.show_results()
+            ml.run_xgboost()
+            ml.show_results()
 
 # --- Entry Point ---
 def load_choices(fp:str):
@@ -2472,7 +2492,7 @@ if __name__ == "__main__":
     #was really large.  
 
     #Additionally, euclidean distance's might break down in this instance because the change isn't immediate.  
-    #It's gradual over time which FLUSS won't be able to see.  s
+    #It's gradual over time which FLUSS won't be able to see.
 
     #Mortlet Wavelet might not be suitable (meant for ecg's not flow traces)
     #debauchies 4/ symlet 5 and gaussian may be more appropriate
