@@ -24,7 +24,7 @@ from rich.progress import (
 )
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt, savgol_filter
-from scipy.stats import wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm
+from scipy.stats import wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm, linregress
 
 ########################### Custom imports ###############################
 from utils import segment_ECG
@@ -2316,14 +2316,14 @@ class PigRAD:
             ('start'   , 'i4'),
             ('end'     , 'i4'),
             ('valid'   , 'i4'),
+            ('HR'      , 'f4'), 
+            ('MAP'     , 'f4'),  #NOTE-USE AUC
             ('dni'     , 'f4'),
             ('sys_sl'  , 'f4'),
             ('dia_sl'  , 'f4'),
             ('p1'      , 'f4'),
             ('p2'      , 'f4'),
-            ('p3'      , 'f4'),
-            ('HR'      , 'f4'), 
-            ('MAP'     , 'f4')  #NOTE-USE AUC
+            ('p3'      , 'f4')
         ]
         self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.dtypes)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
@@ -2387,12 +2387,17 @@ class PigRAD:
         d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
         return pd.Series(d1), pd.Series(d2)
     
-    def create_features(self):
+    def _integrate(self, signal):
+        return np.trapezoid(signal) / signal.shape[0]
+    
+    def band_pass_filt(self):
         #Bandpass the flow streams
         for lead in [self.lad_lead, self.car_lead]:
             self.full_data[self.channels[lead]] = self.bandpass_filter(data=self.full_data[self.channels[lead]])
-        
+
+    def section_extract(self):
         # Progress bar for section iteration
+        precision = 4
         with Progress(
             SpinnerColumn(), 
             BarColumn(), 
@@ -2421,9 +2426,9 @@ class PigRAD:
                     #Calc HR
                     RR_diffs = np.diff(peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.results["HR"][idx] = np.round(np.mean(HR), 2)
+                    self.results["HR"][idx] = np.round(np.mean(HR))
 
-                #Calculate MAP
+                #Calculate DNI
                 wave = self.full_data[self.channels[self.ss1_lead]][start:end]
                 peaks, heights = find_peaks(
                     x = wave,
@@ -2436,16 +2441,57 @@ class PigRAD:
                     logger.info(f"sect {idx} no peaks in SS1")
                 
                 else:
-                    results = []
-                    for idx, peak in enumerate(peaks):
-                        subwave = wave[peak.item():heights["right_bases"][idx].item()]
+                    dni_res, map_res, sys_slop, dia_slop = [], [], [], []
+                    notch, MAAP, mean_sys_slope = None, None, None
+                    for id, peak in enumerate(peaks[:-1]):
+                        syst = peak.item()                       #Systolic
+                        dia = heights["right_bases"][id].item()  #Diastolic
+                        onset = heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
+                        subwave = wave[syst:dia]
+                        #Calc derivatives
                         d1, d2 = self._derivative(subwave)
-                        pass
+                        MAAP = self._integrate(subwave)
+                        #Calc MAP
+                        if MAAP:
+                            map_res.append(MAAP.item())
+                        #Find the Dichrotic notch
+                        notch = np.argmax(d2).item() + syst
+                        if notch:
+                            dni = (notch - syst) / (syst - dia)
+                            dni_res.append(dni)
+                        
+                        #Get systolic slope
+                        sys_rise = subwave[syst] - subwave[onset]
+                        sys_run = (syst - onset) / self.fs
+                        if sys_run > 0:
+                            mean_sys_slope = sys_rise / sys_run 
+                        else:
+                            mean_sys_slope = None
+                        if mean_sys_slope:
+                            sys_slop.append(mean_sys_slope)
+                        #Get diastolic slope via exponential decay (regression)
+                        pe, _ = find_peaks(
+                            wave[notch:dia],
+                            height=np.mean(subwave[notch:dia])
+                        )
+                        if pe:
+                            y_dia = wave[notch:dia]
+                            x_dia = np.arange(y_dia.shape[0]) / self.fs
+                            slope_dia, _, _, _ = linregress(y_dia, x_dia)
+                            if slope_dia:
+                                dia_slop.append(slope_dia)
 
-                    self.results["DNI"][idx] = np.round(np.mean(results), 2)
+                    self.results["dni"][idx] = np.round(np.mean(dni_res), precision)
+                    self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
+                    self.results["sys_sl"][idx] = np.round(np.mean(sys_slop), precision)
+                    self.results["dia_sl"][idx] = np.round(np.mean(dia_slop), precision)
 
                 #Move the progbar
                 progress.advance(task)
+
+    def create_features(self):
+        self.band_pass_filt()
+        self.section_extract()
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -2482,7 +2528,6 @@ class PigRAD:
                 self.channels, 
                 self.fs, 
                 self.gpu_devices, 
-                self.outcomes,
                 self.ecg_lead,
                 self.lad_lead,
                 self.car_lead
