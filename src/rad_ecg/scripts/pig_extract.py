@@ -1235,7 +1235,6 @@ class ModelTraining(object):
             },
             "xgboost":{
                 #Notes. 
-                    #TODO - update params here after figuring out how to sync
                     #this model workflow to the others
                 "model_name":"XGBClassifier()",
                 "model_type":"classification",
@@ -1757,10 +1756,7 @@ class ModelTraining(object):
         clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
-        #TODO add cv validator here
         grid = GridSearchCV(clf, param_grid=params, cv = folds, scoring=metric)
-        #TODO need CV search here too
-            #Means i should load it into the modeltraining object.
         
         # For super fun spinner action in your terminal.
         # progress = Progress(
@@ -2485,21 +2481,24 @@ class PigRAD:
                     for id, peak in enumerate(s_peaks[:-1]):
                         syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
+                        #The left bases kept messing up badly so i'll use the
+                        #right base of the previous peak.  Unless its the first
+                        #peak in which case it usually gets it right. 
                         if id == 0:
                             onset = s_heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
                         else:
                             onset = s_heights["right_bases"][id - 1].item()
                         subwave = ss1wave[syst:dia]
                         #Debug plot
-                        plt.plot(range(ss1wave.shape[0]), ss1wave)
-                        plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
-                        plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
-                        if id == 0:
-                            plt.scatter(onset, ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
-                        else:
-                            plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
-                        plt.show()
-                        plt.close()
+                        # plt.plot(range(ss1wave.shape[0]), ss1wave)
+                        # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
+                        # plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
+                        # if id == 0:
+                        #     plt.scatter(onset, ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
+                        # else:
+                        #     plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
+                        # plt.show()
+                        # plt.close()
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             d0, d1, d2 = self._derivative(subwave)
@@ -2587,7 +2586,9 @@ class PigRAD:
             if self.view_gui:
                 pass
                 # Launch Viewer
-                #TODO - Will need to update this to something new
+                #TODO - Regime Viewer update
+                    #Will need to update this. 
+
                 # RegimeViewer(
                 #     signal_data=self.full_data[self.lead].astype(np.float64),
                 #     cac_data=cac,
@@ -2601,7 +2602,7 @@ class PigRAD:
             console.print("[green]creating features...[/]")
             self.create_features()
             #Load up the EDA class
-            ml = EDA(
+            eda = EDA(
                 self.full_data, 
                 self.channels, 
                 self.fs, 
@@ -2611,17 +2612,73 @@ class PigRAD:
                 self.lad_lead,
                 self.car_lead
             )
-            ml.clean_data()
-            console.print("[green]prepping data...[/]")
+            eda.clean_data()
+            console.print("[green]prepping EDA...[/]")
             if self.view_eda:
                 pass
                 # ml.corr_heatmap()
                 # ml.eda_plot()
-                
-            ml.prep_data()
+            console.print("[green]Enginnering features...[/]")    
+            fe = FeatureEngineering(eda)
+            ofinterest = [fe.data.columns[x] for x in range(4, fe.data.shape[1])]
+    
+            console.print("[green]Prepping Data...[/]")
+            #Engineer your features here. available transforms below
+            #log:  Log Transform
+            #recip:Reciprocal
+            #sqrt: square root
+            #exp:  exponential - Good for right skew #!Broken
+            #BoxC: Box Cox - Good for only pos val
+            #YeoJ: Yeo-Johnson - Good for pos and neg val
+            # Ex:    
+            # engin.engineer("NN50",    True, False, "YeoJ")
+            # engin.engineer("Avg_QT",  True, False, "log")
+            #Scale your variables to the same scale.  Necessary for most machine learning applications. 
+            #available sklearn scalers
+            #s_scale : StandardScaler
+            #m_scale : MinMaxScaler
+            #r_scale : RobustScaler
+            #q_scale : QuantileTransformer
+            #p_scale : PowerTransformer
+            scaler = "r_scale"
+
+            #Next choose your cross validation scheme. Input `None` for no cross validation
+            #kfold       : KFold Validation
+            #stratkfold  : StratifiedKFold
+            #leavepout   : Leave p out 
+            #leaveoneout : Leave one out
+            #shuffle     : ShuffleSplit
+            #stratshuffle: StratifiedShuffleSplit
+            cross_val = "kfold"
+            
+            dataprep = DataPrep(ofinterest, scaler, cross_val, fe)
+            #Classifiers
+            #'pca':PrincipalComponentAnalysis
+            #'svm':LinearSVC
+            #'isoforest':IsolationForest
+            #'xgboost':XGBoostClassfier
+            modellist = ['pca', 'svm', 'isoforest', 'xgboost']
+            dp = DataPrep(fe)
+            modellist = ['svm', 'isoforest', 'xgboost']
             console.print("[green]Running XGBOOST algorithm...[/]")
-            ml.run_xgboost()
-            ml.show_results()
+            #split the training data #splits: test 25%, train 75% 
+            [dp.data_prep(model, 0.25) for model in modellist]
+            
+            #Load the ModelTraining Class
+            modeltraining = ModelTraining(dp)
+            for model in modellist:
+                modeltraining.get_data(model)
+                modeltraining.fit(model)
+                modeltraining.predict(model)
+                modeltraining.validate(model)
+                time.sleep(1)
+            
+            modeltraining.show_results(modellist, sort_des=False) 
+            forest = ['isoforest', 'xgboost']
+            #Looking at feature importances
+            for tree in forest: #Lol
+                feats = modeltraining._models[tree].feature_importances_
+                modeltraining.plot_feats(tree, ofinterest, feats)
 
 # --- Entry Point ---
 def load_choices(fp:str):
