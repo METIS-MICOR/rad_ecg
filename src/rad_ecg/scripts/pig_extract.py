@@ -2313,14 +2313,15 @@ class PigRAD:
         self.ss1_lead     :str = self.pick_lead("SS1")      #pick the SS1 lead
         self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.dtypes = [
-            ('start'   , 'i4'),
-            ('end'     , 'i4'),
-            ('valid'   , 'i4'),
-            ('HR'      , 'f4'), 
-            ('MAP'     , 'f4'),  #NOTE-USE AUC
-            ('dni'     , 'f4'),
-            ('sys_sl'  , 'f4'),
-            ('dia_sl'  , 'f4'),
+            ('start'   , 'i4'),  #start index
+            ('end'     , 'i4'),  #end index
+            ('valid'   , 'i4'),  #Valid Section
+            ('HR'      , 'f4'),  #Heart Rate
+            ('MAP'     , 'f4'),  #Mean Arterial Pressure
+            ('dni'     , 'f4'),  #Dichrotic Notch Index
+            ('sys_sl'  , 'f4'),  #systolic slope
+            ('dia_sl'  , 'f4'),  #diastolic slope
+            ('pul_wid' , 'f4'),  #pulse width
             ('p1'      , 'f4'),
             ('p2'      , 'f4'),
             ('p3'      , 'f4')
@@ -2377,7 +2378,14 @@ class PigRAD:
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
     def _derivative(self, signal):
-        """Calculates 1st and 2nd derivatives using Savitzky-Golay for smoothing."""
+        """Calculates 1st and 2nd derivatives using Savitzky-Golay for smoothing
+
+        Args:
+            signal (np.array): waveform
+
+        Returns:
+            d1, d2 (pd.Series): 1st and 2nd derivative
+        """        
         # Window length must be odd; approx 20-30ms is usually good for smoothing derivatives
         window = int(0.03 * self.fs) 
         if window % 2 == 0: 
@@ -2449,37 +2457,43 @@ class PigRAD:
                         onset = heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
                         subwave = wave[syst:dia]
                         #Calc derivatives
-                        d1, d2 = self._derivative(subwave)
+                        try:
+                            d1, d2 = self._derivative(subwave)
+                            #Find the Dichrotic notch
+                            notch = np.argmax(d2).item() + syst
+                            if notch:
+                                dni = (notch - syst) / (syst - dia)
+                                dni_res.append(dni)
+                            #Get diastolic slope via exponential decay (regression)
+                            pe, _ = find_peaks(
+                                wave[notch:dia],
+                                height=np.mean(wave[notch:dia])
+                            )
+                            if pe.size > 0:
+                                y_dia = wave[notch + pe[0]:dia]
+                                x_dia = np.arange(y_dia.shape[0]) / self.fs
+                                slope_dia = linregress(y_dia, x_dia)
+                                if slope_dia:
+                                    dia_slop.append(slope_dia.slope.item())
+
+                        except Exception as e:
+                            logger.warning(f"{e}")
+
                         MAAP = self._integrate(subwave)
                         #Calc MAP
                         if MAAP:
                             map_res.append(MAAP.item())
-                        #Find the Dichrotic notch
-                        notch = np.argmax(d2).item() + syst
-                        if notch:
-                            dni = (notch - syst) / (syst - dia)
-                            dni_res.append(dni)
                         
                         #Get systolic slope
-                        sys_rise = subwave[syst] - subwave[onset]
+                        sys_rise = wave.iloc[syst] - wave.iloc[onset]
                         sys_run = (syst - onset) / self.fs
                         if sys_run > 0:
                             mean_sys_slope = sys_rise / sys_run 
                         else:
                             mean_sys_slope = None
                         if mean_sys_slope:
-                            sys_slop.append(mean_sys_slope)
-                        #Get diastolic slope via exponential decay (regression)
-                        pe, _ = find_peaks(
-                            wave[notch:dia],
-                            height=np.mean(subwave[notch:dia])
-                        )
-                        if pe:
-                            y_dia = wave[notch:dia]
-                            x_dia = np.arange(y_dia.shape[0]) / self.fs
-                            slope_dia, _, _, _ = linregress(y_dia, x_dia)
-                            if slope_dia:
-                                dia_slop.append(slope_dia)
+                            sys_slop.append(mean_sys_slope.item())
+
 
                     self.results["dni"][idx] = np.round(np.mean(dni_res), precision)
                     self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
@@ -2492,7 +2506,7 @@ class PigRAD:
     def create_features(self):
         self.band_pass_filt()
         self.section_extract()
-
+        print()
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
         If not found, runs the feature creation and modeling pipeline
