@@ -1,19 +1,18 @@
 {
   "plot_fft": false,
-  "plot_errors": false,
+  "plot_errors": true,
   "live_term": false,
   "porcine": false,
   "slider": false,
   "batch": false,
   "run_anomalyd": false,
-  "samp_freq": 256.00, 
-  "data_path": "./src/rad_ecg/data/inputdata/",
-  "save_path": "./src/rad_ecg/data/output/",
+  "samp_freq": 200.0,
+  "data_path": "./src/rad_ecg/data/datasets/methadone",
+  "save_path": "./src/rad_ecg/data/output/_methadone",
   "gcp_bucket": false,
   "bucket_name": "",
-  "cam": "",
-  "last_run": "",
-  "log_path": "",
-  "cam_name": ""
+  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\datasets\\methadone\\EKG_OPAQ 95121 - 6_17_2009.ebm",
+  "last_run": "02-12-2026",
+  "log_path": "src/rad_ecg/data/logs/02-12-2026_14-57-44.log",
+  "cam_name": "EKG_OPAQ 95121 - 6_17_2009.ebm"
 }
-

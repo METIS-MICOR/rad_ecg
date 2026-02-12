@@ -65,6 +65,7 @@ def load_signal_data(file_path:str):
                     filepath = file_path,
                     onlyheader = False
                 )
+                record = record[0]
             case "ecg": 
                 pass
             case "h12": 
@@ -158,11 +159,11 @@ def load_structures(source:str, datafile:Path):
 
         configs["cam_name"] = datafile.name
         record, header = load_signal_data(configs["cam"])
-        ftype = record.file_name[0].split(".")[-1]
         #Match filetype (could also use suffix)
+        ftype = datafile.suffix
         match ftype:
             #ECG data
-            case "dat":
+            case ".dat":
                 #Signal
                 wave = record.p_signal
                 
@@ -175,10 +176,10 @@ def load_structures(source:str, datafile:Path):
                 #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
                 wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
 
-            case record.file_name.endswith("ebm"):
-                wave = record[3]
+            case ".ebm":
+                wave = record
                 fs =  float(header["frequency"])
-                windowsi = 5
+                windowsi = 2
                 wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)
 
         #Frequency

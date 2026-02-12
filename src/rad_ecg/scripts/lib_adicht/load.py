@@ -162,6 +162,8 @@ class LabChartNavigator:
         for i in range(self.streams_per_page):
             if self.freq_mode == 0:
                 ax = self.fig.add_subplot(self.gs_plots[i])
+                if i == 0:
+                    ax.set_title(f"{Path(self.load_path).name}")
                 ax_freq = None
             else:
                 gs_row = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[i], wspace=0.2)
@@ -257,7 +259,7 @@ class LabChartNavigator:
             self.nav_ax.set_visible(True)
         else:
             self.nav_ax.set_visible(False)
-        ax.set_title(f"{self.load_path}")
+        
         self.fig.canvas.draw_idle()
 
     def update_frame(self, frame):

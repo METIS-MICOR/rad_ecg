@@ -2471,9 +2471,10 @@ class PigRAD:
                         #Debug plot
                         # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
                         # plt.scatter(peaks, heights["peak_heights"], color="red")
-                        #Calc derivatives
+                        #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             d0, d1, d2 = self._derivative(subwave)
+                            
                             #calc Dichrotic notch index
                             notch = np.argmax(d2).item() + syst
                             if notch:
@@ -2514,12 +2515,17 @@ class PigRAD:
                     self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
                     self.results["sys_sl"][idx] = np.round(np.mean(sys_slop), precision)
                     self.results["dia_sl"][idx] = np.round(np.mean(dia_slop), precision)
+                    #jack features
+                    #Resistive index
+                        #Looking for flow reversal in LAD.  Greater as you progress into shock. 
+                        #In waveform 
 
+                    
                 #Move the progbar
                 progress.advance(task)
 
     def create_features(self):
-        self.band_pass_filt()
+        # self.band_pass()
         self.section_extract()
         console.print("[bold green]Features created...[/]")
 
