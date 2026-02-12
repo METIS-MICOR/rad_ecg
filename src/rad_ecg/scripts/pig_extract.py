@@ -3,11 +3,12 @@ import time
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from pathlib import Path
 from numba import cuda
+from pathlib import Path
 from os.path import exists
-from itertools import cycle, chain
+from kneed import KneeLocator
 from collections import Counter
+from itertools import cycle, chain
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -2334,7 +2335,10 @@ class PigRAD:
         self.results["end"] = self.sections[:, 1]
         self.results["valid"] = self.sections[:, 2]
         del self.sections
-
+        #TODO - Add Data container
+            # Will need to add an interior peaks data container to this routine so we can keep
+            # onset/offset/index info for the eventual slider.py i'll build for this. 
+        
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
 
@@ -2428,49 +2432,58 @@ class PigRAD:
                 #NOTE could put STFT here for clean signal check
                 #or phase variance. 
 
-                peaks, heights = find_peaks(
+                e_peaks, e_heights = find_peaks(
                     x = ecgwave,
                     prominence = np.percentile(ecgwave, 95),  #99 -> stock
                     height = np.percentile(ecgwave, 90),      #95 -> stock
                     distance = round(self.fs*(0.200))           #Can't have a heart rate faster than 300ms
                 )
 
-                if len(peaks) < 3:
+                if len(e_peaks) < 3:
                     logger.info(f"sect {idx} not enough peaks")
                 else:                
                     #Calc HR
-                    RR_diffs = np.diff(peaks)
+                    RR_diffs = np.diff(e_peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
                     self.results["HR"][idx] = np.round(np.mean(HR))
 
                 #Debug plot
-                # plt.plot(range(wave.shape[0]), wave.to_numpy())
+                # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
                 # plt.scatter(peaks, heights["peak_heights"])
 
                 #Calculate DNI from ss1 lead
                 ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end]
                 # first find systolic peaks
-                peaks, heights = find_peaks(
+                s_peaks, s_heights = find_peaks(
                     x = ss1wave,
-                    prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
-                    height = np.percentile(ss1wave, 85),      #95 -> stock
-                    distance = round(self.fs*(0.300))      #Can't have a heart rate faster than 300ms
+                    prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.40,
+                    height = np.percentile(ss1wave, 70),      #95 -> stock
+                    distance = round(self.fs*(0.200))      #Can't have a heart rate faster than 300ms
                 )
 
-                if len(peaks) < 3:
+                #Debug plot
+                # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
+                # plt.scatter(s_peaks, s_heights["peak_heights"], color="red")
+                # plt.show()
+
+                if len(s_peaks) < 3:
                     logger.info(f"sect {idx} no peaks in SS1")
                 
                 else:
                     dni_res, map_res, sys_slop, dia_slop = [], [], [], []
                     notch, MAAP, mean_sys_slope = None, None, None
-                    for id, peak in enumerate(peaks[:-1]):
-                        syst = peak.item()                       #Systolic
-                        dia = heights["right_bases"][id].item()  #Diastolic
-                        onset = heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
+                    for id, peak in enumerate(s_peaks[:-1]):
+                        syst = peak.item()                        #Systolic
+                        dia = s_heights["right_bases"][id].item()   #Diastolic
+                        onset = s_heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
                         subwave = ss1wave[syst:dia]
                         #Debug plot
-                        # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
-                        # plt.scatter(peaks, heights["peak_heights"], color="red")
+                        plt.plot(range(ss1wave.shape[0]), ss1wave)
+                        plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
+                        plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
+                        plt.scatter(s_heights["left_bases"][id].item(), ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
+                        plt.show()
+                        plt.close()
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             d0, d1, d2 = self._derivative(subwave)
@@ -2480,8 +2493,9 @@ class PigRAD:
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
+                            
                             #Get diastolic slope via exponential decay (regression)
-                            pe, _ = find_peaks(
+                            pe, pe_heights = find_peaks(
                                 ss1wave[notch:dia],
                                 height=np.mean(ss1wave[notch:dia])
                             )
@@ -2491,6 +2505,22 @@ class PigRAD:
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
                                     dia_slop.append(slope_dia.slope.item())
+
+                        
+                                #Percussion Wave (P1)
+                                #Tidal Wave (P2)
+                                #Dicrotic Wave (P3)
+                                A_P1 = ss1wave.iloc[syst]
+                                A_P2 = KneeLocator(
+                                    range(peak, notch),
+                                    ss1wave.iloc[peak:notch],
+                                    curve="concave",
+                                    direction="decreasing"
+                                )
+                                #TODO - tomorrows problem
+                                # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
+                                # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
+                                # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
 
                         except Exception as e:
                             logger.warning(f"{e}")
@@ -2509,7 +2539,6 @@ class PigRAD:
                             mean_sys_slope = None
                         if mean_sys_slope:
                             sys_slop.append(mean_sys_slope.item())
-
 
                     self.results["dni"][idx] = np.round(np.mean(dni_res), precision)
                     self.results["MAP"][idx] = np.round(np.mean(map_res), precision)

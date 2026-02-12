@@ -185,7 +185,7 @@ if __name__ == "__main__":
     
 
     data, header = ebmreader(
-        r"C:\githubrepo\MiCOR\opens_ecg\src\rad_ecg\data\datasets\methadone\EKG_OPAQ 445 - 6_29_2008.ebm",
+        r"",
         onlyheader=True)
     print(header["starttime"])
     print(header["length"])
