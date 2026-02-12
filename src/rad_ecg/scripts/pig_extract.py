@@ -2395,7 +2395,7 @@ class PigRAD:
     def _integrate(self, signal):
         return np.trapezoid(signal) / signal.shape[0]
     
-    def bandpass_filter(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
+    def bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
         nyq = 0.5 * fs
         low = lowcut / nyq
         high = highcut / nyq
@@ -2408,10 +2408,16 @@ class PigRAD:
         b, a = butter(order, cutoff, btype='low', analog=False)
         return filtfilt(b, a, data)
 
+    def high_pass_filt(self, data:np.array, highcut:float=20, fs=1000.0, order:int=4):
+        nyq = 0.5 * fs
+        cutoff = highcut / nyq
+        b, a = butter(order, cutoff, btype='high', analog=False)
+        return filtfilt(b, a, data)
+    
     def band_pass(self):
         #Bandpass the flow streams
         for lead in [self.lad_lead, self.car_lead]:
-            self.full_data[self.channels[lead]] = self.bandpass_filter(data=self.full_data[self.channels[lead]])
+            self.full_data[self.channels[lead]] = self.bandpass_filt(data=self.full_data[self.channels[lead]])
 
     def section_extract(self):
         # Progress bar for section iteration
@@ -2436,7 +2442,7 @@ class PigRAD:
                     x = ecgwave,
                     prominence = np.percentile(ecgwave, 95),  #99 -> stock
                     height = np.percentile(ecgwave, 90),      #95 -> stock
-                    distance = round(self.fs*(0.200))           #Can't have a heart rate faster than 300ms
+                    distance = round(self.fs*(0.100))           
                 )
 
                 if len(e_peaks) < 3:
@@ -2456,10 +2462,14 @@ class PigRAD:
                 # first find systolic peaks
                 s_peaks, s_heights = find_peaks(
                     x = ss1wave,
-                    prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.40,
+                    prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
                     height = np.percentile(ss1wave, 70),      #95 -> stock
-                    distance = round(self.fs*(0.200))      #Can't have a heart rate faster than 300ms
+                    distance = round(self.fs*(0.4)),
+                    wlen = int(self.fs*1.5)      
                 )
+                #BUG - left base
+                    # the left bases aren't getting calculated correctly.  I tried to adjust wlen as a 
+                    # width parameter, buuuut it didn't quite work
 
                 #Debug plot
                 # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
@@ -2473,22 +2483,28 @@ class PigRAD:
                     dni_res, map_res, sys_slop, dia_slop = [], [], [], []
                     notch, MAAP, mean_sys_slope = None, None, None
                     for id, peak in enumerate(s_peaks[:-1]):
-                        syst = peak.item()                        #Systolic
+                        syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
-                        onset = s_heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
+                        if id == 0:
+                            onset = s_heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
+                        else:
+                            onset = s_heights["right_bases"][id - 1].item()
                         subwave = ss1wave[syst:dia]
                         #Debug plot
                         plt.plot(range(ss1wave.shape[0]), ss1wave)
                         plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
                         plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
-                        plt.scatter(s_heights["left_bases"][id].item(), ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
+                        if id == 0:
+                            plt.scatter(onset, ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
+                        else:
+                            plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
                         plt.show()
                         plt.close()
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             d0, d1, d2 = self._derivative(subwave)
                             
-                            #calc Dichrotic notch index
+                            #Get Dichrotic notch index from max of 2nd deriv
                             notch = np.argmax(d2).item() + syst
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
@@ -2505,7 +2521,6 @@ class PigRAD:
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
                                     dia_slop.append(slope_dia.slope.item())
-
                         
                                 #Percussion Wave (P1)
                                 #Tidal Wave (P2)
@@ -2544,17 +2559,15 @@ class PigRAD:
                     self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
                     self.results["sys_sl"][idx] = np.round(np.mean(sys_slop), precision)
                     self.results["dia_sl"][idx] = np.round(np.mean(dia_slop), precision)
-                    #jack features
+                    #TODO - jack feature request
                     #Resistive index
                         #Looking for flow reversal in LAD.  Greater as you progress into shock. 
-                        #In waveform 
-
                     
                 #Move the progbar
                 progress.advance(task)
 
     def create_features(self):
-        # self.band_pass()
+        self.band_pass()
         self.section_extract()
         console.print("[bold green]Features created...[/]")
 
