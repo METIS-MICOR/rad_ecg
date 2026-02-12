@@ -66,6 +66,7 @@ class SignalDataLoader:
 class LabChartNavigator:
     def __init__(self, npz_path):
         # 1. Load Data
+        self.load_path = npz_path
         self.loader = SignalDataLoader(npz_path)
         self.full_data = self.loader.full_data
         self.channels = self.loader.channels
@@ -256,7 +257,7 @@ class LabChartNavigator:
             self.nav_ax.set_visible(True)
         else:
             self.nav_ax.set_visible(False)
-            
+        ax.set_title(f"{self.load_path}")
         self.fig.canvas.draw_idle()
 
     def update_frame(self, frame):

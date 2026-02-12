@@ -57,7 +57,7 @@ class EDA(object):
             channels:list,
             fs:float,
             gpu_devices:list,
-            target:list,
+            results:np.array,
             ecg_lead:int,
             lad_lead:int, 
             car_lead:int,
@@ -70,7 +70,8 @@ class EDA(object):
         self.lad_lead = lad_lead
         self.car_lead = car_lead
         self.task = "classification"
-        self.target = pd.Series(target, name="ShockClass")
+        self.results = results
+        # self.target = pd.Series(target, name="ShockClass")
         self.target_names = ["baseline", "class_1", "class_2", "class_3", "class_4"]
         self.rev_target_dict = {
             0:"baseline",
@@ -2306,11 +2307,11 @@ class PigRAD:
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
         self.fs           :float = 1000.0                   #Hz
-        self.windowsize   :int = 20                         #size of section window 
-        self.ecg_lead     :str = self.pick_lead("ECG")      #pick the ECG lead
-        self.lad_lead     :str = self.pick_lead("Lad")      #pick the Lad lead
-        self.car_lead     :str = self.pick_lead("Cartoid")  #pick the Carotid lead
-        self.ss1_lead     :str = self.pick_lead("SS1")      #pick the SS1 lead
+        self.windowsize   :int = 10                         #size of section window 
+        self.ecg_lead     :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
+        self.lad_lead     :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
+        self.car_lead     :str = 6 #self.pick_lead("Cartoid")  #pick the Carotid lead
+        self.ss1_lead     :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.dtypes = [
             ('start'   , 'i4'),  #start index
@@ -2350,21 +2351,13 @@ class PigRAD:
         for idx, channel in enumerate(self.channels):
             tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
         pprint(tree)
-        question = f"Please select the {col} channel?\n"
+        question = f"Please select the {col} channel\n"
         file_choice = console.input(f"{question}")
         if file_choice.isnumeric():
             pprint(f"lead {col} loaded")
             return int(file_choice)
         else:
             raise ValueError("Invalid selection")
-    
-    def bandpass_filter(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
-        nyq = 0.5 * fs
-        low = lowcut / nyq
-        high = highcut / nyq
-        b, a = butter(order, [low, high], btype='band')
-        return filtfilt(b, a, data)
-
     def save_results(self):
         """Saves the Corrected Arc Curve Results
         """
@@ -2390,15 +2383,28 @@ class PigRAD:
         window = int(0.03 * self.fs) 
         if window % 2 == 0: 
             window += 1
-        
+        smoothed = savgol_filter(signal, window_length=window, polyorder=3)
         d1 = savgol_filter(signal, window_length=window, polyorder=3, deriv=1)
         d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
-        return pd.Series(d1), pd.Series(d2)
+        return pd.Series(smoothed), pd.Series(d1), pd.Series(d2)
     
     def _integrate(self, signal):
         return np.trapezoid(signal) / signal.shape[0]
     
-    def band_pass_filt(self):
+    def bandpass_filter(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
+        nyq = 0.5 * fs
+        low = lowcut / nyq
+        high = highcut / nyq
+        b, a = butter(order, [low, high], btype='band')
+        return filtfilt(b, a, data)
+
+    def low_pass_filt(self, data:np.array, lowcut:float=5, fs=1000.0, order:int=4):
+        nyq = 0.5 * fs
+        cutoff = lowcut / nyq
+        b, a = butter(order, cutoff, btype='low', analog=False)
+        return filtfilt(b, a, data)
+
+    def band_pass(self):
         #Bandpass the flow streams
         for lead in [self.lad_lead, self.car_lead]:
             self.full_data[self.channels[lead]] = self.bandpass_filter(data=self.full_data[self.channels[lead]])
@@ -2407,24 +2413,25 @@ class PigRAD:
         # Progress bar for section iteration
         precision = 4
         with Progress(
+            TextColumn("[progress.description]{task.description}"),
             SpinnerColumn(), 
             BarColumn(), 
-            TextColumn("[progress.description]{task.description}"),
             transient=True
         ) as progress:
             task = progress.add_task("Calculating Features...", total=self.results.shape[0])
             for idx, section in enumerate(self.results):
-                #Find R peaks
+                #Find R peaks from ECG lead
                 start = section[0].item()
                 end = section[1].item()
-                wave = self.full_data[self.channels[self.ecg_lead]][start:end]
+                ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
+                
                 #NOTE could put STFT here for clean signal check
                 #or phase variance. 
 
-                peaks, _ = find_peaks(
-                    x = wave,
-                    prominence = np.percentile(wave, 95),  #99 -> stock
-                    height = np.percentile(wave, 90),      #95 -> stock
+                peaks, heights = find_peaks(
+                    x = ecgwave,
+                    prominence = np.percentile(ecgwave, 95),  #99 -> stock
+                    height = np.percentile(ecgwave, 90),      #95 -> stock
                     distance = round(self.fs*(0.200))           #Can't have a heart rate faster than 300ms
                 )
 
@@ -2436,12 +2443,17 @@ class PigRAD:
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
                     self.results["HR"][idx] = np.round(np.mean(HR))
 
-                #Calculate DNI
-                wave = self.full_data[self.channels[self.ss1_lead]][start:end]
+                #Debug plot
+                # plt.plot(range(wave.shape[0]), wave.to_numpy())
+                # plt.scatter(peaks, heights["peak_heights"])
+
+                #Calculate DNI from ss1 lead
+                ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end]
+                # first find systolic peaks
                 peaks, heights = find_peaks(
-                    x = wave,
-                    prominence = (np.max(wave) - np.min(wave)) * 0.20,
-                    height = np.percentile(wave, 85),      #95 -> stock
+                    x = ss1wave,
+                    prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
+                    height = np.percentile(ss1wave, 85),      #95 -> stock
                     distance = round(self.fs*(0.300))      #Can't have a heart rate faster than 300ms
                 )
 
@@ -2455,22 +2467,25 @@ class PigRAD:
                         syst = peak.item()                       #Systolic
                         dia = heights["right_bases"][id].item()  #Diastolic
                         onset = heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
-                        subwave = wave[syst:dia]
+                        subwave = ss1wave[syst:dia]
+                        #Debug plot
+                        # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
+                        # plt.scatter(peaks, heights["peak_heights"], color="red")
                         #Calc derivatives
                         try:
-                            d1, d2 = self._derivative(subwave)
-                            #Find the Dichrotic notch
+                            d0, d1, d2 = self._derivative(subwave)
+                            #calc Dichrotic notch index
                             notch = np.argmax(d2).item() + syst
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
                             #Get diastolic slope via exponential decay (regression)
                             pe, _ = find_peaks(
-                                wave[notch:dia],
-                                height=np.mean(wave[notch:dia])
+                                ss1wave[notch:dia],
+                                height=np.mean(ss1wave[notch:dia])
                             )
                             if pe.size > 0:
-                                y_dia = wave[notch + pe[0]:dia]
+                                y_dia = ss1wave[notch + pe[0]:dia]
                                 x_dia = np.arange(y_dia.shape[0]) / self.fs
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
@@ -2485,7 +2500,7 @@ class PigRAD:
                             map_res.append(MAAP.item())
                         
                         #Get systolic slope
-                        sys_rise = wave.iloc[syst] - wave.iloc[onset]
+                        sys_rise = ss1wave.iloc[syst] - ss1wave.iloc[onset]
                         sys_run = (syst - onset) / self.fs
                         if sys_run > 0:
                             mean_sys_slope = sys_rise / sys_run 
@@ -2506,7 +2521,8 @@ class PigRAD:
     def create_features(self):
         self.band_pass_filt()
         self.section_extract()
-        print()
+        console.print("[bold green]Features created...[/]")
+
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
         If not found, runs the feature creation and modeling pipeline
@@ -2542,6 +2558,7 @@ class PigRAD:
                 self.channels, 
                 self.fs, 
                 self.gpu_devices, 
+                self.results,
                 self.ecg_lead,
                 self.lad_lead,
                 self.car_lead
