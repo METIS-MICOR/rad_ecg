@@ -11,8 +11,8 @@
   "save_path": "./src/rad_ecg/data/output/_methadone",
   "gcp_bucket": false,
   "bucket_name": "",
-  "cam": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\datasets\\methadone\\EKG_OPAQ 95121 - 6_17_2009.ebm",
+  "cam": "",
   "last_run": "02-12-2026",
-  "log_path": "src/rad_ecg/data/logs/02-12-2026_14-57-44.log",
-  "cam_name": "EKG_OPAQ 95121 - 6_17_2009.ebm"
+  "log_path": "",
+  "cam_name": ""
 }
