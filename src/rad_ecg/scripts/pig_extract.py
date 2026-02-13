@@ -2303,11 +2303,11 @@ class PigRAD:
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
-        self.fs           :float = 1000.0                   #Hz
-        self.windowsize   :int = 10                         #size of section window 
+        self.fs           :float = 1000.0                       #Hz
+        self.windowsize   :int = 8                              #size of section window 
         self.ecg_lead     :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
         self.lad_lead     :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
-        self.car_lead     :str = 6 #self.pick_lead("Cartoid")  #pick the Carotid lead
+        self.car_lead     :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
         self.ss1_lead     :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.dtypes = [
@@ -2319,6 +2319,7 @@ class PigRAD:
             ('dni'     , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
             ('dia_sl'  , 'f4'),  #diastolic slope
+            ('ri'      , 'f4'),  #resistive index
             ('pul_wid' , 'f4'),  #TODO pulse width 
             ('p1'      , 'f4'),  #TODO Percussion Wave (P1)
             ('p2'      , 'f4'),  #TODO Tidal Wave (P2)
@@ -2455,7 +2456,7 @@ class PigRAD:
                     x = ecgwave,
                     prominence = np.percentile(ecgwave, 95),  #99 -> stock
                     height = np.percentile(ecgwave, 90),      #95 -> stock
-                    distance = round(self.fs*(0.100))           
+                    distance = round(self.fs*(0.200))           
                 )
 
                 if len(e_peaks) < 3:
@@ -2469,7 +2470,7 @@ class PigRAD:
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
-                # plt.scatter(peaks, heights["peak_heights"])
+                # plt.scatter(e_peaks, e_heights["peak_heights"], color="red")
 
                 #Calculate DNI from ss1 lead
                 ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end]
@@ -2529,36 +2530,35 @@ class PigRAD:
 
                         except Exception as e:
                             logger.warning(f"{e}")
+                        if notch:
+                            #Get diastolic slope via exponential decay (regression)
+                            pe, pe_heights = find_peaks(
+                                ss1wave[notch:dia],
+                                height=np.mean(ss1wave[notch:dia])
+                            )
+                            if pe.size > 0:
+                                y_dia = ss1wave[notch + pe[0]:dia]
+                                x_dia = np.arange(y_dia.shape[0]) / self.fs
+                                slope_dia = linregress(y_dia, x_dia)
+                                if slope_dia:
+                                    dia_slop.append(slope_dia.slope.item())
 
-
-
-                        #Get diastolic slope via exponential decay (regression)
-                        pe, pe_heights = find_peaks(
-                            ss1wave[notch:dia],
-                            height=np.mean(ss1wave[notch:dia])
-                        )
-                        if pe.size > 0:
-                            y_dia = ss1wave[notch + pe[0]:dia]
-                            x_dia = np.arange(y_dia.shape[0]) / self.fs
-                            slope_dia = linregress(y_dia, x_dia)
-                            if slope_dia:
-                                dia_slop.append(slope_dia.slope.item())
-                            #Calc resistive index
-                            psv = np.max(d1[onset:syst])
-                            edv = np.min(d1[pe[0]:dia])
-                            ri.append(self.calc_RI(psv, edv))                    
+                                #Calc resistive index
+                                psv = np.max(d1[onset:syst])
+                                edv = np.min(d1[notch + pe[0]:dia])
+                                ri.append(self.calc_RI(psv, edv))                    
                             
                             
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
                             #Dicrotic Wave (P3)
-                            A_P1 = ss1wave.iloc[syst]
-                            A_P2 = KneeLocator(
-                                range(peak, notch),
-                                ss1wave.iloc[peak:notch],
-                                curve="concave",
-                                direction="decreasing"
-                            )
+                            # A_P1 = ss1wave.iloc[syst]
+                            # A_P2 = KneeLocator(
+                            #     range(peak, notch),
+                            #     ss1wave.iloc[peak:notch],
+                            #     curve="concave",
+                            #     direction="decreasing"
+                            # )
                             #TODO - tomorrows problem
                             # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
                             # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
@@ -2578,11 +2578,12 @@ class PigRAD:
                             mean_sys_slope = None
                         if mean_sys_slope:
                             sys_slop.append(mean_sys_slope.item())
-                    self.results["dni"][idx] = np.round(np.mean(dni_res), precision)
-                    self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
-                    self.results["sys_sl"][idx] = np.round(np.mean(sys_slop), precision)
-                    self.results["dia_sl"][idx] = np.round(np.mean(dia_slop), precision)
-                    self.results["ri"][idx] = np.round(np.mean(ri), precision)
+
+                    self.results["dni"][idx] = np.round(np.nanmean(dni_res), precision)
+                    self.results["MAP"][idx] = np.round(np.nanmean(map_res), precision)
+                    self.results["sys_sl"][idx] = np.round(np.nanmean(sys_slop), precision)
+                    self.results["dia_sl"][idx] = np.round(np.nanmean(dia_slop), precision)
+                    self.results["ri"][idx] = np.round(np.nanmean(ri), precision)
 
                     #[x] - jack feature request
                     #Resistive index
