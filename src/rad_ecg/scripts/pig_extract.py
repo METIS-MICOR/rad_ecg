@@ -2310,11 +2310,11 @@ class PigRAD:
         self.car_lead     :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
         self.ss1_lead     :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
-        self.dtypes = [
+        self.res_dtypes = [
             ('start'   , 'i4'),  #start index
             ('end'     , 'i4'),  #end index
             ('valid'   , 'i4'),  #Valid Section
-            ('HR'      , 'f4'),  #Heart Rate
+            ('HR'      , 'i4'),  #Heart Rate
             ('MAP'     , 'f4'),  #Mean Arterial Pressure
             ('dni'     , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
@@ -2323,9 +2323,12 @@ class PigRAD:
             ('pul_wid' , 'f4'),  #TODO pulse width 
             ('p1'      , 'f4'),  #TODO Percussion Wave (P1)
             ('p2'      , 'f4'),  #TODO Tidal Wave (P2)
-            ('p3'      , 'f4')   #TODO Dicrotic Wave (P3)
+            ('p3'      , 'f4'),  #TODO Dicrotic Wave (P3)
+            ('p1_p2'   , 'f4'),  #Ratio of P1 to P2
+            ('p1_p3'   , 'f4'),  #Ratio of P1 to P3,
+            ('aix'     , 'f4'),  #Augmentation Index (AIx)
         ]
-        self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.dtypes)
+        self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.view_eda     :bool = False
         self.results["start"] = self.sections[:, 0]
@@ -2359,6 +2362,7 @@ class PigRAD:
             return int(file_choice)
         else:
             raise ValueError("Invalid selection")
+        
     def save_results(self):
         """Saves the Corrected Arc Curve Results
         """
@@ -2389,10 +2393,30 @@ class PigRAD:
         d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
         return pd.Series(smoothed), pd.Series(d1), pd.Series(d2)
     
-    def _integrate(self, signal):
+    def _integrate(self, signal:np.array)->np.array:
+        """Apply integration of signal
+
+        Args:
+            signal (np.array): _description_
+
+        Returns:
+            np.array: area under the curve
+        """        
         return np.trapezoid(signal) / signal.shape[0]
     
     def bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
+        """Apply Band Pass Filter
+
+        Args:
+            data (np.array): Signal to filter
+            lowcut (float, optional): lowcut frequency. Defaults to 0.1.
+            highcut (float, optional): highcut frequency. Defaults to 40.0.
+            fs (float, optional): sampling rate. Defaults to 1000.0.
+            order (int, optional): Order of the filter. Defaults to 4.
+
+        Returns:
+            np.array: Filtered signal
+        """            
         nyq = 0.5 * fs
         low = lowcut / nyq
         high = highcut / nyq
@@ -2400,23 +2424,48 @@ class PigRAD:
         return filtfilt(b, a, data)
 
     def low_pass_filt(self, data:np.array, lowcut:float=5, fs=1000.0, order:int=4):
+        """Apply Low pass filter
+
+        Args:
+            data (np.array): Signal to filter
+            lowcut (float, optional): lowcut frequency. Defaults to 5.
+            fs (float, optional): sampling rate. Defaults to 1000.0.
+            order (int, optional): Order of the filter. Defaults to 4.
+
+        Returns:
+            np.array: Filtered signal
+        """        
         nyq = 0.5 * fs
         cutoff = lowcut / nyq
         b, a = butter(order, cutoff, btype='low', analog=False)
         return filtfilt(b, a, data)
 
     def high_pass_filt(self, data:np.array, highcut:float=20, fs=1000.0, order:int=4):
+        """Apply high pass filter
+
+        Args:
+            lowcut (float, optional): lowcut frequency. Defaults to 5.
+            data (np.array): Signal to filter
+            highcut (float, optional): highcut frequency. Defaults to 20.
+            fs (float, optional): sampling rate. Defaults to 1000.0.
+            order (int, optional): Order of the filter. Defaults to 4.
+
+        Returns:
+            np.array: Filtered signal
+        """        
         nyq = 0.5 * fs
         cutoff = highcut / nyq
         b, a = butter(order, cutoff, btype='high', analog=False)
         return filtfilt(b, a, data)
     
     def band_pass(self):
+        """Function to run the bandpass over LAD and Carotid leads
+        """        
         #Bandpass the flow streams
         for lead in [self.lad_lead, self.car_lead]:
             self.full_data[self.channels[lead]] = self.bandpass_filt(data=self.full_data[self.channels[lead]])
 
-    def calc_RI(self, psv, edv):
+    def calc_RI(self, psv:float, edv:float) -> float:
         """
         Calculates the Resistive Index (RI) from Peak Systolic Velocity (PSV) 
         and End-Diastolic Velocity (EDV).
@@ -2450,7 +2499,7 @@ class PigRAD:
                 ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
                 
                 #NOTE could put STFT here for clean signal check
-                #or phase variance. 
+                #or phase variance.  Need something.  Running blind now
 
                 e_peaks, e_heights = find_peaks(
                     x = ecgwave,
@@ -2465,8 +2514,7 @@ class PigRAD:
                     #Calc HR
                     RR_diffs = np.diff(e_peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.results["HR"][idx] = np.round(np.mean(HR)) 
-                    #IDEA Maybe use a nan.mean.
+                    self.results["HR"][idx] = int(np.nanmean(HR)) 
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
@@ -2478,7 +2526,7 @@ class PigRAD:
                 s_peaks, s_heights = find_peaks(
                     x = ss1wave,
                     prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
-                    height = np.percentile(ss1wave, 70),      #95 -> stock
+                    height = np.percentile(ss1wave, 60),
                     distance = round(self.fs*(0.4)),
                     wlen = int(self.fs*1.5)      
                 )
@@ -2496,16 +2544,17 @@ class PigRAD:
                 
                 else:
                     dni_res, map_res, sys_slop, dia_slop, ri = [], [], [], [], []
+                    p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
+                    p1_p2_rat, p1_p3_rat, aix_vec = None, None, None, # Ratio containers
+
                     for id, peak in enumerate(s_peaks[:-1]):
                         notch, MAAP, mean_sys_slope = None, None, None
                         syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
-                        #The left bases kept messing up badly so i'll use the
-                        #right base of the previous peak.  Unless its the first
-                        #peak in which case it usually gets it right. 
                         if id == 0:
-                            onset = s_heights["left_bases"][id].item()  #Left base of the peak (previous systolic)
+                            onset = s_heights["left_bases"][id].item()  
                         else:
+                            #Left base of the peak (previous systolic)
                             onset = s_heights["right_bases"][id - 1].item()
                         subwave = ss1wave[syst:dia]
                         #Debug plot
@@ -2523,13 +2572,14 @@ class PigRAD:
                             d0, d1, d2 = self._derivative(subwave)
                             
                             #Get Dichrotic notch index from max of 2nd deriv
-                            notch = np.argmax(d2).item() + syst
+                            notch = np.argmax(d2).item() #+ syst
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
 
                         except Exception as e:
                             logger.warning(f"{e}")
+                            
                         if notch:
                             #Get diastolic slope via exponential decay (regression)
                             pe, pe_heights = find_peaks(
@@ -2537,17 +2587,16 @@ class PigRAD:
                                 height=np.mean(ss1wave[notch:dia])
                             )
                             if pe.size > 0:
-                                y_dia = ss1wave[notch + pe[0]:dia]
+                                y_dia = ss1wave[notch + pe[0].item():dia]
                                 x_dia = np.arange(y_dia.shape[0]) / self.fs
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
                                     dia_slop.append(slope_dia.slope.item())
 
                                 #Calc resistive index
-                                psv = np.max(d1[onset:syst])
-                                edv = np.min(d1[notch + pe[0]:dia])
+                                psv = np.max(d1.iloc[onset:syst])
+                                edv = np.min(d1.iloc[notch + pe[0].item():dia])
                                 ri.append(self.calc_RI(psv, edv))                    
-                            
                             
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
@@ -2584,10 +2633,12 @@ class PigRAD:
                     self.results["sys_sl"][idx] = np.round(np.nanmean(sys_slop), precision)
                     self.results["dia_sl"][idx] = np.round(np.nanmean(dia_slop), precision)
                     self.results["ri"][idx] = np.round(np.nanmean(ri), precision)
-
-                    #[x] - jack feature request
-                    #Resistive index
-                        #Looking for flow reversal in LAD.  Greater as you progress into shock. 
+                    self.results["p1"][idx] = np.round(np.nanmean(p1_vec), precision)
+                    self.results["p2"][idx] = np.round(np.nanmean(p2_vec), precision)
+                    self.results["p3"][idx] = np.round(np.nanmean(p3_vec), precision)
+                    self.results["p1_p2"][idx] = np.round(np.nanmean(p1_p2_rat), precision)
+                    self.results["p1_p3"][idx] = np.round(np.nanmean(p1_p3_rat), precision)
+                    self.results["aix"][idx] = np.round(np.nanmean(aix_vec), precision)
                     
                 #Move the progbar
                 progress.advance(task)
