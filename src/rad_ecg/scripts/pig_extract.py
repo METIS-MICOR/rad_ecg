@@ -2319,10 +2319,10 @@ class PigRAD:
             ('dni'     , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
             ('dia_sl'  , 'f4'),  #diastolic slope
-            ('pul_wid' , 'f4'),  #pulse width
-            ('p1'      , 'f4'),
-            ('p2'      , 'f4'),
-            ('p3'      , 'f4')
+            ('pul_wid' , 'f4'),  #TODO pulse width 
+            ('p1'      , 'f4'),  #TODO Percussion Wave (P1)
+            ('p2'      , 'f4'),  #TODO Tidal Wave (P2)
+            ('p3'      , 'f4')   #TODO Dicrotic Wave (P3)
         ]
         self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.dtypes)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
@@ -2415,6 +2415,23 @@ class PigRAD:
         for lead in [self.lad_lead, self.car_lead]:
             self.full_data[self.channels[lead]] = self.bandpass_filt(data=self.full_data[self.channels[lead]])
 
+    def calc_RI(self, psv, edv):
+        """
+        Calculates the Resistive Index (RI) from Peak Systolic Velocity (PSV) 
+        and End-Diastolic Velocity (EDV).
+        
+        Args:
+            psv (float): Peak systolic velocity.
+            edv (float): End-diastolic velocity.
+            
+        Returns:
+            float: The Resistive Index (RI).
+        """
+        if psv == 0:
+            return None  # Avoid division by zero
+        ri = (psv - edv) / psv
+        return ri
+    
     def section_extract(self):
         # Progress bar for section iteration
         precision = 4
@@ -2447,7 +2464,8 @@ class PigRAD:
                     #Calc HR
                     RR_diffs = np.diff(e_peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.results["HR"][idx] = np.round(np.mean(HR))
+                    self.results["HR"][idx] = np.round(np.mean(HR)) 
+                    #IDEA Maybe use a nan.mean.
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
@@ -2476,9 +2494,9 @@ class PigRAD:
                     logger.info(f"sect {idx} no peaks in SS1")
                 
                 else:
-                    dni_res, map_res, sys_slop, dia_slop = [], [], [], []
-                    notch, MAAP, mean_sys_slope = None, None, None
+                    dni_res, map_res, sys_slop, dia_slop, ri = [], [], [], [], []
                     for id, peak in enumerate(s_peaks[:-1]):
+                        notch, MAAP, mean_sys_slope = None, None, None
                         syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
                         #The left bases kept messing up badly so i'll use the
@@ -2508,36 +2526,43 @@ class PigRAD:
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
-                            
-                            #Get diastolic slope via exponential decay (regression)
-                            pe, pe_heights = find_peaks(
-                                ss1wave[notch:dia],
-                                height=np.mean(ss1wave[notch:dia])
-                            )
-                            if pe.size > 0:
-                                y_dia = ss1wave[notch + pe[0]:dia]
-                                x_dia = np.arange(y_dia.shape[0]) / self.fs
-                                slope_dia = linregress(y_dia, x_dia)
-                                if slope_dia:
-                                    dia_slop.append(slope_dia.slope.item())
-                        
-                                #Percussion Wave (P1)
-                                #Tidal Wave (P2)
-                                #Dicrotic Wave (P3)
-                                A_P1 = ss1wave.iloc[syst]
-                                A_P2 = KneeLocator(
-                                    range(peak, notch),
-                                    ss1wave.iloc[peak:notch],
-                                    curve="concave",
-                                    direction="decreasing"
-                                )
-                                #TODO - tomorrows problem
-                                # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
-                                # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
-                                # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
 
                         except Exception as e:
                             logger.warning(f"{e}")
+
+
+
+                        #Get diastolic slope via exponential decay (regression)
+                        pe, pe_heights = find_peaks(
+                            ss1wave[notch:dia],
+                            height=np.mean(ss1wave[notch:dia])
+                        )
+                        if pe.size > 0:
+                            y_dia = ss1wave[notch + pe[0]:dia]
+                            x_dia = np.arange(y_dia.shape[0]) / self.fs
+                            slope_dia = linregress(y_dia, x_dia)
+                            if slope_dia:
+                                dia_slop.append(slope_dia.slope.item())
+                            #Calc resistive index
+                            psv = np.max(d1[onset:syst])
+                            edv = np.min(d1[pe[0]:dia])
+                            ri.append(self.calc_RI(psv, edv))                    
+                            
+                            
+                            #Percussion Wave (P1)
+                            #Tidal Wave (P2)
+                            #Dicrotic Wave (P3)
+                            A_P1 = ss1wave.iloc[syst]
+                            A_P2 = KneeLocator(
+                                range(peak, notch),
+                                ss1wave.iloc[peak:notch],
+                                curve="concave",
+                                direction="decreasing"
+                            )
+                            #TODO - tomorrows problem
+                            # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
+                            # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
+                            # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
 
                         MAAP = self._integrate(subwave)
                         #Calc MAP
@@ -2553,12 +2578,13 @@ class PigRAD:
                             mean_sys_slope = None
                         if mean_sys_slope:
                             sys_slop.append(mean_sys_slope.item())
-
                     self.results["dni"][idx] = np.round(np.mean(dni_res), precision)
                     self.results["MAP"][idx] = np.round(np.mean(map_res), precision)
                     self.results["sys_sl"][idx] = np.round(np.mean(sys_slop), precision)
                     self.results["dia_sl"][idx] = np.round(np.mean(dia_slop), precision)
-                    #TODO - jack feature request
+                    self.results["ri"][idx] = np.round(np.mean(ri), precision)
+
+                    #[x] - jack feature request
                     #Resistive index
                         #Looking for flow reversal in LAD.  Greater as you progress into shock. 
                     
@@ -2620,9 +2646,9 @@ class PigRAD:
                 # ml.eda_plot()
             console.print("[green]Enginnering features...[/]")    
             fe = FeatureEngineering(eda)
-            ofinterest = [fe.data.columns[x] for x in range(4, fe.data.shape[1])]
-    
-            console.print("[green]Prepping Data...[/]")
+            #filterout time col 0
+            ofinterest = [fe.data.columns[x] for x in range(1, fe.data.shape[1])]
+            
             #Engineer your features here. available transforms below
             #log:  Log Transform
             #recip:Reciprocal
@@ -2640,7 +2666,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "r_scale"
+            scaler = "s_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
@@ -2651,16 +2677,15 @@ class PigRAD:
             #stratshuffle: StratifiedShuffleSplit
             cross_val = "kfold"
             
-            dataprep = DataPrep(ofinterest, scaler, cross_val, fe)
             #Classifiers
-            #'pca':PrincipalComponentAnalysis
             #'svm':LinearSVC
             #'isoforest':IsolationForest
             #'xgboost':XGBoostClassfier
             modellist = ['pca', 'svm', 'isoforest', 'xgboost']
-            dp = DataPrep(fe)
+            console.print("[green]Prepping Data...[/]")
+            dp = DataPrep(ofinterest, scaler, cross_val, fe)
             modellist = ['svm', 'isoforest', 'xgboost']
-            console.print("[green]Running XGBOOST algorithm...[/]")
+            console.print("[green]training algorithms...[/]")
             #split the training data #splits: test 25%, train 75% 
             [dp.data_prep(model, 0.25) for model in modellist]
             
