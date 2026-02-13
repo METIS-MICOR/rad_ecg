@@ -2303,6 +2303,7 @@ class PigRAD:
         self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
+        self.outcomes     :list = self.loader.outcomes
         self.fs           :float = 1000.0                       #Hz
         self.windowsize   :int = 8                              #size of section window 
         self.ecg_lead     :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
@@ -2324,9 +2325,9 @@ class PigRAD:
             ('p1'      , 'f4'),  #TODO Percussion Wave (P1)
             ('p2'      , 'f4'),  #TODO Tidal Wave (P2)
             ('p3'      , 'f4'),  #TODO Dicrotic Wave (P3)
-            ('p1_p2'   , 'f4'),  #Ratio of P1 to P2
-            ('p1_p3'   , 'f4'),  #Ratio of P1 to P3,
-            ('aix'     , 'f4'),  #Augmentation Index (AIx)
+            ('p1_p2'   , 'f4'),  #TODO Ratio of P1 to P2
+            ('p1_p3'   , 'f4'),  #TODO Ratio of P1 to P3,
+            ('aix'     , 'f4'),  #TODO Augmentation Index (AIx)
         ]
         self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
@@ -2393,18 +2394,18 @@ class PigRAD:
         d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
         return pd.Series(smoothed), pd.Series(d1), pd.Series(d2)
     
-    def _integrate(self, signal:np.array)->np.array:
-        """Apply integration of signal
+    def _integrate(self, signal:np.array)->float:
+        """Apply integration of signal. Calculates area under curve
 
         Args:
-            signal (np.array): _description_
+            signal (np.array): Signal you want to integrate
 
         Returns:
-            np.array: area under the curve
+            float: area under the curve
         """        
-        return np.trapezoid(signal) / signal.shape[0]
+        return np.trapezoid(signal, dx=1.0/self.fs)
     
-    def bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4):
+    def _bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4)->np.array:
         """Apply Band Pass Filter
 
         Args:
@@ -2423,7 +2424,7 @@ class PigRAD:
         b, a = butter(order, [low, high], btype='band')
         return filtfilt(b, a, data)
 
-    def low_pass_filt(self, data:np.array, lowcut:float=5, fs=1000.0, order:int=4):
+    def _low_pass_filt(self, data:np.array, lowcut:float=5, fs=1000.0, order:int=4)->np.array:
         """Apply Low pass filter
 
         Args:
@@ -2440,11 +2441,10 @@ class PigRAD:
         b, a = butter(order, cutoff, btype='low', analog=False)
         return filtfilt(b, a, data)
 
-    def high_pass_filt(self, data:np.array, highcut:float=20, fs=1000.0, order:int=4):
+    def _high_pass_filt(self, data:np.array, highcut:float=20, fs=1000.0, order:int=4)->np.array:
         """Apply high pass filter
 
         Args:
-            lowcut (float, optional): lowcut frequency. Defaults to 5.
             data (np.array): Signal to filter
             highcut (float, optional): highcut frequency. Defaults to 20.
             fs (float, optional): sampling rate. Defaults to 1000.0.
@@ -2463,7 +2463,7 @@ class PigRAD:
         """        
         #Bandpass the flow streams
         for lead in [self.lad_lead, self.car_lead]:
-            self.full_data[self.channels[lead]] = self.bandpass_filt(data=self.full_data[self.channels[lead]])
+            self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
 
     def calc_RI(self, psv:float, edv:float) -> float:
         """
@@ -2544,19 +2544,27 @@ class PigRAD:
                 
                 else:
                     dni_res, map_res, sys_slop, dia_slop, ri = [], [], [], [], []
+                    p1_amp, p2_amp, p3_amp = None, None, None
                     p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
                     p1_p2_rat, p1_p3_rat, aix_vec = None, None, None, # Ratio containers
 
                     for id, peak in enumerate(s_peaks[:-1]):
-                        notch, MAAP, mean_sys_slope = None, None, None
+                        notch, MAAP, sys_slopes = None, None, None
                         syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
+
                         if id == 0:
                             onset = s_heights["left_bases"][id].item()  
                         else:
                             #Left base of the peak (previous systolic)
                             onset = s_heights["right_bases"][id - 1].item()
-                        subwave = ss1wave[syst:dia]
+                        
+                        #Pull P1 amp
+                        p1_amp = ss1wave.iloc[syst]
+
+                        #two waves selected for each slope of the wave. 
+                        sub_sys = ss1wave[onset:syst]
+                        sub_dias = ss1wave[syst:dia]
                         #Debug plot
                         # plt.plot(range(ss1wave.shape[0]), ss1wave)
                         # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
@@ -2567,12 +2575,16 @@ class PigRAD:
                         #     plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
                         # plt.show()
                         # plt.close()
+
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
-                            d0, d1, d2 = self._derivative(subwave)
+                            # First grab systolic deriv
+                            _, d1_sys, _ = self._derivative(sub_sys)
+                            # Then grab diastolic derivs
+                            d0_dias, d1_dias, d2_dias = self._derivative(sub_dias)
                             
                             #Get Dichrotic notch index from max of 2nd deriv
-                            notch = np.argmax(d2).item() #+ syst
+                            notch = np.argmax(d2_dias).item() + start
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
@@ -2594,9 +2606,9 @@ class PigRAD:
                                     dia_slop.append(slope_dia.slope.item())
 
                                 #Calc resistive index
-                                psv = np.max(d1.iloc[onset:syst])
-                                edv = np.min(d1.iloc[notch + pe[0].item():dia])
-                                ri.append(self.calc_RI(psv, edv))                    
+                                psv = np.max(d1_sys)
+                                edv = np.min(d1_dias)
+                                ri.append(self.calc_RI(psv, edv))              
                             
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
@@ -2613,7 +2625,7 @@ class PigRAD:
                             # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
                             # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
 
-                        MAAP = self._integrate(subwave)
+                        MAAP = self._integrate(sub_dias)
                         #Calc MAP
                         if MAAP:
                             map_res.append(MAAP.item())
@@ -2622,23 +2634,23 @@ class PigRAD:
                         sys_rise = ss1wave.iloc[syst] - ss1wave.iloc[onset]
                         sys_run = (syst - onset) / self.fs
                         if sys_run > 0:
-                            mean_sys_slope = sys_rise / sys_run 
+                            sys_slope = sys_rise / sys_run 
                         else:
-                            mean_sys_slope = None
-                        if mean_sys_slope:
-                            sys_slop.append(mean_sys_slope.item())
+                            sys_slope = None
+                        if sys_slope:
+                            sys_slopes.append(sys_slope.item())
 
-                    self.results["dni"][idx] = np.round(np.nanmean(dni_res), precision)
-                    self.results["MAP"][idx] = np.round(np.nanmean(map_res), precision)
+                    self.results["dni"][idx]    = np.round(np.nanmean(dni_res), precision)
+                    self.results["MAP"][idx]    = np.round(np.nanmean(map_res), precision)
                     self.results["sys_sl"][idx] = np.round(np.nanmean(sys_slop), precision)
                     self.results["dia_sl"][idx] = np.round(np.nanmean(dia_slop), precision)
-                    self.results["ri"][idx] = np.round(np.nanmean(ri), precision)
-                    self.results["p1"][idx] = np.round(np.nanmean(p1_vec), precision)
-                    self.results["p2"][idx] = np.round(np.nanmean(p2_vec), precision)
-                    self.results["p3"][idx] = np.round(np.nanmean(p3_vec), precision)
-                    self.results["p1_p2"][idx] = np.round(np.nanmean(p1_p2_rat), precision)
-                    self.results["p1_p3"][idx] = np.round(np.nanmean(p1_p3_rat), precision)
-                    self.results["aix"][idx] = np.round(np.nanmean(aix_vec), precision)
+                    self.results["ri"][idx]     = np.round(np.nanmean(ri), precision)
+                    # self.results["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
+                    # self.results["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
+                    # self.results["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
+                    # self.results["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
+                    # self.results["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
+                    # self.results["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
                     
                 #Move the progbar
                 progress.advance(task)
