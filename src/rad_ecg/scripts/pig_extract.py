@@ -2314,14 +2314,12 @@ class PigRAD:
         self.res_dtypes = [
             ('start'   , 'i4'),  #start index
             ('end'     , 'i4'),  #end index
-            ('valid'   , 'i4'),  #Valid Section
+            ('valid'   , 'i4'),  #valid Section
             ('HR'      , 'i4'),  #Heart Rate
-            ('SBP'     , 'i4'),  #Systolic Pressure
-            ('DBP'     , 'i4'),  #Diastolic Pressure
             ('trueMAP' , 'f4'),  #Mean Arterial Pressure (AUC)
-            ('aproxMAP', 'i4'),  #Approximate Mean Arterial pressure (Formula)
-            ('shockgap', 'i4'),  #Difference between true and approximate MAP
-            ('dni'     , 'f4'),  #Dichrotic Notch Index
+            ('aproxMAP', 'i4'),  #approximate Mean Arterial pressure (Formula)
+            ('shockgap', 'i4'),  #difference between true and approximate MAP
+            ('dni'     , 'f4'),  #dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
             ('dia_sl'  , 'f4'),  #diastolic slope
             ('ri'      , 'f4'),  #resistive index
@@ -2335,20 +2333,26 @@ class PigRAD:
         ]
         self.results        :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
         self.interior_dtypes = [
-            ('section'   ,'i4'),
-            ('sys_peak'  ,'i4'),
-            ('dia_trou'  ,'i4'),
+            #Rethink this data structure..  Could put a dataclass of lists here 
+            #which would make for easy aggregation.
+            
+            ('section'   ,'i4'), #Section
+            ('SBP'     , 'i4'),  #Systolic Peak
+            ('DBP'     , 'i4'),  #Diastolic Trough
+            ('dni'     , 'f4'),  #dichrotic Notch Index
+            ('sys_sl'  , 'f4'),  #systolic slope
+            ('dia_sl'  , 'f4'),  #diastolic slope
+            ('ri'      , 'f4'),  #resistive index
+            ('pul_wid' , 'f4'),  #TODO pulse width 
+
         ]
-        self.interior_peaks :np.array = np.zeros(self.sections.shape[0], dtype=self.interior_dtypes_dtypes)
+        self.interior_peaks :np.array = np.zeros(self.sections.shape[0], dtype=self.interior_dtypes)
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
         self.results["start"] = self.sections[:, 0]
         self.results["end"] = self.sections[:, 1]
         self.results["valid"] = self.sections[:, 2]
         del self.sections
-        #TODO - Add Data container
-            # Will need to add an interior peaks data container to this routine so we can keep
-            # onset/offset/index info for the eventual slider.py i'll build for this. 
         
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
