@@ -2297,26 +2297,30 @@ class RegimeViewer:
 class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
-        self.npz_path     :Path = npz_path
-        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")    # For saving features
-        # self.fp_dos       :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")     # For saving Corrected Arc Curve
-        self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
-        self.full_data    :dict = self.loader.full_data
-        self.channels     :list = self.loader.channels
-        self.outcomes     :list = self.loader.outcomes
-        self.fs           :float = 1000.0                       #Hz
-        self.windowsize   :int = 8                              #size of section window 
-        self.ecg_lead     :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
-        self.lad_lead     :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
-        self.car_lead     :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
-        self.ss1_lead     :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
-        self.sections     :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
+        self.npz_path       :Path = npz_path
+        self.fp_save        :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")    # For saving features
+        # self.fp_dos         :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")     # For saving Corrected Arc Curve
+        self.loader         :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        self.full_data      :dict = self.loader.full_data
+        self.channels       :list = self.loader.channels
+        self.outcomes       :list = self.loader.outcomes
+        self.fs             :float = 1000.0                       #Hz
+        self.windowsize     :int = 8                              #size of section window 
+        self.ecg_lead       :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
+        self.lad_lead       :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
+        self.car_lead       :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
+        self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
+        self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.res_dtypes = [
             ('start'   , 'i4'),  #start index
             ('end'     , 'i4'),  #end index
             ('valid'   , 'i4'),  #Valid Section
             ('HR'      , 'i4'),  #Heart Rate
-            ('MAP'     , 'f4'),  #Mean Arterial Pressure
+            ('SBP'     , 'i4'),  #Systolic Pressure
+            ('DBP'     , 'i4'),  #Diastolic Pressure
+            ('trueMAP' , 'f4'),  #Mean Arterial Pressure (AUC)
+            ('aproxMAP', 'i4'),  #Approximate Mean Arterial pressure (Formula)
+            ('shockgap', 'i4'),  #Difference between true and approximate MAP
             ('dni'     , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
             ('dia_sl'  , 'f4'),  #diastolic slope
@@ -2329,9 +2333,15 @@ class PigRAD:
             ('p1_p3'   , 'f4'),  #TODO Ratio of P1 to P3,
             ('aix'     , 'f4'),  #TODO Augmentation Index (AIx)
         ]
-        self.results      :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
-        self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
-        self.view_eda     :bool = False
+        self.results        :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
+        self.interior_dtypes = [
+            ('section'   ,'i4'),
+            ('sys_peak'  ,'i4'),
+            ('dia_trou'  ,'i4'),
+        ]
+        self.interior_peaks :np.array = np.zeros(self.sections.shape[0], dtype=self.interior_dtypes_dtypes)
+        self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
+        self.view_eda       :bool = False
         self.results["start"] = self.sections[:, 0]
         self.results["end"] = self.sections[:, 1]
         self.results["valid"] = self.sections[:, 2]
@@ -2529,7 +2539,7 @@ class PigRAD:
                     x = ss1wave,
                     prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
                     height = np.percentile(ss1wave, 60),
-                    distance = round(self.fs*(0.4)),
+                    distance = int(self.fs*(0.4)),
                     wlen = int(self.fs*1.5)      
                 )
                 #BUG - left base
