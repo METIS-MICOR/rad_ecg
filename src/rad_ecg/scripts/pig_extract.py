@@ -2377,7 +2377,7 @@ class PigRAD:
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
     def _derivative(self, signal):
-        """Calculates 1st and 2nd derivatives using Savitzky-Golay for smoothing
+        """Calculates smoothed, 1st, and 2nd derivatives using scipy's Savitzky-Golay filter.
 
         Args:
             signal (np.array): waveform
@@ -2398,7 +2398,7 @@ class PigRAD:
         """Apply integration of signal. Calculates area under curve
 
         Args:
-            signal (np.array): Signal you want to integrate
+            signal (np.array): waveform 
 
         Returns:
             float: area under the curve
@@ -2483,6 +2483,8 @@ class PigRAD:
         return ri
     
     def section_extract(self):
+        """This is the main section for signal processing and feature creation. Updates the self.results object
+        """        
         # Progress bar for section iteration
         precision = 4
         with Progress(
@@ -2498,9 +2500,9 @@ class PigRAD:
                 end = section[1].item()
                 ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
                 
-                #NOTE could put STFT here for clean signal check
+                #NOTE - could put STFT here for clean signal check
                 #or phase variance.  Need something.  Running blind now
-
+                #IDEA - What about phase variance?  Wavelets are also quick!
                 e_peaks, e_heights = find_peaks(
                     x = ecgwave,
                     prominence = np.percentile(ecgwave, 95),  #99 -> stock
@@ -2549,7 +2551,7 @@ class PigRAD:
                     p1_p2_rat, p1_p3_rat, aix_vec = None, None, None, # Ratio containers
 
                     for id, peak in enumerate(s_peaks[:-1]):
-                        notch, MAAP, sys_slopes = None, None, None
+                        notch, MAAP, sys_slopes = None, None, []
                         syst = peak.item()                          #Systolic
                         dia = s_heights["right_bases"][id].item()   #Diastolic
 
@@ -2584,7 +2586,7 @@ class PigRAD:
                             d0_dias, d1_dias, d2_dias = self._derivative(sub_dias)
                             
                             #Get Dichrotic notch index from max of 2nd deriv
-                            notch = np.argmax(d2_dias).item() + start
+                            notch = np.argmax(d2_dias).item()
                             if notch:
                                 dni = (notch - syst) / (syst - dia)
                                 dni_res.append(dni)
