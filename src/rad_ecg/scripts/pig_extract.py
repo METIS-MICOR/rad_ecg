@@ -60,7 +60,7 @@ class EDA(object):
             channels:list,
             fs:float,
             gpu_devices:list,
-            results:np.array,
+            all_data:np.array,
             ecg_lead:int,
             lad_lead:int, 
             car_lead:int,
@@ -73,7 +73,7 @@ class EDA(object):
         self.lad_lead = lad_lead
         self.car_lead = car_lead
         self.task = "classification"
-        self.results = results
+        self.all_data = all_data
         # self.target = pd.Series(target, name="ShockClass")
         self.target_names = ["baseline", "class_1", "class_2", "class_3", "class_4"]
         self.rev_target_dict = {
@@ -2298,24 +2298,28 @@ class RegimeViewer:
 
 @dataclass
 class BP_Feat():
-    section :int = None     #Section
-    onset   :float = None   #Left trough of Systolic peak
-    SBP     :float = None   #Systolic Peak
-    DBP     :float = None   #Diastolic Trough
-    trueMAP :float = None   #MAP via integral
-    apMAP   :float = None   #MAP via formula
-    shockgap:float = None   #Diff of trueMAP and apMAP
-    dni     :float = None   #dichrotic Notch Index
-    sys_sl  :float = None   #systolic slope
-    dia_sl  :float = None   #diastolic slope
-    ri      :float = None   #resistive index
-    pul_wid :float = None   #TODO pulse width 
-    p1      :float = None   #TODO Percussion Wave (P1)
-    p2      :float = None   #TODO Tidal Wave (P2)
-    p3      :float = None   #TODO Dicrotic Wave (P3)
-    p1_p2   :float = None   #TODO Ratio of P1 to P2
-    p1_p3   :float = None   #TODO Ratio of P1 to P3,
-    aix     :float = None   #TODO Augmentation Index (AIx)
+    id       :str = None     #record index
+    onset    :int = None     #Left trough of Systolic peak
+    sbp_id   :int = None     #Sytolic Index
+    dbp_id   :int = None     #Sytolic Index
+    notch_id :int   = None   #Dichortic notch
+    SBP      :float = None   #Systolic peak val
+    DBP      :float = None   #Diastolic trough val
+    notch    :float = None   #Notch val
+    true_MAP :float = None   #MAP via integral
+    ap_MAP   :float = None   #MAP via formula
+    shock_gap:float = None   #Diff of trueMAP and apMAP
+    dni      :float = None   #dichrotic Notch Index
+    sys_sl   :float = None   #systolic slope
+    dia_sl   :float = None   #diastolic slope
+    ri       :float = None   #resistive index
+    pul_wid  :float = None   #TODO pulse width 
+    p1       :float = None   #TODO Percussion Wave (P1)
+    p2       :float = None   #TODO Tidal Wave (P2)
+    p3       :float = None   #TODO Dicrotic Wave (P3)
+    p1_p2    :float = None   #TODO Ratio of P1 to P2
+    p1_p3    :float = None   #TODO Ratio of P1 to P3,
+    aix      :float = None   #TODO Augmentation Index (AIx)
 
 
 class PigRAD:
@@ -2335,13 +2339,13 @@ class PigRAD:
         self.car_lead       :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
         self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
-        self.res_dtypes = [
+        self.all_dtypes = [
             ('start'   , 'i4'),  #start index
             ('end'     , 'i4'),  #end index
             ('valid'   , 'i4'),  #valid Section
             ('HR'      , 'i4'),  #Heart Rate
             ('trueMAP' , 'f4'),  #Mean Arterial Pressure (AUC)
-            ('aproxMAP', 'i4'),  #approximate Mean Arterial pressure (Formula)
+            ('apMAP'   , 'i4'),  #approximate Mean Arterial pressure (Formula)
             ('shockgap', 'i4'),  #difference between true and approximate MAP
             ('dni'     , 'f4'),  #dichrotic Notch Index
             ('sys_sl'  , 'f4'),  #systolic slope
@@ -2355,13 +2359,13 @@ class PigRAD:
             ('p1_p3'   , 'f4'),  #TODO Ratio of P1 to P3,
             ('aix'     , 'f4'),  #TODO Augmentation Index (AIx)
         ]
-        self.results        :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
+        self.all_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.all_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
-        self.results["start"] = self.sections[:, 0]
-        self.results["end"] = self.sections[:, 1]
-        self.results["valid"] = self.sections[:, 2]
+        self.all_data["start"] = self.sections[:, 0]
+        self.all_data["end"] = self.sections[:, 1]
+        self.all_data["valid"] = self.sections[:, 2]
         del self.sections
         
     def pick_lead(self, col:str) -> str:
@@ -2394,7 +2398,7 @@ class PigRAD:
         out_name = self.fp_save
         out_path = self.npz_path.parent / out_name
         output_path = Path(out_path).with_suffix('.npz')
-        np.savez_compressed(output_path, self.results)
+        np.savez_compressed(output_path, self.all_data)
         
         # Log the size
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
@@ -2507,7 +2511,7 @@ class PigRAD:
         return ri
     
     def section_extract(self):
-        """This is the main section for signal processing and feature creation. Updates the self.results object
+        """This is the main section for signal processing and feature creation. Updates the self.all_data object
         """        
         # Progress bar for section iteration
         precision = 4
@@ -2517,8 +2521,8 @@ class PigRAD:
             BarColumn(), 
             transient=True
         ) as progress:
-            task = progress.add_task("Calculating Features...", total=self.results.shape[0])
-            for idx, section in enumerate(self.results):
+            task = progress.add_task("Calculating Features...", total=self.all_data.shape[0])
+            for idx, section in enumerate(self.all_data):
                 #Find R peaks from ECG lead
                 start = section[0].item()
                 end = section[1].item()
@@ -2541,7 +2545,7 @@ class PigRAD:
                     #Calc HR
                     RR_diffs = np.diff(e_peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.results["HR"][idx] = int(np.nanmean(HR)) 
+                    self.all_data["HR"][idx] = int(np.nanmean(HR)) 
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
@@ -2570,23 +2574,23 @@ class PigRAD:
                     logger.info(f"sect {idx} no peaks in SS1")
                 
                 else:
-
+                    self.bp_data = []
                     for id, peak in enumerate(s_peaks[:-1]):
                         p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
+                        
                         #Load a dataclass  of features to attach to pigrad bp_data
                         bpf = BP_Feat()
-                        bpf.section = id
-                        bpf.SBP = peak.item()                           #Systolic
-                        bpf.DBP = s_heights["right_bases"][id].item()   #Diastolic
+                        bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
+                        bpf.sbp_id = peak.item()                           #Systolic
+                        bpf.dbp_id = s_heights["right_bases"][id].item()   #Diastolic
+                        bpf.SBP = ss1wave.iloc[bpf.sbp_id].item()
+                        bpf.DBP = ss1wave.iloc[bpf.dbp_id].item()
 
                         if id == 0:
                             bpf.onset = s_heights["left_bases"][id].item()  
                         else:
                             #Left base of the peak (previous systolic)
                             bpf.onset = s_heights["right_bases"][id - 1].item()
-                        
-                        #Add P1 amp add to vec
-                        p1_vec = (ss1wave.iloc[bpf.SBP])
                         
                         #two waves selected for each slope of the wave. 
                         sub_sys = ss1wave[bpf.onset:bpf.SBP]
@@ -2604,38 +2608,51 @@ class PigRAD:
 
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
-                            # First grab systolic deriv
+                            # Get systolic deriv
                             _, d1_sys, _ = self._derivative(sub_sys)
-                            # Then grab diastolic derivs
+                            # Get 1st, 2nd diastolic derivatives
                             _, d1_dias, d2_dias = self._derivative(sub_dias)
                             
                             #Get Dichrotic notch index from max of 2nd deriv
-                            notch = np.argmax(d2_dias).item()
-                            if notch:
-                                dni = (notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
+                            bpf.notch_id = np.argmax(d2_dias).item()
+                            bpf.notch = sub_dias.iloc[bpf.notch_id]
+                            if bpf.notch:
+                                dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
                                 bpf.dni = dni
 
                         except Exception as e:
                             logger.warning(f"{e}")
-                            
-                        if notch:
+
+                        #Calc resistive index
+                        psv = np.max(d1_sys)
+                        edv = np.min(d1_dias)
+                        bpf.ri = self.calc_RI(psv, edv)
+
+                        #Get max systolic slope
+                        sys_rise = ss1wave.iloc[bpf.SBP] - ss1wave.iloc[bpf.onset]
+                        sys_run = (bpf.SBP - bpf.onset) / self.fs
+                        if sys_run > 0:
+                            sys_slope = sys_rise / sys_run 
+                        else:
+                            sys_slope = None
+                        if sys_slope:
+                            bpf.sys_sl = sys_slope.item()
+
+                        if bpf.notch:
                             #Get diastolic slope via exponential decay (regression)
                             pe, pe_heights = find_peaks(
-                                ss1wave[notch:dia],
-                                height=np.mean(ss1wave[notch:dia])
+                                ss1wave[bpf.notch_id:bpf.dbp_id],
+                                height=np.mean(ss1wave[bpf.notch_id:bpf.DBP])
                             )
                             if pe.size > 0:
-                                y_dia = ss1wave[notch + pe[0].item():dia]
+                                y_dia = ss1wave[bpf.notch_id + pe[0].item():bpf.dbp_id]
                                 x_dia = np.arange(y_dia.shape[0]) / self.fs
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
-                                    dia_slop.append(slope_dia.slope.item())
+                                    bpf.dia_sl = slope_dia.slope.item()
 
-                                #Calc resistive index
-                                psv = np.max(d1_sys)
-                                edv = np.min(d1_dias)
-                                ri.append(self.calc_RI(psv, edv))              
-                            
+                        #Add P1 amp add to vec
+                        p1_vec = (ss1wave.iloc[bpf.SBP])
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
                             #Dicrotic Wave (P3) (Diastolic Slope)
@@ -2650,33 +2667,25 @@ class PigRAD:
                             # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
                             # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
                             # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
-                        
-                        #Get systolic slope
-                        sys_rise = ss1wave.iloc[syst] - ss1wave.iloc[onset]
-                        sys_run = (syst - onset) / self.fs
-                        if sys_run > 0:
-                            sys_slope = sys_rise / sys_run 
-                        else:
-                            sys_slope = None
-                        if sys_slope:
-                            sys_slopes.append(sys_slope.item())
-
-                        MAAP = self._integrate(sub_dias)
                         #Calc MAP
-                        if MAAP:
-                            map_res.append(MAAP.item())
+                        bpf.trueMAP = self._integrate(sub_dias)
+                        bpf.apMAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
+                        bpf.shockgap = bpf.trueMAP  - bpf.apMAP
+                        self.bp_data.append(bpf)
 
-                    self.results["dni"][idx]    = np.round(np.nanmean(dni_res), precision)
-                    self.results["MAP"][idx]    = np.round(np.nanmean(map_res), precision)
-                    self.results["sys_sl"][idx] = np.round(np.nanmean(sys_slop), precision)
-                    self.results["dia_sl"][idx] = np.round(np.nanmean(dia_slop), precision)
-                    self.results["ri"][idx]     = np.round(np.nanmean(ri), precision)
-                    # self.results["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
-                    # self.results["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
-                    # self.results["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
-                    # self.results["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
-                    # self.results["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
-                    # self.results["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
+                    self.all_data["dni"][idx]      = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni != None]), precision)
+                    self.all_data["trueMAP"][idx]  = np.round(np.nanmean([rec.trueMAP for rec in self.bp_data if rec.trueMAP != None]), precision)
+                    self.all_data["apMAP"][idx]  = np.round(np.nanmean([rec.apMAP for rec in self.bp_data if rec.apMAP != None]), precision)
+                    self.all_data["shockgap"][idx] = np.round(np.nanmean([rec.shockgap for rec in self.bp_data if rec.shockgap != None]), precision)
+                    self.all_data["sys_sl"][idx]   = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl != None]), precision)
+                    self.all_data["dia_sl"][idx]   = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl != None]), precision)
+                    self.all_data["ri"][idx]       = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri != None]), precision)
+                    # self.all_data["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
+                    # self.all_data["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
+                    # self.all_data["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
+                    # self.all_data["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
+                    # self.all_data["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
+                    # self.all_data["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
                     
                 #Move the progbar
                 progress.advance(task)
@@ -2723,7 +2732,7 @@ class PigRAD:
                 self.channels, 
                 self.fs, 
                 self.gpu_devices, 
-                self.results,
+                self.all_data,
                 self.ecg_lead,
                 self.lad_lead,
                 self.car_lead
