@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 from numba import cuda
+from typing import List
 from pathlib import Path
 from os.path import exists
 from kneed import KneeLocator
@@ -13,8 +14,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 import matplotlib.gridspec as gridspec
-from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
+from matplotlib.animation import FuncAnimation, PillowWriter
+from dataclasses import dataclass, field
 from rich import print as pprint
 from rich.tree import Tree
 from rich.text import Text
@@ -2294,6 +2296,28 @@ class RegimeViewer:
         logger.info("Gif saved :tada:")
         self.paused = was_paused
 
+@dataclass
+class BP_Feat():
+    section :int = None     #Section
+    onset   :float = None   #Left trough of Systolic peak
+    SBP     :float = None   #Systolic Peak
+    DBP     :float = None   #Diastolic Trough
+    trueMAP :float = None   #MAP via integral
+    apMAP   :float = None   #MAP via formula
+    shockgap:float = None   #Diff of trueMAP and apMAP
+    dni     :float = None   #dichrotic Notch Index
+    sys_sl  :float = None   #systolic slope
+    dia_sl  :float = None   #diastolic slope
+    ri      :float = None   #resistive index
+    pul_wid :float = None   #TODO pulse width 
+    p1      :float = None   #TODO Percussion Wave (P1)
+    p2      :float = None   #TODO Tidal Wave (P2)
+    p3      :float = None   #TODO Dicrotic Wave (P3)
+    p1_p2   :float = None   #TODO Ratio of P1 to P2
+    p1_p3   :float = None   #TODO Ratio of P1 to P3,
+    aix     :float = None   #TODO Augmentation Index (AIx)
+
+
 class PigRAD:
     def __init__(self, npz_path):
         # 1. load data / params
@@ -2332,21 +2356,7 @@ class PigRAD:
             ('aix'     , 'f4'),  #TODO Augmentation Index (AIx)
         ]
         self.results        :np.array = np.zeros(self.sections.shape[0], dtype=self.res_dtypes)
-        self.interior_dtypes = [
-            #Rethink this data structure..  Could put a dataclass of lists here 
-            #which would make for easy aggregation.
-            
-            ('section'   ,'i4'), #Section
-            ('SBP'     , 'i4'),  #Systolic Peak
-            ('DBP'     , 'i4'),  #Diastolic Trough
-            ('dni'     , 'f4'),  #dichrotic Notch Index
-            ('sys_sl'  , 'f4'),  #systolic slope
-            ('dia_sl'  , 'f4'),  #diastolic slope
-            ('ri'      , 'f4'),  #resistive index
-            ('pul_wid' , 'f4'),  #TODO pulse width 
-
-        ]
-        self.interior_peaks :np.array = np.zeros(self.sections.shape[0], dtype=self.interior_dtypes)
+        self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
         self.results["start"] = self.sections[:, 0]
@@ -2517,6 +2527,7 @@ class PigRAD:
                 #NOTE - could put STFT here for clean signal check
                 #or phase variance.  Need something.  Running blind now
                 #IDEA - What about phase variance?  Wavelets are also quick!
+
                 e_peaks, e_heights = find_peaks(
                     x = ecgwave,
                     prominence = np.percentile(ecgwave, 95),  #99 -> stock
@@ -2559,28 +2570,27 @@ class PigRAD:
                     logger.info(f"sect {idx} no peaks in SS1")
                 
                 else:
-                    dni_res, map_res, sys_slop, dia_slop, ri = [], [], [], [], []
-                    p1_amp, p2_amp, p3_amp = None, None, None
-                    p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
-                    p1_p2_rat, p1_p3_rat, aix_vec = None, None, None, # Ratio containers
 
                     for id, peak in enumerate(s_peaks[:-1]):
-                        notch, MAAP, sys_slopes = None, None, []
-                        syst = peak.item()                          #Systolic
-                        dia = s_heights["right_bases"][id].item()   #Diastolic
+                        p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
+                        #Load a dataclass  of features to attach to pigrad bp_data
+                        bpf = BP_Feat()
+                        bpf.section = id
+                        bpf.SBP = peak.item()                           #Systolic
+                        bpf.DBP = s_heights["right_bases"][id].item()   #Diastolic
 
                         if id == 0:
-                            onset = s_heights["left_bases"][id].item()  
+                            bpf.onset = s_heights["left_bases"][id].item()  
                         else:
                             #Left base of the peak (previous systolic)
-                            onset = s_heights["right_bases"][id - 1].item()
+                            bpf.onset = s_heights["right_bases"][id - 1].item()
                         
-                        #Pull P1 amp
-                        p1_amp = ss1wave.iloc[syst]
-
+                        #Add P1 amp add to vec
+                        p1_vec = (ss1wave.iloc[bpf.SBP])
+                        
                         #two waves selected for each slope of the wave. 
-                        sub_sys = ss1wave[onset:syst]
-                        sub_dias = ss1wave[syst:dia]
+                        sub_sys = ss1wave[bpf.onset:bpf.SBP]
+                        sub_dias = ss1wave[bpf.SBP:bpf.DBP]
                         #Debug plot
                         # plt.plot(range(ss1wave.shape[0]), ss1wave)
                         # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
@@ -2597,13 +2607,13 @@ class PigRAD:
                             # First grab systolic deriv
                             _, d1_sys, _ = self._derivative(sub_sys)
                             # Then grab diastolic derivs
-                            d0_dias, d1_dias, d2_dias = self._derivative(sub_dias)
+                            _, d1_dias, d2_dias = self._derivative(sub_dias)
                             
                             #Get Dichrotic notch index from max of 2nd deriv
                             notch = np.argmax(d2_dias).item()
                             if notch:
-                                dni = (notch - syst) / (syst - dia)
-                                dni_res.append(dni)
+                                dni = (notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
+                                bpf.dni = dni
 
                         except Exception as e:
                             logger.warning(f"{e}")
@@ -2628,7 +2638,7 @@ class PigRAD:
                             
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
-                            #Dicrotic Wave (P3)
+                            #Dicrotic Wave (P3) (Diastolic Slope)
                             # A_P1 = ss1wave.iloc[syst]
                             # A_P2 = KneeLocator(
                             #     range(peak, notch),
@@ -2640,11 +2650,6 @@ class PigRAD:
                             # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
                             # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
                             # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
-
-                        MAAP = self._integrate(sub_dias)
-                        #Calc MAP
-                        if MAAP:
-                            map_res.append(MAAP.item())
                         
                         #Get systolic slope
                         sys_rise = ss1wave.iloc[syst] - ss1wave.iloc[onset]
@@ -2655,6 +2660,11 @@ class PigRAD:
                             sys_slope = None
                         if sys_slope:
                             sys_slopes.append(sys_slope.item())
+
+                        MAAP = self._integrate(sub_dias)
+                        #Calc MAP
+                        if MAAP:
+                            map_res.append(MAAP.item())
 
                     self.results["dni"][idx]    = np.round(np.nanmean(dni_res), precision)
                     self.results["MAP"][idx]    = np.round(np.nanmean(map_res), precision)
