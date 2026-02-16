@@ -2301,19 +2301,19 @@ class BP_Feat():
     id       :str = None     #record index
     onset    :int = None     #Left trough of Systolic peak
     sbp_id   :int = None     #Sytolic Index
-    dbp_id   :int = None     #Sytolic Index
-    notch_id :int   = None   #Dichortic notch
+    dbp_id   :int = None     #Diastolic Index
+    notch_id :int   = None   #Dicrotic notch
     SBP      :float = None   #Systolic peak val
     DBP      :float = None   #Diastolic trough val
     notch    :float = None   #Notch val
     true_MAP :float = None   #MAP via integral
     ap_MAP   :float = None   #MAP via formula
     shock_gap:float = None   #Diff of trueMAP and apMAP
-    dni      :float = None   #dichrotic Notch Index
+    dni      :float = None   #dicrotic Notch Index
     sys_sl   :float = None   #systolic slope
     dia_sl   :float = None   #diastolic slope
     ri       :float = None   #resistive index
-    pul_wid  :float = None   #TODO pulse width 
+    pul_wid  :float = None   #pulse width 
     p1       :float = None   #TODO Percussion Wave (P1)
     p2       :float = None   #TODO Tidal Wave (P2)
     p3       :float = None   #TODO Dicrotic Wave (P3)
@@ -2420,7 +2420,7 @@ class PigRAD:
         smoothed = savgol_filter(signal, window_length=window, polyorder=3)
         d1 = savgol_filter(signal, window_length=window, polyorder=3, deriv=1)
         d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
-        return pd.Series(smoothed), pd.Series(d1), pd.Series(d2)
+        return smoothed, d1, d2
     
     def _integrate(self, signal:np.array)->float:
         """Apply integration of signal. Calculates area under curve
@@ -2591,10 +2591,13 @@ class PigRAD:
                         else:
                             #Left base of the peak (previous systolic)
                             bpf.onset = s_heights["right_bases"][id - 1].item()
-                        
+
+                        #Get the width of the pulse (ms)
+                        bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs * 1000
+
                         #two waves selected for each slope of the wave. 
-                        sub_sys = ss1wave[bpf.onset:bpf.SBP]
-                        sub_dias = ss1wave[bpf.SBP:bpf.DBP]
+                        sub_sys = ss1wave[bpf.onset:bpf.sbp_id]
+                        sub_dias = ss1wave[bpf.sbp_id:bpf.dbp_id]
                         #Debug plot
                         # plt.plot(range(ss1wave.shape[0]), ss1wave)
                         # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
@@ -2615,10 +2618,9 @@ class PigRAD:
                             
                             #Get Dichrotic notch index from max of 2nd deriv
                             bpf.notch_id = np.argmax(d2_dias).item()
-                            bpf.notch = sub_dias.iloc[bpf.notch_id]
+                            bpf.notch = sub_dias[bpf.notch_id]
                             if bpf.notch:
-                                dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
-                                bpf.dni = dni
+                                bpf.dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
 
                         except Exception as e:
                             logger.warning(f"{e}")
@@ -2628,21 +2630,21 @@ class PigRAD:
                         edv = np.min(d1_dias)
                         bpf.ri = self.calc_RI(psv, edv)
 
-                        #Get max systolic slope
-                        sys_rise = ss1wave.iloc[bpf.SBP] - ss1wave.iloc[bpf.onset]
-                        sys_run = (bpf.SBP - bpf.onset) / self.fs
+                        #Get systolic slope
+                        sys_rise = bpf.SBP - ss1wave[bpf.onset + start]
+                        sys_run = (bpf.sbp_id - bpf.onset) / self.fs
                         if sys_run > 0:
                             sys_slope = sys_rise / sys_run 
                         else:
                             sys_slope = None
                         if sys_slope:
                             bpf.sys_sl = sys_slope.item()
-
+                        
+                        #Get diastolic slope via exponential decay (regression)
                         if bpf.notch:
-                            #Get diastolic slope via exponential decay (regression)
                             pe, pe_heights = find_peaks(
                                 ss1wave[bpf.notch_id:bpf.dbp_id],
-                                height=np.mean(ss1wave[bpf.notch_id:bpf.DBP])
+                                height=np.mean(ss1wave[bpf.notch_id:bpf.dbp_id])
                             )
                             if pe.size > 0:
                                 y_dia = ss1wave[bpf.notch_id + pe[0].item():bpf.dbp_id]
@@ -2650,9 +2652,14 @@ class PigRAD:
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
                                     bpf.dia_sl = slope_dia.slope.item()
+                        #Calc MAP
+                        bpf.trueMAP = self._integrate(sub_dias)
+                        bpf.apMAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
+                        bpf.shockgap = bpf.trueMAP - bpf.apMAP
+                        self.bp_data.append(bpf)
 
                         #Add P1 amp add to vec
-                        p1_vec = (ss1wave.iloc[bpf.SBP])
+                        p1_vec = bpf.SBP
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
                             #Dicrotic Wave (P3) (Diastolic Slope)
@@ -2667,11 +2674,6 @@ class PigRAD:
                             # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
                             # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
                             # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
-                        #Calc MAP
-                        bpf.trueMAP = self._integrate(sub_dias)
-                        bpf.apMAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
-                        bpf.shockgap = bpf.trueMAP  - bpf.apMAP
-                        self.bp_data.append(bpf)
 
                     self.all_data["dni"][idx]      = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni != None]), precision)
                     self.all_data["trueMAP"][idx]  = np.round(np.nanmean([rec.trueMAP for rec in self.bp_data if rec.trueMAP != None]), precision)
