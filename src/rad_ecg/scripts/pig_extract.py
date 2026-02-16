@@ -57,19 +57,18 @@ class EDA(object):
     def __init__(
             self,
             avg_data:np.array,
-            target:np.array,
             col_names:list,
             fs:float,
             gpu_devices:list,
         ):
-        self.dataset = avg_data
-        self.target = target
-        self.feature_names = col_names
-        self.fs = fs
-        self.gpu_devices = gpu_devices
-        self.task = "classification"
-        self.target_names = ["B1", "C1", "C2", "C3", "C4"]
-        self.rev_target_dict = {
+        self.dataset:pd.DataFrame = pd.DataFrame(avg_data)
+        self.feature_names:list = list(col_names)
+        self.fs:float = fs
+        self.gpu_devices:list = gpu_devices
+        self.task:str = "classification"
+        self.target:pd.Series = None
+        self.target_names:list = ["B1", "C1", "C2", "C3", "C4"]
+        self.rev_target_dict:dict = {
             0:"B1",
             1:"C1",
             2:"C2",
@@ -79,27 +78,19 @@ class EDA(object):
 
     #FUNCTION clean_data
     def clean_data(self):
-        #Calculate necessary segment averages
-        cols = ["Avg_QRS", "Avg_QT", "Avg_PR", "Avg_ST"]
-        add_cols = ["qrs_comp", "pr_intr", "qt_intr", "st_seg"]
-        #If you're looking at old data.
-        if not np.all(np.isin(cols, self.data.columns.tolist())):
-            for col in cols:
-                self.data[col] = np.zeros(shape=(self.data.shape[0]))
-            for idx in self.data.index:
-                valid = self.data.iloc[idx, 3] == 1.0
-                if valid:
-                    star = self.data.iloc[idx, 1]
-                    fini = self.data.iloc[idx, 2]
-                    inners = self.interior_peaks[(self.interior_peaks["r_peak"] > star) & (self.interior_peaks["r_peak"] < fini)]
-                    for cidx, col in enumerate(add_cols):
-                        avg = np.nonzero(inners[col])[0]
-                        if avg.shape[0] > 0:
-                            avg_vec = inners.iloc[avg, self.names_interior.index(col)]
-                            self.data.loc[idx, cols[cidx]] = round(np.mean(avg_vec), 2)
-            
+        #imputate sections needing so
+        
+        for col in self.feature_names:
+            self.data[col] = self.imputate(self.data[col], "mean")
+        
+        #Drop nulls
+        self.drop_nulls()
+
         #Drop the target column.
-        self.data = self.data.drop("valid", axis=1)
+        self.target = self.data.drop("ShockClass", axis=1)
+
+        #Display nulls
+        self.print_nulls(True)
 
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
@@ -2332,26 +2323,27 @@ class PigRAD:
         self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.avg_dtypes = [
-            ('start'    , 'i4'),  #start index
-            ('end'      , 'i4'),  #end index
-            ('valid'    , 'i4'),  #valid Section
-            ('HR'       , 'i4'),  #Heart Rate
-            ('true_MAP' , 'f4'),  #Mean Arterial Pressure (AUC)
-            ('ap_MAP'   , 'f4'),  #approximate Mean Arterial pressure (Formula)
-            ('shock_gap', 'f4'),  #difference between true and approximate MAP
-            ('dni'      , 'f4'),  #dichrotic Notch Index
-            ('sys_sl'   , 'f4'),  #systolic slope
-            ('dia_sl'   , 'f4'),  #diastolic slope
-            ('ri'       , 'f4'),  #resistive index
-            ('pul_wid'  , 'f4'),  #pulse width 
-            ('p1'       , 'f4'),  #TODO Percussion Wave (P1)
-            ('p2'       , 'f4'),  #TODO Tidal Wave (P2)
-            ('p3'       , 'f4'),  #TODO Dicrotic Wave (P3)
-            ('p1_p2'    , 'f4'),  #TODO Ratio of P1 to P2
-            ('p1_p3'    , 'f4'),  #TODO Ratio of P1 to P3,
-            ('aix'      , 'f4'),  #TODO Augmentation Index (AIx)
+            ('start'      , 'i4'),  #start index
+            ('end'        , 'i4'),  #end index
+            ('valid'      , 'i4'),  #valid Section
+            ('HR'         , 'i4'),  #Heart Rate
+            ('shock_class', 'U4'),  #Shock Class
+            ('true_MAP'   , 'f4'),  #Mean Arterial Pressure (AUC)
+            ('ap_MAP'     , 'f4'),  #approximate Mean Arterial pressure (Formula)
+            ('shock_gap'  , 'f4'),  #difference between true and approximate MAP
+            ('dni'        , 'f4'),  #dichrotic Notch Index
+            ('sys_sl'     , 'f4'),  #systolic slope
+            ('dia_sl'     , 'f4'),  #diastolic slope
+            ('ri'         , 'f4'),  #resistive index
+            ('pul_wid'    , 'f4'),  #pulse width 
+            ('p1'         , 'f4'),  #TODO Percussion Wave (P1)
+            ('p2'         , 'f4'),  #TODO Tidal Wave (P2)
+            ('p3'         , 'f4'),  #TODO Dicrotic Wave (P3)
+            ('p1_p2'      , 'f4'),  #TODO Ratio of P1 to P2
+            ('p1_p3'      , 'f4'),  #TODO Ratio of P1 to P3,
+            ('aix'        , 'f4'),  #TODO Augmentation Index (AIx)
         ]
-        self.avg_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
+        self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
@@ -2361,6 +2353,12 @@ class PigRAD:
         self.avg_data["valid"] = self.sections[:, 2]
         del self.sections
         #Remap target class
+        #BUG - Do i need this?
+            #Probably can calculate the avg loss per section and save 
+            #a bit on computation here. But, then i don't have the 
+            #max value to estimate loss if i go by section. 
+            #Could just normalize it on the load though
+
         if "EBV" in self.channels:
             ebv_arr = self.full_data["EBV"].to_numpy()
             #Normalize it
@@ -2569,6 +2567,7 @@ class PigRAD:
 
                 #Calculate DNI from ss1 lead
                 ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end].to_numpy()
+
                 # first find systolic peaks
                 s_peaks, s_heights = find_peaks(
                     x = ss1wave,
@@ -2587,7 +2586,7 @@ class PigRAD:
                 # plt.show()
 
                 if 3 <= s_peaks.size >= 100:
-                    logger.info(f"sect {idx} no peaks in SS1")
+                    logger.info(f"sect {idx} insufficient peaks in SS1")
                     continue
                 
                 else:
@@ -2694,12 +2693,12 @@ class PigRAD:
                             _, d1_sys_comp, _ = self._derivative(sub_syst)
 
                             # 1. Find true peaks in the systolic complex (Type A vs Type C)
-                            complex_peaks, _ = find_peaks(sub_syst)
+                            sys_peaks, _ = find_peaks(sub_syst)
 
-                            if len(complex_peaks) >= 2:
+                            if len(sys_peaks) >= 2:
                                 # Multiple peaks: First is P1, Highest subsequent is P2
-                                p1_idx = complex_peaks[0]
-                                p2_idx = complex_peaks[1:][np.argmax(sub_syst[complex_peaks[1:]])]
+                                p1_idx = sys_peaks[0]
+                                p2_idx = sys_peaks[1:][np.argmax(sub_syst[sys_peaks[1:]])]
                                 p1_val = sub_syst[p1_idx].item()
                                 p2_val = sub_syst[p2_idx].item()
                             else:
@@ -2771,20 +2770,21 @@ class PigRAD:
                         #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
                         self.bp_data.append(bpf) 
 
-                    self.avg_data["dni"][idx]       = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
-                    self.avg_data["true_MAP"][idx]  = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP is not None]), precision)
-                    self.avg_data["ap_MAP"][idx]    = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP is not None]), precision)
-                    self.avg_data["shock_gap"][idx] = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
-                    self.avg_data["sys_sl"][idx]    = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
-                    self.avg_data["dia_sl"][idx]    = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
-                    self.avg_data["ri"][idx]        = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
-                    self.avg_data["pul_wid"][idx]   = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
-                    self.avg_data["p1"][idx]        = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
-                    self.avg_data["p2"][idx]        = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
-                    self.avg_data["p3"][idx]        = np.round(np.nanmean([rec.p3 for rec in self.bp_data if rec.p3 is not None]), precision)
-                    self.avg_data["p1_p2"][idx]     = np.round(np.nanmean([rec.p1_p2 for rec in self.bp_data if rec.p1_p2 is not None]), precision)
-                    self.avg_data["p1_p3"][idx]     = np.round(np.nanmean([rec.p1_p3 for rec in self.bp_data if rec.p1_p3 is not None]), precision)
-                    self.avg_data["aix"][idx]       = np.round(np.nanmean([rec.aix for rec in self.bp_data if rec.aix is not None]), precision)
+                    self.avg_data["shock_class"][idx] = Counter(self.target[start:end]).most_common()[0][0].item()
+                    self.avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
+                    self.avg_data["true_MAP"][idx]    = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP is not None]), precision)
+                    self.avg_data["ap_MAP"][idx]      = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP is not None]), precision)
+                    self.avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
+                    self.avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
+                    self.avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
+                    self.avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
+                    self.avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
+                    self.avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
+                    self.avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
+                    self.avg_data["p3"][idx]          = np.round(np.nanmean([rec.p3 for rec in self.bp_data if rec.p3 is not None]), precision)
+                    self.avg_data["p1_p2"][idx]       = np.round(np.nanmean([rec.p1_p2 for rec in self.bp_data if rec.p1_p2 is not None]), precision)
+                    self.avg_data["p1_p3"][idx]       = np.round(np.nanmean([rec.p1_p3 for rec in self.bp_data if rec.p1_p3 is not None]), precision)
+                    self.avg_data["aix"][idx]         = np.round(np.nanmean([rec.aix for rec in self.bp_data if rec.aix is not None]), precision)
 
                 #Move the progbar
                 progress.advance(task)
@@ -2828,8 +2828,7 @@ class PigRAD:
             #Load up the EDA class
             eda = EDA(
                 self.avg_data,
-                self.target,
-                self.avg_data.columns.names,                
+                self.avg_data.dtype.names,                
                 self.fs, 
                 self.gpu_devices, 
             )
