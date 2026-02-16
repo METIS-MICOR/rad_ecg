@@ -35,7 +35,7 @@ from setup_globals import walk_directory
 from support import logger, console, log_time, NumpyArrayEncoder
 
 ########################### Sklearn imports ###############################
-from sklearn.preprocessing import RobustScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
@@ -47,8 +47,9 @@ from sklearn.metrics import classification_report
 
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
-from sklearn.decomposition import PCA
-from sklearn.svm import LinearSVC as SVM
+# from sklearn.decomposition import PCA
+from sklearn.svm import SVC
+from sklearn.multiclass import OneVsRestClassifier
 from sklearn.ensemble import IsolationForest as IsoForest
 from xgboost import XGBClassifier, DMatrix
 
@@ -61,7 +62,7 @@ class EDA(object):
             fs:float,
             gpu_devices:list,
         ):
-        self.dataset:pd.DataFrame = pd.DataFrame(avg_data)
+        self.data:pd.DataFrame = pd.DataFrame(avg_data)
         self.feature_names:list = list(col_names)
         self.fs:float = fs
         self.gpu_devices:list = gpu_devices
@@ -78,19 +79,19 @@ class EDA(object):
 
     #FUNCTION clean_data
     def clean_data(self):
-        #imputate sections needing so
-        
-        for col in self.feature_names:
-            self.data[col] = self.imputate(self.data[col], "mean")
-        
-        #Drop nulls
-        self.drop_nulls()
-
-        #Drop the target column.
-        self.target = self.data.drop("ShockClass", axis=1)
+        #imputate sections needing it
+        # for col in self.feature_names[4:]:
+        #     self.imputate("mean", col)
 
         #Display nulls
-        self.print_nulls(True)
+        self.print_nulls(False)
+        
+        #Drop nulls
+        # self.drop_nulls()
+
+        #Drop the target column.
+        self.target = self.data.pop("shock_class")
+
 
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
@@ -164,7 +165,7 @@ class EDA(object):
                         f"{nulls.iloc[ss]:.0f}", 
                         f"{perc.iloc[ss]:.2%}", 
                         f"{str(over30[ss])}", 
-                        style="kindagood", 
+                        style="white on blue", 
                         end_section=end_sect
                     )
                 else:
@@ -173,7 +174,7 @@ class EDA(object):
                         f"{nulls.iloc[ss]:.0f}", 
                         f"{perc.iloc[ss]:.2%}", 
                         f"{str(over30[ss])}", 
-                        style="danger", 
+                        style="red on white", 
                         end_section=end_sect
                     )
         console.log("Printing Null Table")
@@ -678,11 +679,17 @@ class EDA(object):
 
 #CLASS Feature Engineering
 class FeatureEngineering(EDA):
-    def __init__(self, ecg_data:dict, wave:np.array):
-        #Inherit from the EDA class
-        super().__init__(ecg_data, wave)
-        EDA.clean_data(self)
-        # EDA.drop_nulls(self)
+    def __init__(self, eda:object):
+        if eda:
+            self.data = eda.data
+            self.feature_names = eda.feature_names
+            self.target = eda.target
+            self.target_names = eda.target_names
+            self.gpu_devices = eda.gpu_devices
+            self.task = eda.task
+        else:
+            super().__init__(self)
+            EDA.clean_data(self)
         
         """		
         Inputs:
@@ -846,6 +853,7 @@ class FeatureEngineering(EDA):
             ax1.set_title(f'Probability plot\n{col_name}')
             ax2.set_title(f'Probability plot\n{trans_name}')
             plt.show()
+            plt.close()
 
         target = False
 
@@ -959,21 +967,21 @@ class DataPrep(object):
             self.target_names = engin.target_names
             self.task = engin.task
         else:
-            EDA.__init__(self) #BUG - I need a way to feed the data in here
+            EDA.__init__(self) 
             EDA.clean_data(self)
-            EDA.drop_nulls(self)
             self.data = self.data[features]
             self.feature_names = features
 
         logger.info(f"Modeling task: {self.task}")
-        logger.info(f'Dataset Shape:{self.data.shape}')
         logger.info(f'Dataset features:{self.feature_names}')
         logger.info(f'Dataset target:\t{self.target.name}')
+        logger.info(f'Dataset Shape:{self.data.shape}')
+        logger.info(f'Target shape:\t{self.target.shape}')
 
     #FUNCTION dataprep
     def data_prep(
             self, 
-               model_name:str, 
+            model_name:str, 
             split:float,
             model_category:str=None, 
             category_value:str=None
@@ -1060,6 +1068,7 @@ class DataPrep(object):
             scalernm = self.scaler
             scaler_dict = {
                 "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
+                "s_scale":StandardScaler()
             }
             scaler = scaler_dict.get(scalernm)
             if not scaler:
@@ -1187,11 +1196,12 @@ class ModelTraining(object):
             "svm":{
                 #Notes. 
                     #
-                "model_name":"svm",
+                "model_name":"OneVsRestClassifier(SVC)",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
-                #https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
+                #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
+                #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
                 "base_params":{
                     "penalty":"l2",					#str
                     "loss":"squared_hinge",         #str
@@ -1294,10 +1304,10 @@ class ModelTraining(object):
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
         match model_name:
-            case 'pca':
-                return PCA(**params)
+            # case 'pca':
+            #     return PCA(**params)
             case 'svm':
-                return SVM(**params)
+                return OneVsRestClassifier(SVC(**params))
             case 'isoforest':
                 return IsoForest(**params)
             case 'xgboost':
@@ -1495,7 +1505,7 @@ class ModelTraining(object):
         def classification_summary(model_name:str, y_pred:np.array, cv_class:str=False):
         #######################Confusion Matrix and classification report##########################
             labels = self.target_names
-            no_proba = ["svc", ""]
+            no_proba = ["svm", ""]
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
             custom_confusion_matrix(self.y_test, y_pred, display_labels=labels)
@@ -1513,8 +1523,7 @@ class ModelTraining(object):
             
         #FUNCTION No Crossval
         def no_cv_scoring(y_pred:np.array, cat_bool:bool, table)->float:
-            #I'm not sure why i'm keeping no cross validation as an option, but
-            #here we are. 
+            #I'm not sure why i'm keeping no cross validation as an option, but here we are. 
             scoring_dict = {
                 #regression
                 # "rsme"    : MSE(self.y_test, y_pred, squared=False),
@@ -2326,27 +2335,30 @@ class PigRAD:
             ('start'      , 'i4'),  #start index
             ('end'        , 'i4'),  #end index
             ('valid'      , 'i4'),  #valid Section
-            ('HR'         , 'i4'),  #Heart Rate
             ('shock_class', 'U4'),  #Shock Class
+            ('HR'         , 'i4'),  #Heart Rate
+            ('SBP'        , 'i4'),  #Systolic Pressure
+            ('DBP'        , 'i4'),  #Diastolic Pressure
+            ('EBV'        , 'i4'),  #Estimated Blood Volume
             ('true_MAP'   , 'f4'),  #Mean Arterial Pressure (AUC)
             ('ap_MAP'     , 'f4'),  #approximate Mean Arterial pressure (Formula)
             ('shock_gap'  , 'f4'),  #difference between true and approximate MAP
-            ('dni'        , 'f4'),  #dichrotic Notch Index
-            ('sys_sl'     , 'f4'),  #systolic slope
-            ('dia_sl'     , 'f4'),  #diastolic slope
-            ('ri'         , 'f4'),  #resistive index
-            ('pul_wid'    , 'f4'),  #pulse width 
-            ('p1'         , 'f4'),  #TODO Percussion Wave (P1)
-            ('p2'         , 'f4'),  #TODO Tidal Wave (P2)
-            ('p3'         , 'f4'),  #TODO Dicrotic Wave (P3)
-            ('p1_p2'      , 'f4'),  #TODO Ratio of P1 to P2
-            ('p1_p3'      , 'f4'),  #TODO Ratio of P1 to P3,
-            ('aix'        , 'f4'),  #TODO Augmentation Index (AIx)
+            ('dni'        , 'f4'),  #Dichrotic Notch Index
+            ('sys_sl'     , 'f4'),  #Systolic slope
+            ('dia_sl'     , 'f4'),  #Diastolic slope
+            ('ri'         , 'f4'),  #Resistive index
+            ('pul_wid'    , 'f4'),  #Pulse width 
+            ('p1'         , 'f4'),  #Percussion Wave (P1)
+            ('p2'         , 'f4'),  #Tidal Wave (P2)
+            ('p3'         , 'f4'),  #Dicrotic Wave (P3)
+            ('p1_p2'      , 'f4'),  #Ratio of P1 to P2
+            ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
+            ('aix'        , 'f4'),  #Augmentation Index (AIx)
         ]
         self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
-        self.view_eda       :bool = False
+        self.view_eda       :bool = True
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2536,9 +2548,13 @@ class PigRAD:
         ) as progress:
             task = progress.add_task("Calculating Features...", total=self.avg_data.shape[0])
             for idx, section in enumerate(self.avg_data):
-                #Find R peaks from ECG lead
                 start = section[0].item()
                 end = section[1].item()
+
+                #Calc estimated blood volume for section. 
+                self.avg_data["EBV"][idx] = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
+                
+                #Find R peaks from ECG lead
                 ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
                 #BUG - Erratic ECG
                     # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
@@ -2553,8 +2569,8 @@ class PigRAD:
                     distance = round(self.fs*(0.200))           
                 )
 
-                if len(e_peaks) < 3:
-                    logger.info(f"sect {idx} not enough peaks")
+                if 3 <= e_peaks.size >= 100:
+                    logger.info(f"sect {idx} peaks invalid for HR extract")
                 else:                
                     #Calc HR
                     RR_diffs = np.diff(e_peaks)
@@ -2772,6 +2788,8 @@ class PigRAD:
 
                     self.avg_data["shock_class"][idx] = Counter(self.target[start:end]).most_common()[0][0].item()
                     self.avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
+                    self.avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in self.bp_data if rec.SBP is not None]), precision)
+                    self.avg_data["DBP"][idx]         = np.round(np.nanmean([rec.DBP for rec in self.bp_data if rec.DBP is not None]), precision)
                     self.avg_data["true_MAP"][idx]    = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP is not None]), precision)
                     self.avg_data["ap_MAP"][idx]      = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP is not None]), precision)
                     self.avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
@@ -2835,13 +2853,19 @@ class PigRAD:
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
             if self.view_eda:
-                pass
-                # ml.corr_heatmap()
-                # ml.eda_plot()
-            console.print("[green]Enginnering features...[/]")    
-            fe = FeatureEngineering(eda)
+                sel_cols = eda.feature_names[4:]
+                #graph your features
+                # for feature in sel_cols:
+                #     eda.eda_plot("scatter", "EBV", feature)
+                    # eda.eda_plot("histogram", feature)
+                # eda.eda_plot("pairplot")
+                # eda.corr_heatmap(sel_cols=sel_cols)
+                eda.sum_stats(sel_cols, "Numeric Features")
+            console.print("[green]Enginnering features...[/]")
+
+            engin = FeatureEngineering(eda)
             #filterout time col 0
-            ofinterest = [fe.data.columns[x] for x in range(1, fe.data.shape[1])]
+            ofinterest = [engin.data.columns[x] for x in range(3, engin.data.shape[1])]
             
             #Engineer your features here. available transforms below
             #log:  Log Transform
@@ -2850,9 +2874,12 @@ class PigRAD:
             #exp:  exponential - Good for right skew #!Broken
             #BoxC: Box Cox - Good for only pos val
             #YeoJ: Yeo-Johnson - Good for pos and neg val
-            # Ex:    
-            # engin.engineer("NN50",    True, False, "YeoJ")
-            # engin.engineer("Avg_QT",  True, False, "log")
+            # Ex:
+            # for feature in engin.feature_names[4:]:
+            #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
+            #         engin.engineer(feature, False, True, transform)
+            # engin.engineer("aix", True, False, "BoxC")
+            
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -2875,15 +2902,16 @@ class PigRAD:
             #'svm':LinearSVC
             #'isoforest':IsolationForest
             #'xgboost':XGBoostClassfier
-            modellist = ['pca', 'svm', 'isoforest', 'xgboost']
-            console.print("[green]Prepping Data...[/]")
-            dp = DataPrep(ofinterest, scaler, cross_val, fe)
             modellist = ['svm', 'isoforest', 'xgboost']
-            console.print("[green]training algorithms...[/]")
+            console.print("[green]prepping data for training...[/]")
+            dp = DataPrep(ofinterest, scaler, cross_val, engin)
+            modellist = ['svm', 'isoforest', 'xgboost']
+            
             #split the training data #splits: test 25%, train 75% 
             [dp.data_prep(model, 0.25) for model in modellist]
             
             #Load the ModelTraining Class
+            console.print("[green]training models...[/]")
             modeltraining = ModelTraining(dp)
             for model in modellist:
                 modeltraining.get_data(model)
