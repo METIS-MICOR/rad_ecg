@@ -2338,7 +2338,7 @@ class PigRAD:
         self.car_lead       :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
         self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
-        self.all_dtypes = [
+        self.avg_dtypes = [
             ('start'    , 'i4'),  #start index
             ('end'      , 'i4'),  #end index
             ('valid'    , 'i4'),  #valid Section
@@ -2358,7 +2358,7 @@ class PigRAD:
             ('p1_p3'    , 'f4'),  #TODO Ratio of P1 to P3,
             ('aix'      , 'f4'),  #TODO Augmentation Index (AIx)
         ]
-        self.avg_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.all_dtypes)
+        self.avg_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
@@ -2381,11 +2381,11 @@ class PigRAD:
             }
             levels = list(self.target_levels.keys())
             conditions = [
-                ebv_arr >= 1.00,                         #Baseline - No blood loss
+                ebv_arr >= 1.00,                       #Baseline - No blood loss
                 (ebv_arr >= 0.85) & (ebv_arr < 1.00),  # C1 - 0.85 <= ebv <= 1.0
                 (ebv_arr >= 0.70) & (ebv_arr < 0.85),  # C2 - 0.7 <= ebv <= 0.85
                 (ebv_arr >= 0.60) & (ebv_arr < 0.70),  # C3 - 0.6 <= ebv <= 0.7
-                ebv_arr < 0.60                           # C4 - 0.0 = ebv <= 0.6
+                ebv_arr < 0.60                         # C4 - 0.0 = ebv <= 0.6
             ]
             self.target = np.select(conditions, levels, default="UNKNOWN")
 
@@ -2549,10 +2549,11 @@ class PigRAD:
                 start = section[0].item()
                 end = section[1].item()
                 ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
-                
-                #NOTE - could put STFT here for clean signal check
-                #or phase variance.  Need something.  Running blind now
-                #IDEA - What about phase variance?  Wavelets are also quick!
+                #BUG - Erratic ECG
+                    # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
+                    # Need something.  Running blind now
+                        #IDEA - could put STFT here for clean signal check 
+                        #IDEA - What about phase variance?  Wavelets are quick!
 
                 e_peaks, e_heights = find_peaks(
                     x = ecgwave,
@@ -2611,13 +2612,13 @@ class PigRAD:
                             #Left base of the peak (previous systolic)
                             bpf.onset = s_heights["right_bases"][id - 1].item()
 
-                        #Get the width of the pulse (ms)
+                        #Get the width of the pulse (s)
                         if bpf.dbp_id > bpf.onset:
                             pulse_dur = (bpf.dbp_id - bpf.onset) / self.fs
-                            bpf.pul_wid = pulse_dur * 1000
+                            bpf.pul_wid = pulse_dur #* 1000 for ms
 
                         #two waves selected for each slope of the wave. 
-                        sub_sys = ss1wave[bpf.onset:bpf.sbp_id]
+                        sub_sys_up = ss1wave[bpf.onset:bpf.sbp_id]
                         sub_dias = ss1wave[bpf.sbp_id:bpf.dbp_id]
                         sub_full = ss1wave[bpf.onset:bpf.dbp_id]
 
@@ -2635,7 +2636,7 @@ class PigRAD:
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             # Get systolic deriv
-                            _, d1_sys, _ = self._derivative(sub_sys)
+                            _, d1_sys, _ = self._derivative(sub_sys_up)
                             # Get 1st, 2nd diastolic derivatives
                             _, d1_dias, d2_dias = self._derivative(sub_dias)
 
@@ -2653,7 +2654,7 @@ class PigRAD:
                         edv = np.min(d1_dias)
                         bpf.ri = self.calc_RI(psv, edv)
 
-                        #Calc MAP
+                        #Calc MAP (mmHgs)
                         if sub_full.shape[0] > 0:
                             bpf.true_MAP = self._integrate(sub_full) / (sub_full.shape[0] / self.fs)
                             bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
@@ -2683,41 +2684,111 @@ class PigRAD:
                                     bpf.dia_sl = slope_dia.slope.item()
                             else:
                                 pass
-                                #Need a backup for if it doesn't find a peak
+                                #TODO - Need a backup for if it doesn't find a peak
+                            
+                        # Features: P1, P2, P3 & AIx
+                        p1_val, p2_val, p3_val = None, None, None
+                        
+                        if bpf.notch:
+                            # Absolute index of the notch
+                            notch_abs = bpf.sbp_id + bpf.notch_id
+                            
+                            # Define the entire systolic complex (onset to notch)
+                            sub_syst = ss1wave[bpf.onset : notch_abs]
+                            
+                            # 1st derivative of complex to find shoulders
+                            _, d1_sys_comp, _ = self._derivative(sub_syst)
 
-                            p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
-                            #Add P1 amp add to vec
-                            p1_vec = bpf.SBP
+                            # 1. Find true peaks in the systolic complex (Type A vs Type C)
+                            complex_peaks, _ = find_peaks(sub_syst)
 
-                            #Percussion Wave (P1)
-                            #Tidal Wave (P2)
-                            #Dicrotic Wave (P3) (Diastolic Slope)
-                            # A_P1 = ss1wave.iloc[syst]
-                            # A_P2 = KneeLocator(
-                            #     range(peak, notch),
-                            #     ss1wave.iloc[peak:notch],
-                            #     curve="concave",
-                            #     direction="decreasing"
-                            # )
-                            #TODO - tomorrows problem
-                            # feat_pressure_p1_p3_ratio: $Amplitude(P1) / Amplitude(P3)
-                            # feat_pressure_p1_p2_ratio: $Amplitude(P1) / Amplitude(P2)
-                            # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
-                        self.bp_data.append(bpf)
+                            if len(complex_peaks) >= 2:
+                                # Multiple peaks: First is P1, Highest subsequent is P2
+                                p1_idx = complex_peaks[0]
+                                p2_idx = complex_peaks[1:][np.argmax(sub_syst[complex_peaks[1:]])]
+                                p1_val = sub_syst[p1_idx].item()
+                                p2_val = sub_syst[p2_idx].item()
+                            else:
+                                # Only one true peak found. We must find the shoulder.
+                                main_peak_idx = np.argmax(sub_syst).item()
+                                # Check for early shoulder (P1 is shoulder, P2 is main peak)
+                                early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
+                                # Check for late shoulder (P1 is main peak, P2 is shoulder)
+                                late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
 
-                    self.avg_data["dni"][idx]       = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni != None]), precision)
-                    self.avg_data["true_MAP"][idx]  = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP != None]), precision)
-                    self.avg_data["ap_MAP"][idx]    = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP != None]), precision)
-                    self.avg_data["shock_gap"][idx] = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap != None]), precision)
-                    self.avg_data["sys_sl"][idx]    = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl != None]), precision)
-                    self.avg_data["dia_sl"][idx]    = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl != None]), precision)
-                    self.avg_data["ri"][idx]        = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri != None]), precision)
-                    # self.avg_data["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
-                    # self.avg_data["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
-                    # self.avg_data["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
-                    # self.avg_data["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
-                    # self.avg_data["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
-                    # self.avg_data["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
+                                if len(early_shoulders) > 0:
+                                    p1_idx = early_shoulders[-1].item() 
+                                    p1_val = sub_syst[p1_idx].item()
+                                    p2_val = sub_syst[main_peak_idx].item()
+                                elif len(late_shoulders) > 0:
+                                    p1_val = sub_syst[main_peak_idx].item()
+                                    p2_idx = main_peak_idx + late_shoulders[0].item()
+                                    p2_val = sub_syst[p2_idx].item()
+                                else:
+                                    p1_val = sub_syst[main_peak_idx].item()
+                                    p2_val = None
+
+                            # 2. Find P3 (Dicrotic Wave) using Kneed
+                            diastolic_run = ss1wave[notch_abs : bpf.dbp_id]
+                            
+                            # Require a minimum length so kneed doesn't throw an error on noise
+                            if len(diastolic_run) > 5:  
+                                x_dias = np.arange(len(diastolic_run))
+                                
+                                # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
+                                kneedle = KneeLocator(
+                                    x=x_dias, 
+                                    y=diastolic_run, 
+                                    curve="concave", 
+                                    direction="decreasing",
+                                    S=1.0 # Sensitivity parameter (default is 1.0)
+                                )
+                                
+                                if kneedle.knee is not None:
+                                    p3_val = diastolic_run[kneedle.knee].item()
+                                else:
+                                    # Fallback: If no subtle knee is found, it might be a true peak or completely flat. Fallback to finding the absolute max.
+                                    p3_val = np.max(diastolic_run).item()
+                            else:
+                                p3_val = None
+
+                            # 3. Assign to dataclass & calculate ratios
+                            bpf.p1 = p1_val
+                            bpf.p2 = p2_val
+                            bpf.p3 = p3_val
+
+                            if p1_val and p2_val:
+                                # Safe division for P1/P2 ratio
+                                if p2_val != 0:
+                                    bpf.p1_p2 = p1_val / p2_val
+                                
+                                # Safe division for Augmentation Index
+                                pulse_pressure_p1 = p1_val - bpf.DBP
+                                # Require at least a tiny pulse pressure
+                                if pulse_pressure_p1 > 0.1:  
+                                    bpf.aix = (p2_val - bpf.DBP) / pulse_pressure_p1
+                                else:
+                                    bpf.aix = None
+                            
+                            if p1_val and p3_val:
+                                bpf.p1_p3 = p1_val / p3_val
+                        #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
+                        self.bp_data.append(bpf) 
+
+                    self.avg_data["dni"][idx]       = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
+                    self.avg_data["true_MAP"][idx]  = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP is not None]), precision)
+                    self.avg_data["ap_MAP"][idx]    = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP is not None]), precision)
+                    self.avg_data["shock_gap"][idx] = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
+                    self.avg_data["sys_sl"][idx]    = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
+                    self.avg_data["dia_sl"][idx]    = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
+                    self.avg_data["ri"][idx]        = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
+                    self.avg_data["pul_wid"][idx]   = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
+                    self.avg_data["p1"][idx]        = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
+                    self.avg_data["p2"][idx]        = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
+                    self.avg_data["p3"][idx]        = np.round(np.nanmean([rec.p3 for rec in self.bp_data if rec.p3 is not None]), precision)
+                    self.avg_data["p1_p2"][idx]     = np.round(np.nanmean([rec.p1_p2 for rec in self.bp_data if rec.p1_p2 is not None]), precision)
+                    self.avg_data["p1_p3"][idx]     = np.round(np.nanmean([rec.p1_p3 for rec in self.bp_data if rec.p1_p3 is not None]), precision)
+                    self.avg_data["aix"][idx]       = np.round(np.nanmean([rec.aix for rec in self.bp_data if rec.aix is not None]), precision)
 
                 #Move the progbar
                 progress.advance(task)
@@ -2835,6 +2906,7 @@ class PigRAD:
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
+            #TODO - Add SHAP Values as confirmation
 
 # --- Entry Point ---
 def load_choices(fp:str):
