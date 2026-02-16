@@ -60,7 +60,7 @@ class EDA(object):
             channels:list,
             fs:float,
             gpu_devices:list,
-            all_data:np.array,
+            avg_data:np.array,
             ecg_lead:int,
             lad_lead:int, 
             car_lead:int,
@@ -73,7 +73,7 @@ class EDA(object):
         self.lad_lead = lad_lead
         self.car_lead = car_lead
         self.task = "classification"
-        self.all_data = all_data
+        self.avg_data = avg_data
         # self.target = pd.Series(target, name="ShockClass")
         self.target_names = ["baseline", "class_1", "class_2", "class_3", "class_4"]
         self.rev_target_dict = {
@@ -2358,15 +2358,38 @@ class PigRAD:
             ('p1_p3'    , 'f4'),  #TODO Ratio of P1 to P3,
             ('aix'      , 'f4'),  #TODO Augmentation Index (AIx)
         ]
-        self.all_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.all_dtypes)
+        self.avg_data        :np.array = np.zeros(self.sections.shape[0], dtype=self.all_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
-        self.all_data["start"] = self.sections[:, 0]
-        self.all_data["end"] = self.sections[:, 1]
-        self.all_data["valid"] = self.sections[:, 2]
+        #Input section data into avg_data container
+        self.avg_data["start"] = self.sections[:, 0]
+        self.avg_data["end"] = self.sections[:, 1]
+        self.avg_data["valid"] = self.sections[:, 2]
         del self.sections
-        
+        #Remap target class
+        if "EBV" in self.channels:
+            ebv_arr = self.full_data["EBV"].to_numpy()
+            #Normalize it
+            ebv_arr = ebv_arr / np.max(ebv_arr)
+            self.target_levels = {
+                "BL":(1.00),
+                "C1":(0.85, 1.00),   
+                "C2":(0.70, 0.85),  
+                "C3":(0.60, 0.70),   
+                "C4":(0.00, 0.60),   
+            }
+            levels = list(self.target_levels.keys())
+            conditions = [
+                ebv_arr >= 1.00,                         #Baseline - No blood loss
+                (ebv_arr >= 0.85) & (ebv_arr < 1.00),  # C1 - 0.85 <= ebv <= 1.0
+                (ebv_arr >= 0.70) & (ebv_arr < 0.85),  # C2 - 0.7 <= ebv <= 0.85
+                (ebv_arr >= 0.60) & (ebv_arr < 0.70),  # C3 - 0.6 <= ebv <= 0.7
+                ebv_arr < 0.60                           # C4 - 0.0 = ebv <= 0.6
+            ]
+            self.target = np.select(conditions, levels, default="UNKNOWN")
+
+
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
 
@@ -2397,20 +2420,20 @@ class PigRAD:
         out_name = self.fp_save
         out_path = self.npz_path.parent / out_name
         output_path = Path(out_path).with_suffix('.npz')
-        np.savez_compressed(output_path, self.all_data)
+        np.savez_compressed(output_path, self.avg_data)
         
         # Log the size
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
-    def _derivative(self, signal):
+    def _derivative(self, signal:np.array)->tuple:
         """Calculates smoothed, 1st, and 2nd derivatives using scipy's Savitzky-Golay filter.
 
         Args:
             signal (np.array): waveform
 
         Returns:
-            d1, d2 (pd.Series): 1st and 2nd derivative
+            smoothed, d1, d2 (tuple[np.array]): returns smoothed, 1st and 2nd derivatives
         """        
         # Window length must be odd; approx 20-30ms is usually good for smoothing derivatives
         window = int(0.03 * self.fs) 
@@ -2422,13 +2445,13 @@ class PigRAD:
         return smoothed, d1, d2
     
     def _integrate(self, signal:np.array)->float:
-        """Apply integration of signal. Calculates area under curve
+        """Apply integration of signal. Calculates area under curve. 
 
         Args:
             signal (np.array): waveform 
 
         Returns:
-            float: area under the curve
+            float: Mean Arterial Pressure (mmHg/s) via area under the curve
         """        
         return np.trapezoid(signal, dx=1.0/self.fs).item()
     
@@ -2510,7 +2533,7 @@ class PigRAD:
         return ri.item()
     
     def section_extract(self):
-        """This is the main section for signal processing and feature creation. Updates the self.all_data object
+        """This is the main section for signal processing and feature creation. Updates the self.avg_data object
         """        
         # Progress bar for section iteration
         precision = 4
@@ -2520,8 +2543,8 @@ class PigRAD:
             BarColumn(), 
             transient=True
         ) as progress:
-            task = progress.add_task("Calculating Features...", total=self.all_data.shape[0])
-            for idx, section in enumerate(self.all_data):
+            task = progress.add_task("Calculating Features...", total=self.avg_data.shape[0])
+            for idx, section in enumerate(self.avg_data):
                 #Find R peaks from ECG lead
                 start = section[0].item()
                 end = section[1].item()
@@ -2544,7 +2567,7 @@ class PigRAD:
                     #Calc HR
                     RR_diffs = np.diff(e_peaks)
                     HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.all_data["HR"][idx] = int(np.nanmean(HR)) 
+                    self.avg_data["HR"][idx] = int(np.nanmean(HR)) 
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
@@ -2574,8 +2597,6 @@ class PigRAD:
                 
                 else:
                     for id, peak in enumerate(s_peaks[:-1]):
-                        p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
-                        
                         #Load a dataclass  of features to attach to pigrad bp_data
                         bpf = BP_Feat()
                         bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
@@ -2638,7 +2659,6 @@ class PigRAD:
                             bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
                             bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
 
-
                         #Get systolic slope
                         sys_rise = bpf.SBP - ss1wave[bpf.onset]
                         sys_run = (bpf.sbp_id - bpf.onset) / self.fs
@@ -2661,9 +2681,14 @@ class PigRAD:
                                 slope_dia = linregress(y_dia, x_dia)
                                 if slope_dia:
                                     bpf.dia_sl = slope_dia.slope.item()
+                            else:
+                                pass
+                                #Need a backup for if it doesn't find a peak
 
-                        #Add P1 amp add to vec
-                        p1_vec = bpf.SBP
+                            p1_vec, p2_vec, p3_vec = None, None, None # Containers for morphological features
+                            #Add P1 amp add to vec
+                            p1_vec = bpf.SBP
+
                             #Percussion Wave (P1)
                             #Tidal Wave (P2)
                             #Dicrotic Wave (P3) (Diastolic Slope)
@@ -2680,19 +2705,19 @@ class PigRAD:
                             # $feat_pressure_augmented_index: $(Amplitude(P2) - P_{dia}) / (Amplitude(P1) - P_{dia})$
                         self.bp_data.append(bpf)
 
-                    self.all_data["dni"][idx]      = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni != None]), precision)
-                    self.all_data["true_MAP"][idx]  = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP != None]), precision)
-                    self.all_data["ap_MAP"][idx]  = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP != None]), precision)
-                    self.all_data["shock_gap"][idx] = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap != None]), precision)
-                    self.all_data["sys_sl"][idx]   = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl != None]), precision)
-                    self.all_data["dia_sl"][idx]   = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl != None]), precision)
-                    self.all_data["ri"][idx]       = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri != None]), precision)
-                    # self.all_data["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
-                    # self.all_data["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
-                    # self.all_data["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
-                    # self.all_data["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
-                    # self.all_data["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
-                    # self.all_data["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
+                    self.avg_data["dni"][idx]       = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni != None]), precision)
+                    self.avg_data["true_MAP"][idx]  = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP != None]), precision)
+                    self.avg_data["ap_MAP"][idx]    = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP != None]), precision)
+                    self.avg_data["shock_gap"][idx] = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap != None]), precision)
+                    self.avg_data["sys_sl"][idx]    = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl != None]), precision)
+                    self.avg_data["dia_sl"][idx]    = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl != None]), precision)
+                    self.avg_data["ri"][idx]        = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri != None]), precision)
+                    # self.avg_data["p1"][idx]     = np.round(np.nanmean(p1_vec), precision)
+                    # self.avg_data["p2"][idx]     = np.round(np.nanmean(p2_vec), precision)
+                    # self.avg_data["p3"][idx]     = np.round(np.nanmean(p3_vec), precision)
+                    # self.avg_data["p1_p2"][idx]  = np.round(np.nanmean(p1_p2_rat), precision)
+                    # self.avg_data["p1_p3"][idx]  = np.round(np.nanmean(p1_p3_rat), precision)
+                    # self.avg_data["aix"][idx]    = np.round(np.nanmean(aix_vec), precision)
 
                 #Move the progbar
                 progress.advance(task)
@@ -2739,7 +2764,7 @@ class PigRAD:
                 self.channels, 
                 self.fs, 
                 self.gpu_devices, 
-                self.all_data,
+                self.avg_data,
                 self.ecg_lead,
                 self.lad_lead,
                 self.car_lead
