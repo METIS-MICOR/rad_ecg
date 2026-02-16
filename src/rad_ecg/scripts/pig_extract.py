@@ -2686,10 +2686,10 @@ class PigRAD:
                                 pass
                                 #TODO - Need a backup for if it doesn't find a peak
                             
-                        # Features: P1, P2, P3 & AIx
-                        p1_val, p2_val, p3_val = None, None, None
-                        
+                        # SS1 Features: P1, P2, P3 & AIx
                         if bpf.notch:
+                            p1_val, p2_val, p3_val = None, None, None
+
                             # Absolute index of the notch
                             notch_abs = bpf.sbp_id + bpf.notch_id
                             
@@ -2736,12 +2736,13 @@ class PigRAD:
                                 x_dias = np.arange(len(diastolic_run))
                                 
                                 # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
+                                # Sensitivity parameter (default is 1.0)
                                 kneedle = KneeLocator(
                                     x=x_dias, 
                                     y=diastolic_run, 
                                     curve="concave", 
                                     direction="decreasing",
-                                    S=1.0 # Sensitivity parameter (default is 1.0)
+                                    S=1.0                  
                                 )
                                 
                                 if kneedle.knee is not None:
@@ -2758,11 +2759,11 @@ class PigRAD:
                             bpf.p3 = p3_val
 
                             if p1_val and p2_val:
-                                # Safe division for P1/P2 ratio
+                                # Avoid division by zero for P1/P2 ratio
                                 if p2_val != 0:
                                     bpf.p1_p2 = p1_val / p2_val
                                 
-                                # Safe division for Augmentation Index
+                                # Avoid division by zero for Augmentation Index
                                 pulse_pressure_p1 = p1_val - bpf.DBP
                                 # Require at least a tiny pulse pressure
                                 if pulse_pressure_p1 > 0.1:  
@@ -2772,6 +2773,7 @@ class PigRAD:
                             
                             if p1_val and p3_val:
                                 bpf.p1_p3 = p1_val / p3_val
+                            
                         #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
                         self.bp_data.append(bpf) 
 
@@ -2831,14 +2833,13 @@ class PigRAD:
             self.create_features()
             #Load up the EDA class
             eda = EDA(
-                self.full_data, 
-                self.channels, 
+                self.avg_data, 
                 self.fs, 
                 self.gpu_devices, 
-                self.avg_data,
                 self.ecg_lead,
+                self.ss1_lead,
                 self.lad_lead,
-                self.car_lead
+                self.car_lead,
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
