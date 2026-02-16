@@ -56,32 +56,25 @@ from xgboost import XGBClassifier, DMatrix
 class EDA(object):
     def __init__(
             self,
-            pig_data:dict,
-            channels:list,
+            avg_data:np.array,
+            target:np.array,
+            col_names:list,
             fs:float,
             gpu_devices:list,
-            avg_data:np.array,
-            ecg_lead:int,
-            lad_lead:int, 
-            car_lead:int,
         ):
-        self.dataset = pig_data
-        self.feature_names = channels
-        self.gpu_devices = gpu_devices
+        self.dataset = avg_data
+        self.target = target
+        self.feature_names = col_names
         self.fs = fs
-        self.ecg_lead = ecg_lead
-        self.lad_lead = lad_lead
-        self.car_lead = car_lead
+        self.gpu_devices = gpu_devices
         self.task = "classification"
-        self.avg_data = avg_data
-        # self.target = pd.Series(target, name="ShockClass")
-        self.target_names = ["baseline", "class_1", "class_2", "class_3", "class_4"]
+        self.target_names = ["B1", "C1", "C2", "C3", "C4"]
         self.rev_target_dict = {
-            0:"baseline",
-            1:"class_1",
-            2:"class_2",
-            3:"class_3",
-            4:"class_4"
+            0:"B1",
+            1:"C1",
+            2:"C2",
+            3:"C3",
+            4:"C4"
         }
 
     #FUNCTION clean_data
@@ -2593,8 +2586,9 @@ class PigRAD:
                 # plt.scatter(s_peaks, s_heights["peak_heights"], color="red")
                 # plt.show()
 
-                if len(s_peaks) < 3:
+                if 3 <= s_peaks.size >= 100:
                     logger.info(f"sect {idx} no peaks in SS1")
+                    continue
                 
                 else:
                     for id, peak in enumerate(s_peaks[:-1]):
@@ -2833,13 +2827,11 @@ class PigRAD:
             self.create_features()
             #Load up the EDA class
             eda = EDA(
-                self.avg_data, 
+                self.avg_data,
+                self.target,
+                self.avg_data.columns.names,                
                 self.fs, 
                 self.gpu_devices, 
-                self.ecg_lead,
-                self.ss1_lead,
-                self.lad_lead,
-                self.car_lead,
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
