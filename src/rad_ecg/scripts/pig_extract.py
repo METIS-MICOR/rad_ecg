@@ -48,9 +48,9 @@ from sklearn.metrics import classification_report
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
-from sklearn.svm import SVC
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.ensemble import IsolationForest as IsoForest
+from sklearn.svm import SVC
 from xgboost import XGBClassifier, DMatrix
 
 #CLASS EDA
@@ -1149,11 +1149,9 @@ class ModelTraining(object):
                     "warm_start":False              #bool
                 },
                 "grid_srch_params":{
-                    "criterion":["entropy", "gini"],
-                    # "splitter":["best", "random"],
-                    "max_depth":range(1, 100),
-                    "min_samples_split":range(2, 25),
-                    "min_samples_leaf":range(1, 20),
+                    "n_estimators":range(1, 100),
+                    "max_samples":range(2, 25),
+                    "max_features":range(1, 25),
                 }
             },
             "pca":{
@@ -1203,29 +1201,26 @@ class ModelTraining(object):
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
                 "base_params":{
-                    "penalty":"l2",					#str
-                    "loss":"squared_hinge",         #str
-                    "dual":True,                    #
                     "C":1.0,						
-                    "multi_class":"ovr",			
-                    "fit_intercept":True,
+                    "kernel":"rbf",		       #str
+                    "degree":3,                #str
+                    "gamma":"scale",
+                    "max_iter":1000,
+                    "decision_function_shape":"ovr",
                     "random_state":42,
-                    "max_iter":1000
                 },
                 "init_params":{
-                    "penalty":"l2",					#!MUSTCHANGEME
-                    "loss":"squared_hinge",
-                    "dual":False,
-                    "C":0.1,						#!MUSTCHANGEME
-                    "multi_class":"ovr",			#!MUSTCHANGEME
-                    "fit_intercept":True,
+                    "C":1.0,						
+                    "kernel":"rbf",		       #str
+                    "degree":3,                #str
+                    "gamma":"scale",
+                    "max_iter":1000,
+                    "decision_function_shape":"ovr",
                     "random_state":42,
-                    "max_iter":1000
                 },
                 "grid_srch_params":{
-                    "penalty":["l1","l2"],
-                    "loss":["hinge","squared_hinge"],
                     "C":np.arange(0, 1.1, 0.1),
+                    "kernel":["linear", "poly", "rbf", "sigmoid", "precomputed"],
                     "max_iter":np.arange(1000, 10000, 500)
                 }
             },
@@ -1307,7 +1302,13 @@ class ModelTraining(object):
             # case 'pca':
             #     return PCA(**params)
             case 'svm':
-                return OneVsRestClassifier(SVC(**params))
+                kernel = SVC(**params)
+                model = OneVsRestClassifier(
+                    estimator=kernel,
+                    n_jobs=-1
+                )
+                return model
+            
             case 'isoforest':
                 return IsoForest(**params)
             case 'xgboost':
@@ -1398,50 +1399,79 @@ class ModelTraining(object):
         """		
 
         #FUNCTION custom_confusion_matrix
-        def custom_confusion_matrix(y_true, y_pred, display_labels=None):
+        def custom_confusion_matrix(y_true, y_pred, display_labels=None, model_name="Model", positive_class_first=False):
+            """
+            Plots a custom confusion matrix with percentages and counts. 
+            Automatically handles both binary and multi-class classification.
+            """
             from sklearn.metrics import confusion_matrix
-            """
-            A function to plot a custom confusion matrix with
-            positive class as the first row and the first column.
-            """
+            # Generate base confusion matrix
+            cm = confusion_matrix(y_true, y_pred)
+            n_classes = cm.shape[0]
             
-            # Create a flipped matrix
-            cm = np.flip(confusion_matrix(y_true, y_pred))
-
-            #Lets make some variables.
-            cats = ["True -", "False +", "False -", "True +"]
+            # Determine if binary or multiclass
+            is_binary = n_classes == 2
+            
+            # Format counts and percentages for all cells
             counts = [f"{x:0.0f}" for x in cm.flatten()]
             perc = [f"{x / np.sum(cm):0.2%}" for x in cm.flatten()]
-            labs = [f"{uno}\n{dos}\n{tres}" for uno, dos, tres in zip(cats, counts, perc)]
-
-            labs = np.asarray(labs).reshape(2, 2)
-
-            # Create the plot
-            fig, ax = plt.subplots(figsize=(6, 6))
+            
+            # Handle label formatting based on classification type
+            if is_binary:
+                if positive_class_first:
+                    # Flipped matrix: [[TP, FN], [FP, TN]]
+                    cm = np.flip(cm)
+                    cats = ["True +", "False -", "False +", "True -"]
+                    if display_labels is not None:
+                        display_labels = display_labels[::-1]
+                else:
+                    # Standard sklearn matrix: [[TN, FP], [FN, TP]]
+                    cats = ["True -", "False +", "False -", "True +"]
+                    
+                # Combine Categories, Counts, and Percentages
+                labs = [f"{cat}\n{count}\n{p}" for cat, count, p in zip(cats, counts, perc)]
+            else:
+                # For multi-class, we just use Counts and Percentages (No TP/TN/FP/FN categories)
+                labs = [f"{count}\n{p}" for count, p in zip(counts, perc)]
+                
+            # Dynamically reshape labels to match the matrix dimensions
+            labs = np.asarray(labs).reshape(n_classes, n_classes)
+            
+            # Dynamically size the figure based on the number of classes
+            fig_size = max(6, n_classes * 1.5)
+            fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+            
+            # Create the Heatmap
             sns.heatmap(
                 cm, 
                 ax=ax, 
                 annot=labs, 
                 fmt="", 
-                annot_kws={
-                    'fontsize':18,
-                },
-                cmap='Blues'
+                annot_kws={'fontsize': 14},
+                cmap='Blues',
+                xticklabels=display_labels if display_labels is not None else "auto",
+                yticklabels=display_labels if display_labels is not None else "auto"
             )
-            plt.title(f"{model_name.upper()} confusion matrix", fontsize=22)
+            
+            # Set titles and labels
+            plt.title(f"{model_name.upper()} Confusion Matrix", fontsize=20, pad=20)
             plt.xlabel("Predicted Label", fontsize=14)
             plt.ylabel("True Label", fontsize=14)
-            plt.xticks(ax.get_xticks(), labels = display_labels, rotation=-30, fontsize=14)
-            plt.yticks(ax.get_yticks(), labels = display_labels, rotation=-30, fontsize=14)
+            
+            # Rotate tick marks so multi-class labels don't overlap
+            plt.xticks(rotation=45, ha="right", fontsize=12)
+            plt.yticks(rotation=0, fontsize=12)
+            
+            plt.tight_layout()
             plt.show()
-            plt.close()	
+            plt.close()
 
         #FUNCTION classification_report
         def make_cls_report(y_true, y_pred, display_labels=None):
             report = classification_report(
                 y_true, 
                 y_pred, 
-                labels = np.unique(y_pred), #BUG Still wary of using this. Look at this again to figure out a better way
+                labels = np.unique(y_pred), 
                 target_names=display_labels,
                 zero_division=False
             ) 
@@ -1506,9 +1536,10 @@ class ModelTraining(object):
         #######################Confusion Matrix and classification report##########################
             labels = self.target_names
             no_proba = ["svm", ""]
+            #TODO - Need logic here for multiclass summary
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
-            custom_confusion_matrix(self.y_test, y_pred, display_labels=labels)
+            custom_confusion_matrix(self.y_test, y_pred, display_labels=labels, model_name=model_name)
             #Call classification report
             logger.info(f'{model_name} classification report')
             make_cls_report(self.y_test, y_pred, display_labels=labels)
@@ -2861,7 +2892,7 @@ class PigRAD:
                 # eda.eda_plot("pairplot")
                 # eda.corr_heatmap(sel_cols=sel_cols)
                 eda.sum_stats(sel_cols, "Numeric Features")
-            console.print("[green]Enginnering features...[/]")
+            console.print("[green]engineering features...[/]")
 
             engin = FeatureEngineering(eda)
             #filterout time col 0
@@ -3025,32 +3056,3 @@ if __name__ == "__main__":
 #9.  Maybe use a clustering approach for labeling sections
 #10. Throw it all at an XGBOOST and look at feature importance. 
 #11. Couldn't hurt to verify feature importance with some SHAP values
-
-
-#Lets run 3 models.  
-    #SVM, Xgboost annnnd isoforest
-
-#New Data containers
-#### self.sections ####
-# |col idx | col name | data type |
-# |:--- |:---|:---:|
-# |0 | idx of wave section            | int32 |
-# |1 | start_point of wave section    | int32 |
-# |2 | end_point of wave section      | int32 |
-# |3 | Avg HR                         | float32 |
-# |4 | Avg peak to dia                | float32 |
-# |4 | Avg dia_slope                  | float32 |
-# |5 | Avg sys_slope                  | float32 |
-# |6 | Avg PE ratio                   | float32 |
-# |7 | Avg DNI                        | float32 |
-
-
-#### self.interior ####
-# |col idx | col name | val type | data type |
-# |:--- |:---|:---:|:---:|
-# | 0 | P peak        | idx  | int32 |
-# | 1 | Q peak        | idx  | int32 |
-# | 2 | R peak        | idx  | int32 |
-# | 3 | S peak        | idx  | int32 |
-# | 4 | T peak        | idx  | int32 |
-# | 5 | PR Interval   | ms   | int32 |
