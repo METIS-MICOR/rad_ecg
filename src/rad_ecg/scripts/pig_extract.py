@@ -1120,8 +1120,8 @@ class ModelTraining(object):
         self.task = dataprep.task
         self.cross_val = dataprep.cross_val
         self.CV_func = None
+        #MEAS Model params
         self._model_params = {
-            #MEAS Model params
             "isoforest":{
                 "model_name":"isoforest",
                 "model_type":"classification",
@@ -1154,41 +1154,48 @@ class ModelTraining(object):
                     "max_features":range(1, 25),
                 }
             },
-            "pca":{
-                "model_name":"pca",
+            "rfc":{
+                "model_name":"rfc",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
-                #https://scikit-learn.org/stable/modules/generated/sklearn.decomposition.PCA.html
-                #NOTE - Be sure to check docs here.  Different solvers work with
-                #different penalties. 
+                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
-                    "n_components":None,                #int | float			
-                    "copy":True,                        #bool
-                    "whiten":False,                     #bool	
-                    "svd_solver":"auto",                #str | 'auto'			
-                    "tol":0.0, 				            #float	
-                    "iterated_power":"auto",            #int | 'auto'
-                    "n_oversamples":10,                 #int
-                    "power_iteration_normalizer":"auto",#str | 'auto'
-                    "random_state":42                   #int | None
+                    "n_estimators":100,                 #int | 100		
+                    "criterion":"gini",                 #str | gini
+                    "max_depth":None,                   #int
+                    "min_samples_split":2.0,            #float | 2.0
+                    "min_samples_leaf":1.0,             #float | 1.0
+                    "min_weight_fraction_leaf":"0.0",   #float | 0.0
+                    "max_features":"sqft",              #str | "sqft"
+                    "max_leaf_nodes":None,              #int | None
+                    "min_impurity_decrease":0.0,        #float | 0.0
+                    "bootstrap":True,                   #bool | True
+                    "n_jobs":-1,                        #int | None
+                    "random_state":42,                  #int | Answer to everything in the universe
+                    "warm_start":False                  #bool | False
                 },
                 "init_params":{
-                    "n_components":None,                #int | float			
-                    "copy":True,                        #bool
-                    "whiten":False,                     #bool	
-                    "svd_solver":"auto",                #str | 'auto'			
-                    "tol":0.0, 				            #float	
-                    "iterated_power":"auto",            #int | 'auto'
-                    "n_oversamples":10,                 #int
-                    "power_iteration_normalizer":"auto",#str | 'auto'
-                    "random_state":42                   #int | None
+                    "n_estimators":100,                 #int | 100		
+                    "criterion":"gini",                 #str | gini
+                    "max_depth":None,                   #int
+                    "min_samples_split":2.0,            #float | 2.0
+                    "min_samples_leaf":1.0,             #float | 1.0
+                    "min_weight_fraction_leaf":"0.0",   #float | 0.0
+                    "max_features":"sqft",              #str | "sqft"
+                    "max_leaf_nodes":None,              #int | None
+                    "min_impurity_decrease":0.0,        #float | 0.0
+                    "bootstrap":True,                   #bool | True
+                    "n_jobs":-1,                        #int | None
+                    "random_state":42,                  #int | Answer to everything in the universe
+                    "warm_start":False                  #bool | False
                 },
                 "grid_srch_params":{
-                    # "n_neighbors":range(3, 20),
-                    # "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
-                    # "leaf_size":range(1, 60),
-                    # "metric":["cosine", "euclidean", "manhattan", "minkowski"]
+                    "n_estimators":range(5, 200, 5),
+                    "criterion":["gini", "entropy", "log_loss"],
+                    "min_samples_split":range(5, 50),            
+                    "min_samples_leaf":range(5, 50),             
+                    "max_features":["sqrt", "log2", None]
                 }
             },
             "svm":{
@@ -1710,7 +1717,7 @@ class ModelTraining(object):
         [table.add_row(k, str(v)) for k, v in params.items()]
 
         #Print them to the console
-        logger.info(f'{model_name}: results \U00002193 \U0001f389')
+        logger.info(f'{model_name}: model results')
         console.print(table)
 
         #TODO.  Add in prec/recall chart as found here. 
@@ -2338,12 +2345,12 @@ class BP_Feat():
     dia_sl   :float = None   #diastolic slope
     ri       :float = None   #resistive index
     pul_wid  :float = None   #pulse width 
-    p1       :float = None   #TODO Percussion Wave (P1)
-    p2       :float = None   #TODO Tidal Wave (P2)
-    p3       :float = None   #TODO Dicrotic Wave (P3)
-    p1_p2    :float = None   #TODO Ratio of P1 to P2
-    p1_p3    :float = None   #TODO Ratio of P1 to P3,
-    aix      :float = None   #TODO Augmentation Index (AIx)
+    p1       :float = None   #Percussion Wave (P1)
+    p2       :float = None   #Tidal Wave (P2)
+    p3       :float = None   #Dicrotic Wave (P3)
+    p1_p2    :float = None   #Ratio of P1 to P2
+    p1_p3    :float = None   #Ratio of P1 to P3,
+    aix      :float = None   #Augmentation Index (AIx)
 
 class PigRAD:
     def __init__(self, npz_path):
@@ -2395,14 +2402,12 @@ class PigRAD:
         self.avg_data["end"] = self.sections[:, 1]
         self.avg_data["valid"] = self.sections[:, 2]
         del self.sections
-        #Remap target class
-        #BUG - Do i need this?
-            #Probably can calculate the avg loss per section and save 
-            #a bit on computation here. But, then i don't have the 
-            #max value to estimate loss if i go by section. 
-            #Could just normalize it on the load though
 
+        #Remap target class
         if "EBV" in self.channels:
+            #BUG - Do i need below?
+                #Probably can calculate the avg loss per section and save 
+
             ebv_arr = self.full_data["EBV"].to_numpy()
             #Normalize it
             ebv_arr = ebv_arr / np.max(ebv_arr)
@@ -2422,7 +2427,6 @@ class PigRAD:
                 ebv_arr < 0.60                         # C4 - 0.0 = ebv <= 0.6
             ]
             self.target = np.select(conditions, levels, default="UNKNOWN")
-
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -2936,7 +2940,7 @@ class PigRAD:
             modellist = ['svm', 'isoforest', 'xgboost']
             console.print("[green]prepping data for training...[/]")
             dp = DataPrep(ofinterest, scaler, cross_val, engin)
-            modellist = ['svm', 'isoforest', 'xgboost']
+            modellist = ['svm', 'rfc', 'xgboost']
             
             #split the training data #splits: test 25%, train 75% 
             [dp.data_prep(model, 0.25) for model in modellist]
