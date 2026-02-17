@@ -415,8 +415,7 @@ class EDA(object):
         plot_type:str="histogram",
         feat_1:str=False, 
         feat_2:str=False, 
-        group:str=False,
-        fp_save:Path=None
+        group:str=False
         ):
         """Basic plotting method for EDA class
 
@@ -528,7 +527,7 @@ class EDA(object):
             if self.view_eda:
                 plt.show()
             if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
+                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a histogram
@@ -577,7 +576,7 @@ class EDA(object):
             if self.view_eda:
                 plt.show()
             if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
+                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a pairplot
@@ -646,7 +645,7 @@ class EDA(object):
                 if self.view_eda:
                     plt.show()
                 if self.fp_base:
-                    plt.savefig(Path(f"{self.fp_base}) / {title} + .png"), dpi=300, bbox_inches='tight')
+                    plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
                 plt.close()
 
             # ax_hist.set_xlabel(f'Distribution of {feat_1}')
@@ -705,7 +704,7 @@ class EDA(object):
             if self.view_eda:
                 plt.show()
             if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
+                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
 #CLASS Feature Engineering
@@ -2385,7 +2384,7 @@ class PigRAD:
         self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
-        self.view_eda       :bool = True
+        self.view_eda       :bool = False
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2875,7 +2874,8 @@ class PigRAD:
                 self.avg_data.dtype.names,                
                 self.fs, 
                 self.gpu_devices, 
-                self.fp_base
+                self.fp_base,
+                self.view_eda
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
