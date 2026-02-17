@@ -88,7 +88,7 @@ class EDA(object):
         #     self.imputate("mean", col)
         
         #Replace zeros with nan's
-        self.data.replace(0, np.nan, inplace=True)
+        self.data.iloc[:, 1:].replace(0, np.nan, inplace=True)
 
         #Display nulls
         self.print_nulls(False)
@@ -407,7 +407,10 @@ class EDA(object):
             fmt='.1f',
             cmap='RdYlGn')
         heatmap.set_title('Correlation Heatmap', fontdict={'fontsize':16}, pad=12)
-        plt.show()
+        if self.view_eda:
+            plt.show()
+        if self.fp_base:
+            plt.savefig(Path(f"{self.fp_base}_heatmap.png"), dpi=300, bbox_inches='tight')
         plt.close()
 
     #FUNCTION eda_plot
@@ -2350,7 +2353,7 @@ class PigRAD:
         self.channels       :list = self.loader.channels
         self.outcomes       :list = self.loader.outcomes
         self.fs             :float = 1000.0                       #Hz
-        self.windowsize     :int = 10                             #size of section window 
+        self.windowsize     :int = 8                              #size of section window 
         self.ecg_lead       :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
         self.lad_lead       :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
         self.car_lead       :str = 6 # self.pick_lead("Cartoid")  #pick the Carotid lead
@@ -2367,8 +2370,8 @@ class PigRAD:
             ('DBP'        , 'i4'),  #Diastolic Pressure
             ('EBV'        , 'i4'),  #Estimated Blood Volume
             ('true_MAP'   , 'f4'),  #Mean Arterial Pressure (AUC)
-            ('ap_MAP'     , 'f4'),  #approximate Mean Arterial pressure (Formula)
-            ('shock_gap'  , 'f4'),  #difference between true and approximate MAP
+            ('ap_MAP'     , 'f4'),  #Approximate Mean Arterial pressure (Formula)
+            ('shock_gap'  , 'f4'),  #Difference between true and approximate MAP
             ('dni'        , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'     , 'f4'),  #Systolic slope
             ('dia_sl'     , 'f4'),  #Diastolic slope
@@ -2539,8 +2542,8 @@ class PigRAD:
     def band_pass(self):
         """Function to run the bandpass over LAD and Carotid leads
         """        
-        #Bandpass the flow streams
-        for lead in [self.lad_lead, self.car_lead]:
+        #Bandpass the flow streams and ECG.
+        for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
             self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
 
     def calc_RI(self, psv:float, edv:float) -> float:
@@ -2658,7 +2661,7 @@ class PigRAD:
 
                         #two waves selected for each slope of the wave. 
                         sub_sys_up = ss1wave[bpf.onset:bpf.sbp_id]
-                        sub_dias = ss1wave[bpf.sbp_id:bpf.dbp_id]
+                        sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
                         sub_full = ss1wave[bpf.onset:bpf.dbp_id]
 
                         #Debug plot
@@ -2677,11 +2680,11 @@ class PigRAD:
                             # Get systolic deriv
                             _, d1_sys, _ = self._derivative(sub_sys_up)
                             # Get 1st, 2nd diastolic derivatives
-                            _, d1_dias, d2_dias = self._derivative(sub_dias)
+                            _, d1_notch, d1_notch = self._derivative(sub_notch)
 
                             #Get Dichrotic notch index from max of 2nd deriv
-                            bpf.notch_id = np.argmax(d2_dias).item()
-                            bpf.notch = sub_dias[bpf.notch_id].item()
+                            bpf.notch_id = np.argmax(d1_notch).item()
+                            bpf.notch = sub_notch[bpf.notch_id].item()
                             if bpf.notch:
                                 bpf.dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
 
@@ -2689,8 +2692,17 @@ class PigRAD:
                             logger.warning(f"{e}")
 
                         #Calc resistive index
-                        psv = np.max(d1_sys)
-                        edv = np.min(d1_dias)
+                        #BUG - range update
+                            #you need to update these ranges.  
+                            #psv -> bpf.onset:bpf.notch
+                            #edv -> bpf.notch:bpf.dbp_id
+                        # notch_full = bpf.notch_id + (bpf.sbp_id - bpf.onset)
+                        # sub_dias = ss1wave[bpf.sbp_id:notch_full]
+                        # sub_syst = ss1wave[notch_full:bpf.dbp_id]
+
+                        # _, d1_dias, _ = self._derivative(sub_dias)
+                        # psv = np.max(d1_sys)
+                        # edv = np.min(d1_dias)
                         bpf.ri = self.calc_RI(psv, edv)
 
                         #Calc MAP (mmHgs)
@@ -2711,6 +2723,7 @@ class PigRAD:
                         
                         #Get diastolic slope via exponential decay (regression)
                         if bpf.notch:
+                            #BUG - Check peak refs here. 
                             pe, pe_heights = find_peaks(
                                 ss1wave[bpf.notch_id:bpf.dbp_id],
                                 height=np.mean(ss1wave[bpf.notch_id:bpf.dbp_id])
@@ -2890,7 +2903,7 @@ class PigRAD:
                 # eda.eda_plot("scatter", "EBV", feature)
                 # eda.eda_plot("histogram", feature)
                 eda.eda_plot("jointplot", "EBV", feature)
-            # eda.corr_heatmap(sel_cols=sel_cols)
+            eda.corr_heatmap(sel_cols=sel_cols)
             
             eda.sum_stats(sel_cols, "Numeric Features")
             console.print("[green]engineering features...[/]")
