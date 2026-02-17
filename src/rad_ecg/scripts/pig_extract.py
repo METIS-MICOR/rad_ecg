@@ -87,14 +87,14 @@ class EDA(object):
         self.data.replace(0, np.nan, inplace=True)
 
         #Display nulls
-        self.print_nulls(True)
+        self.print_nulls(False)
         
         #Drop nulls
         self.drop_nulls("HR")
-        for col in ["EBV"]:
-            self.data.pop(col)
-            self.feature_names.pop(self.feature_names.index(col))
-            logger.info(f"removed target {col}")
+        # for col in ["EBV"]:
+        #     self.data.pop(col)
+        #     self.feature_names.pop(self.feature_names.index(col))
+        #     logger.info(f"removed target {col}")
         
         #Drop the target column.
         self.target = self.data.pop("shock_class")
@@ -128,13 +128,10 @@ class EDA(object):
         """
         
         logger.info(f'Shape before drop {self.data.shape}')
-        if isinstance(col, str):
-            self.data = self.data.dropna(axis=1, subset=[col], how="any")
-        elif isinstance(col, list):
-            for c in col:
-                self.data = self.data.dropna(axis=1, subset=[c], how="any")
+        if isinstance(col, str) | isinstance(col, list):
+            self.data.dropna(subset=[col], how="any", inplace=True)
         else:
-            self.data = self.data.dropna(axis=0, subset=self.data, how='any')
+            self.data.dropna(axis=0, subset=self.data, how='any', inplace=True)
         logger.info(f'Shape after drop {self.data.shape}')
     
     #FUNCTION print_nulls
