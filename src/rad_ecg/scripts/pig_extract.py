@@ -82,19 +82,22 @@ class EDA(object):
         #imputate sections needing it
         # for col in self.feature_names[4:]:
         #     self.imputate("mean", col)
+        
+        #Replace zeros with nan's
+        self.data.replace(0, np.nan, inplace=True)
 
         #Display nulls
         self.print_nulls(False)
         
         #Drop nulls
         # self.drop_nulls()
-        for col in ["EBV"]:
-            self.data.pop(col)
-            self.feature_names.pop(self.feature_names.index(col))
-            logger.info(f"removed {col}")
+        # for col in ["EBV"]:
+        #     self.data.pop(col)
+        #     self.feature_names.pop(self.feature_names.index(col))
+        #     logger.info(f"removed target {col}")
+        
         #Drop the target column.
         self.target = self.data.pop("shock_class")
-
 
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
@@ -1228,7 +1231,7 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "device":"cuda",
+                    "device":"cpu",
                     "gamma":0,
                     "objective":"multi:softmax",
                     "max_depth":6,
@@ -2562,15 +2565,17 @@ class PigRAD:
                     height = np.percentile(ecgwave, 90),      #95 -> stock
                     distance = round(self.fs*(0.200))           
                 )
+                try:
+                    if 3 <= e_peaks.size >= 100:
+                        logger.info(f"sect {idx} peaks invalid for HR extract")
+                    else:                
+                        #Calc HR
+                        RR_diffs = np.diff(e_peaks)
+                        HR = np.round((60 / (RR_diffs / self.fs)), 2)
+                        self.avg_data["HR"][idx] = int(np.nanmean(HR))
 
-                if 3 <= e_peaks.size >= 100:
-                    logger.info(f"sect {idx} peaks invalid for HR extract")
-                else:                
-                    #Calc HR
-                    RR_diffs = np.diff(e_peaks)
-                    HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                    self.avg_data["HR"][idx] = int(np.nanmean(HR)) 
-
+                except Exception as e:
+                    logger.warning(f"{e}")
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
                 # plt.scatter(e_peaks, e_heights["peak_heights"], color="red")
@@ -2886,6 +2891,7 @@ class PigRAD:
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
             #stratkfold  : StratifiedKFold
+            #groupkfold  : GroupKfold
             #leavepout   : Leave p out 
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit

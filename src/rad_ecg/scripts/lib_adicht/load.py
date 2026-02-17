@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -5,6 +6,12 @@ import matplotlib.gridspec as gridspec
 from matplotlib.animation import FuncAnimation, PillowWriter
 from matplotlib.widgets import Button, TextBox
 from scipy.fft import rfft, rfftfreq
+from rich.filesize import decimal
+from rich import print as pprint
+from rich.tree import Tree
+from rich.text import Text
+from rich.table import Table
+from rich.theme import Theme
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
@@ -460,16 +467,94 @@ class LabChartNavigator:
         print("Done.")
         self.paused = was_paused
 
+#FUNCTION Walk Directory
+def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
+    """Build a Tree with directory contents.
+    Source Code: https://github.com/Textualize/rich/blob/master/examples/tree.py
+
+    """
+    # Sort dirs first then by filename
+    paths = sorted(
+        Path(directory).iterdir(),
+        key=lambda path: (path.is_file(), path.name.lower()),
+    )
+    idx = 0
+    for path in paths:
+        # Remove hidden files
+        if path.name.startswith("."):
+            continue
+        if path.is_dir():
+            style = "dim" if path.name.startswith("__") else ""
+            file_size = getfoldersize(path)
+            branch = tree.add(
+                f"[bold green]{idx} [/bold green][bold magenta]:open_file_folder: [link file://{path}]{escape(path.name)}[/bold magenta] [bold blue]{file_size}[/bold blue]",
+                style=style,
+                guide_style=style,
+            )
+            walk_directory(path, branch)
+        else:
+            text_filename = Text(path.name, "green")
+            text_filename.highlight_regex(r"\..*$", "bold red")
+            text_filename.stylize(f"link file://{path}")
+            file_size = path.stat().st_size
+            text_filename.append(f" ({decimal(file_size)})", "blue")
+            tree.add(Text(f'{idx} ', "blue") + text_filename) # + Text(icon)
+        idx += 1
+
+def getfoldersize(folder:Path):
+    fsize = 0
+    for root, dirs, files in os.walk(folder):
+        for f in files:
+            fp = os.path.join(folder,f)
+            fsize += os.stat(fp).st_size
+
+    return sizeofobject(fsize)
+
+def sizeofobject(folder)->str:
+    for unit in ["B", "KB", "MB", "GB"]:
+        if abs(folder) < 1024:
+            return f"{folder:4.1f} {unit}"
+        folder /= 1024.0
+    return f"{folder:.1f} PB"
+          
+def load_choices(fp:str):
+    """Loads whatever file you pick
+
+    Args:
+        fp (str): file path
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """    
+    try:
+        tree = Tree(f":open_file_folder: [link file://{fp}]{fp}", guide_style="bold bright_blue")
+        walk_directory(Path(fp), tree)
+        pprint(tree)
+    except Exception as e:
+        print(f"{e}")        
+
+    question = "What file would you like to load?\n"
+    file_choice = input(f"{question}")
+    if file_choice.isnumeric():
+        files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+        return files[int(file_choice)]
+    else:
+        raise ValueError("Invalid choice")
+    
 if __name__ == "__main__":
     base = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    targets = sorted(base.iterdir())
-    for target in targets:
-        if target.exists() and target.is_file():
-            try:
-                viewer = LabChartNavigator(str(target))
-            except Exception as e:
-                print(f"{e}")
-        
-        else:
-            print(f"Warning: File {target} not found.")
-        print(f"{target.name} closed")
+    # targets = sorted(base.iterdir())
+    # for target in targets:
+    target = load_choices(base)
+    if target.exists() and target.is_file():
+        try:
+            viewer = LabChartNavigator(str(target))
+        except Exception as e:
+            print(f"{e}")
+    
+    else:
+        print(f"Warning: File {target} not found.")
+    print(f"{target.name} closed")
