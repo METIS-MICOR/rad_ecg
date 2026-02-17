@@ -5,11 +5,11 @@ import pandas as pd
 import seaborn as sns
 from numba import cuda
 from typing import List
-from pathlib import Path
 from os.path import exists
 from kneed import KneeLocator
 from collections import Counter
 from itertools import cycle, chain
+from pathlib import Path, PurePath
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -704,7 +704,7 @@ class EDA(object):
             if self.view_eda:
                 plt.show()
             if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
+                plt.savefig(PurePath(f"{self.fp_base}", Path(f"{title}.png")), dpi=300, bbox_inches='tight')
             plt.close()
 
 #CLASS Feature Engineering
@@ -2390,6 +2390,11 @@ class PigRAD:
         self.avg_data["end"] = self.sections[:, 1]
         self.avg_data["valid"] = self.sections[:, 2]
         del self.sections
+        
+        #Make target dir
+        if not os.path.exists(self.fp_base):
+            os.makedirs(self.fp_base, exist_ok=True)
+            logger.info(f"folder created @ {self.fp_base} ")
 
         #Remap target class
         if "EBV" in self.channels:
