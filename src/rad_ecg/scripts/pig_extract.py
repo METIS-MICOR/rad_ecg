@@ -49,7 +49,7 @@ from sklearn.metrics import classification_report
 from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
-from sklearn.ensemble import IsolationForest as IsoForest
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier, DMatrix
 
@@ -68,13 +68,13 @@ class EDA(object):
         self.gpu_devices:list = gpu_devices
         self.task:str = "classification"
         self.target:pd.Series = None
-        self.target_names:list = ["B1", "C1", "C2", "C3", "C4"]
+        self.target_names:list = ["BL", "C1", "C2", "C3", "C4"]
         self.rev_target_dict:dict = {
-            0:"B1",
-            1:"C1",
-            2:"C2",
-            3:"C3",
-            4:"C4"
+            "BL":0,
+            "C1":1,
+            "C2":2,
+            "C3":3,
+            "C4":4
         }
 
     #FUNCTION clean_data
@@ -687,6 +687,8 @@ class FeatureEngineering(EDA):
             self.target_names = eda.target_names
             self.gpu_devices = eda.gpu_devices
             self.task = eda.task
+            self.rev_target_dict = eda.rev_target_dict
+
         else:
             super().__init__(self)
             EDA.clean_data(self)
@@ -966,6 +968,9 @@ class DataPrep(object):
             self.target = engin.target
             self.target_names = engin.target_names
             self.task = engin.task
+            self.gpu_devices = engin.gpu_devices
+            self.rev_target_dict = engin.rev_target_dict
+
         else:
             EDA.__init__(self) 
             EDA.clean_data(self)
@@ -1029,7 +1034,10 @@ class DataPrep(object):
         else:
             self.category_value = None
             self._traind[model_name]["X"] = self.data[self.feature_names]
-            self._traind[model_name]["y"] = self.target
+            if self.task == "classification":
+                self._traind[model_name]["y"] = self.target.map(self.rev_target_dict)
+            else:
+                self._traind[model_name]["y"] = self.target
 
         #FUNCTION scalers
         #Models that don't need scaling
@@ -1081,10 +1089,13 @@ class DataPrep(object):
 
         #MEAS Test train split
         X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
-        self._traind[model_name]["X_test"] = X_test
-        self._traind[model_name]["y_test"] = y_test  
         self._traind[model_name]["X_train"] = X_train 
         self._traind[model_name]["y_train"] = y_train 
+        if model_name == "xgboost":
+            self._traind[model_name]["X_test"] = DMatrix(X_test)
+        else:
+            self._traind[model_name]["X_test"] = X_test
+        self._traind[model_name]["y_test"] = y_test
 
 #CLASS Model Training
 class ModelTraining(object):
@@ -1117,43 +1128,12 @@ class ModelTraining(object):
         self.feature_names = dataprep.feature_names
         self.split = dataprep.split
         self.target_names = dataprep.target_names
+        self.gpu_devices = dataprep.gpu_devices
         self.task = dataprep.task
         self.cross_val = dataprep.cross_val
         self.CV_func = None
         #MEAS Model params
         self._model_params = {
-            "isoforest":{
-                "model_name":"isoforest",
-                "model_type":"classification",
-                "scoring_metric":"accuracy",
-                #link to params
-                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.IsolationForest.html#
-                "base_params":{
-                    "n_estimators":100,				#int
-                    "max_samples":"auto",			#int|float	
-                    "contamination":"auto",         #auto|float
-                    "max_features":1.0,    		    #int|float
-                    "bootstrap":False,     		    #bool
-                    "n_jobs":None,                  #int
-                    "random_state":42,              #int
-                    "warm_start":False              #bool
-                },
-                "init_params":{
-                    "n_estimators":100,				#int
-                    "max_samples":"auto",			#int|float	
-                    "contamination":"auto",         #auto|float
-                    "max_features":1.0,    		    #int|float
-                    "bootstrap":False,     		    #bool
-                    "n_jobs":None,                  #int
-                    "random_state":42,              #int
-                    "warm_start":False              #bool
-                },
-                "grid_srch_params":{
-                    "n_estimators":range(1, 100),
-                    "max_samples":range(2, 25),
-                    "max_features":range(1, 25),
-                }
-            },
             "rfc":{
                 "model_name":"rfc",
                 "model_type":"classification",
@@ -1164,14 +1144,14 @@ class ModelTraining(object):
                     "n_estimators":100,                 #int | 100		
                     "criterion":"gini",                 #str | gini
                     "max_depth":None,                   #int
-                    "min_samples_split":2.0,            #float | 2.0
-                    "min_samples_leaf":1.0,             #float | 1.0
-                    "min_weight_fraction_leaf":"0.0",   #float | 0.0
-                    "max_features":"sqft",              #str | "sqft"
+                    "min_samples_split":2,              #int | 2
+                    "min_samples_leaf":1,               #int | 1
+                    "min_weight_fraction_leaf":0.0,     #float | 0.0
+                    "max_features":10,                  #str | "sqft"
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
-                    "n_jobs":-1,                        #int | None
+                    "n_jobs":None,                        #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
                     "warm_start":False                  #bool | False
                 },
@@ -1179,14 +1159,14 @@ class ModelTraining(object):
                     "n_estimators":100,                 #int | 100		
                     "criterion":"gini",                 #str | gini
                     "max_depth":None,                   #int
-                    "min_samples_split":2.0,            #float | 2.0
-                    "min_samples_leaf":1.0,             #float | 1.0
-                    "min_weight_fraction_leaf":"0.0",   #float | 0.0
-                    "max_features":"sqft",              #str | "sqft"
+                    "min_samples_split":2,              #int | 2
+                    "min_samples_leaf":1,               #int | 1
+                    "min_weight_fraction_leaf":0.0,     #float | 0.0
+                    "max_features":10,                  #str | "sqft"
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
-                    "n_jobs":-1,                        #int | None
+                    "n_jobs":None,                        #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
                     "warm_start":False                  #bool | False
                 },
@@ -1232,8 +1212,6 @@ class ModelTraining(object):
                 }
             },
             "xgboost":{
-                #Notes. 
-                    #this model workflow to the others
                 "model_name":"XGBClassifier()",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
@@ -1241,40 +1219,24 @@ class ModelTraining(object):
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
                     "booster":"gbtree",
+                    "device":"cuda",
                     "gamma":0,
+                    "objective":"multi:softmax",
                     "max_depth":6,
                     "learning_rate": 0.3,
-                    "nthread":4, 
-                    "subsample":1,
-                    "objective":"multi:softmax",
-                    "n_estimators":1000,
-                    "reg_alpha":0.3,
-                    "num_class":2
+                    "num_class":5
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "eval_metric":"error",
-                    "max_depth":10,
+                    "device":"cuda",
                     "gamma":0,
-                    "lambda":1,
-                    "alpha":0,
-                    "nthread":4,
-                    "learning_rate": 0.1,
-                    # "subsample":0.5,
-                    "objective":"binary:hinge",
-                    "n_estimators":100,
-                    "reg_alpha":0.3,
+                    "objective":"multi:softmax",
+                    "max_depth":6,
+                    "learning_rate": 0.3,
+                    "num_class":5
                 },
                 "grid_srch_params":{
-                    # "cv":5,
-                    # "lambda":np.arange(0, 1.1, 0.1),
-                    # "alpha":np.arange(0, 1.1, 0.1),
                     "learning_rate":np.arange(0, 1.1, 0.1),
-                    # "max_depth":range(0, 26, 2),
-                    # "subsample":np.arange(0.5, 1.1, 0.1)
-                    # "loss":["hinge","squared_hinge"],
-                    # "gamma":range(0, 100),
-                    # "n_estimators":np.arange(0, 1000, 100)
                 }
             }
         }
@@ -1306,8 +1268,6 @@ class ModelTraining(object):
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
         match model_name:
-            # case 'pca':
-            #     return PCA(**params)
             case 'svm':
                 kernel = SVC(**params)
                 model = OneVsRestClassifier(
@@ -1315,9 +1275,8 @@ class ModelTraining(object):
                     n_jobs=-1
                 )
                 return model
-            
-            case 'isoforest':
-                return IsoForest(**params)
+            case 'rfc':
+                return RandomForestClassifier(**params)
             case 'xgboost':
                 return XGBClassifier(**params)
 
@@ -1762,7 +1721,7 @@ class ModelTraining(object):
             _templist = sorted(_templist, key=lambda x: x[2], reverse=False)
 
         [table.add_row(model_name, metric, score) for (model_name, metric, score) in _templist]
-        logger.info(f'Model results \U00002193 \U0001f389')
+        logger.info('model results')
         console.print(table)
 
     #FUNCTION importance plot
@@ -2935,9 +2894,8 @@ class PigRAD:
             
             #Classifiers
             #'svm':LinearSVC
-            #'isoforest':IsolationForest
+            #'rfc':RandomForestClassifier
             #'xgboost':XGBoostClassfier
-            modellist = ['svm', 'isoforest', 'xgboost']
             console.print("[green]prepping data for training...[/]")
             dp = DataPrep(ofinterest, scaler, cross_val, engin)
             modellist = ['svm', 'rfc', 'xgboost']
@@ -2949,6 +2907,7 @@ class PigRAD:
             console.print("[green]training models...[/]")
             modeltraining = ModelTraining(dp)
             for model in modellist:
+                console.print(f"training [green]{model}...[/]")
                 modeltraining.get_data(model)
                 modeltraining.fit(model)
                 modeltraining.predict(model)
@@ -2956,7 +2915,7 @@ class PigRAD:
                 time.sleep(1)
             
             modeltraining.show_results(modellist, sort_des=False) 
-            forest = ['isoforest', 'xgboost']
+            forest = ['rfc', 'xgboost']
             #Looking at feature importances
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
