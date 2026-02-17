@@ -90,11 +90,11 @@ class EDA(object):
         self.print_nulls(True)
         
         #Drop nulls
-        # self.drop_nulls()
-        # for col in ["EBV"]:
-        #     self.data.pop(col)
-        #     self.feature_names.pop(self.feature_names.index(col))
-        #     logger.info(f"removed target {col}")
+        self.drop_nulls("HR")
+        for col in ["EBV"]:
+            self.data.pop(col)
+            self.feature_names.pop(self.feature_names.index(col))
+            logger.info(f"removed target {col}")
         
         #Drop the target column.
         self.target = self.data.pop("shock_class")
@@ -118,15 +118,23 @@ class EDA(object):
             self.data[col].fillna(self.data[col].mode(), inplace=True)
 
     #FUNCTION drop_nulls
-    def drop_nulls(self):
-        """
-        Null dropping routine
+    def drop_nulls(self, col:str|list=None):
+        """Null Dropping routine. Use at your own risk.  If a target column is provided, it will drop the column.  
+        If a list is provided, it will drop each item in the list.  If no target provided, this will drop all rows with a null. 
+        (switch axis=1 if you want by all columns)
 
-        """		
-        #!Caution
-        #Use at your own risk.  this will drop all rows with a null. (switch axis=1 if you want by all columns)
+        Args:
+            col (str | list, optional): Column or list of columns to drop. Defaults to None.
+        """
+        
         logger.info(f'Shape before drop {self.data.shape}')
-        self.data = self.data.dropna(axis=0, subset=self.data, how='any')
+        if isinstance(col, str):
+            self.data = self.data.dropna(axis=1, subset=[col], how="any")
+        elif isinstance(col, list):
+            for c in col:
+                self.data = self.data.dropna(axis=1, subset=[c], how="any")
+        else:
+            self.data = self.data.dropna(axis=0, subset=self.data, how='any')
         logger.info(f'Shape after drop {self.data.shape}')
     
     #FUNCTION print_nulls
@@ -2576,7 +2584,7 @@ class PigRAD:
                             self.avg_data["HR"][idx] = int(np.nanmean(HR))
                         else:
                             logger.warning(f"Empty slice encountered in sect {idx}")
-                            
+
                 except Exception as e:
                     logger.warning(f"{e}")
                 #Debug plot
