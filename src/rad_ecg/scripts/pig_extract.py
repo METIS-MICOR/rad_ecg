@@ -1132,7 +1132,7 @@ class ModelTraining(object):
         #MEAS Model params
         self._model_params = {
             "rfc":{
-                "model_name":"rfc",
+                "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
@@ -1178,7 +1178,7 @@ class ModelTraining(object):
             "svm":{
                 #Notes. 
                     #
-                "model_name":"OneVsRestClassifier(SVC)",
+                "model_name":"OneVsRestClassifier  ",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
@@ -1209,7 +1209,7 @@ class ModelTraining(object):
                 }
             },
             "xgboost":{
-                "model_name":"XGBClassifier()",
+                "model_name":"XGBClassifier  ",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
