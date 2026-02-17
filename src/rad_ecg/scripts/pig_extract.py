@@ -61,20 +61,22 @@ class EDA(object):
             col_names:list,
             fs:float,
             gpu_devices:list,
+            fp:str,
         ):
         self.data:pd.DataFrame = pd.DataFrame(avg_data)
         self.feature_names:list = list(col_names)
         self.fs:float = fs
+        self.fp_base:Path = fp
         self.gpu_devices:list = gpu_devices
         self.task:str = "classification"
         self.target:pd.Series = None
         self.target_names:list = ["BL", "C1", "C2", "C3", "C4"]
         self.rev_target_dict:dict = {
-            "BL":0,
-            "C1":1,
-            "C2":2,
-            "C3":3,
-            "C4":4
+            0:"BL",
+            1:"C1",
+            2:"C2",
+            3:"C3",
+            4:"C4"
         }
 
     #FUNCTION clean_data
@@ -91,6 +93,8 @@ class EDA(object):
         
         #Drop nulls
         self.drop_nulls("HR")
+        
+        #Drop cols
         # for col in ["EBV"]:
         #     self.data.pop(col)
         #     self.feature_names.pop(self.feature_names.index(col))
@@ -145,13 +149,6 @@ class EDA(object):
         """		
         #column | nulls | % of Total | Over 30 % Nulls
         #str    | int   | float      | Boolean
-
-        #Setting theme levels
-        custom_theme = Theme(
-            {"kindagood":"white on blue",
-             "danger":"red on white"
-            }
-        )
 
         #Adding in a Rich Table for printing.
         table = Table(title="Null Report")
@@ -417,6 +414,7 @@ class EDA(object):
         feat_1:str=False, 
         feat_2:str=False, 
         group:str=False,
+        fp_save:Path=None
         ):
         """Basic plotting method for EDA class
 
@@ -519,12 +517,15 @@ class EDA(object):
                             c=group_color_dict[grp],
                             label=grp
                         )
-                plt.title(f'Scatterplot {feat_1} by {feat_2} grouped by {hue_col}')
+                title = f"{feat_1}_{feat_2}_by_{hue_col}"
+                plt.title(f"{title}")
                 plt.legend(loc='upper right')
 
             plt.xlabel(f'{feat_1}')
             plt.ylabel(f'{feat_2}')
             plt.show()
+            if self.fp_base:
+                plt.savefig(Path(f"{self.fp_base}) / {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a histogram
@@ -565,11 +566,14 @@ class EDA(object):
                 logger.info(f'plotting histogram for\n{feat_1}')
 
             sns.boxplot(data = _comb_df, x = _comb_df[feat_1], ax=ax_box)
-            ax_hist.set_title(f'Histogram/Boxplot of {feat_1}')
+            title = f"Histogram_Boxplot_of_{feat_1}"
+            ax_hist.set_title(f"{title}")
             ax_hist.set_xlabel(f'Distribution of {feat_1}')
             ax_hist.set_ylabel('Count')
             ax_box.set_xlabel('')
             plt.show()
+            if self.fp_base:
+                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a pairplot
@@ -636,6 +640,8 @@ class EDA(object):
                         )
                     logger.info(f'plotting pairplot for\n{cols}')
                 plt.show()
+                if self.fp_base:
+                    plt.savefig(Path(f"{self.fp_base}) / {title} + .png"), dpi=300, bbox_inches='tight')
                 plt.close()
 
             # ax_hist.set_xlabel(f'Distribution of {feat_1}')
@@ -657,7 +663,7 @@ class EDA(object):
                     hue_target = _comb_df[hue_col]
 
                 logger.info(f'plotting jointplot for\n{feat_1} and {feat_2}\ngrouped by {hue_col}')
-                sns.jointplot(
+                jplot = sns.jointplot(
                     data = _comb_df,
                     x = feat_1, 
                     y = feat_2,
@@ -678,14 +684,22 @@ class EDA(object):
 
             else:
                 logger.info(f'plotting jointplot for\n{feat_1} and {feat_2}')
-                sns.jointplot(
+                jplot = sns.jointplot(
                     data = _comb_df,
                     x = feat_1, 
                     y = feat_2,
                     kind = 'reg',
                     space = 0,
-                    )
+                )
+            title = f"Jointplot for {feat_1}"
+            if feat_2:
+                title += f" and {feat_2}"
+            if group:
+                title += f" by {group.name}"
+
             plt.show()
+            if self.fp_base:
+                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
 
 #CLASS Feature Engineering
@@ -1046,7 +1060,8 @@ class DataPrep(object):
             self.category_value = None
             self._traind[model_name]["X"] = self.data[self.feature_names]
             if self.task == "classification":
-                self._traind[model_name]["y"] = self.target.map(self.rev_target_dict)
+                switch_dict = {y:x for x, y in self.rev_target_dict.items()}
+                self._traind[model_name]["y"] = self.target.map(switch_dict)
             else:
                 self._traind[model_name]["y"] = self.target
 
@@ -1189,7 +1204,7 @@ class ModelTraining(object):
             "svm":{
                 #Notes. 
                     #
-                "model_name":"OneVsRestClassifier  ",
+                "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
@@ -2321,20 +2336,21 @@ class BP_Feat():
 
 class PigRAD:
     def __init__(self, npz_path):
-        # 1. load data / params
+        # load data / params
         self.npz_path       :Path = npz_path
-        self.fp_save        :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")    # For saving features
-        # self.fp_dos         :Path = Path(npz_path).parent / (Path(npz_path).stem + "_cac.npz")     # For saving Corrected Arc Curve
+        self.fp_base        :Path = Path(npz_path).parent / Path(npz_path).stem                  # For saving graphs
+        self.fp_save        :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")  # For saving features
         self.loader         :SignalDataLoader = SignalDataLoader(str(self.npz_path))
         self.full_data      :dict = self.loader.full_data
         self.channels       :list = self.loader.channels
         self.outcomes       :list = self.loader.outcomes
         self.fs             :float = 1000.0                       #Hz
-        self.windowsize     :int = 8                              #size of section window 
+        self.windowsize     :int = 10                             #size of section window 
         self.ecg_lead       :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
         self.lad_lead       :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
-        self.car_lead       :str = 6 #self.pick_lead("Cartoid")   #pick the Carotid lead
+        self.car_lead       :str = 6 # self.pick_lead("Cartoid")  #pick the Carotid lead
         self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
+        #Section signals
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.avg_dtypes = [
             ('start'      , 'i4'),  #start index
@@ -2372,9 +2388,6 @@ class PigRAD:
 
         #Remap target class
         if "EBV" in self.channels:
-            #BUG - Do i need below?
-                #Probably can calculate the avg loss per section and save 
-
             ebv_arr = self.full_data["EBV"].to_numpy()
             #Normalize it
             ebv_arr = ebv_arr / np.max(ebv_arr)
@@ -2388,10 +2401,10 @@ class PigRAD:
             levels = list(self.target_levels.keys())
             conditions = [
                 ebv_arr >= 1.00,                       #Baseline - No blood loss
-                (ebv_arr >= 0.85) & (ebv_arr < 1.00),  # C1 - 0.85 <= ebv <= 1.0
-                (ebv_arr >= 0.70) & (ebv_arr < 0.85),  # C2 - 0.7 <= ebv <= 0.85
-                (ebv_arr >= 0.60) & (ebv_arr < 0.70),  # C3 - 0.6 <= ebv <= 0.7
-                ebv_arr < 0.60                         # C4 - 0.0 = ebv <= 0.6
+                (ebv_arr >= 0.85) & (ebv_arr < 1.00),  #C1 - 0.85 <= ebv <= 1.0
+                (ebv_arr >= 0.70) & (ebv_arr < 0.85),  #C2 - 0.7 <= ebv <= 0.85
+                (ebv_arr >= 0.60) & (ebv_arr < 0.70),  #C3 - 0.6 <= ebv <= 0.7
+                ebv_arr < 0.60                         #C4 - 0.0 = ebv <= 0.6
             ]
             self.target = np.select(conditions, levels, default="UNKNOWN")
 
@@ -2856,6 +2869,7 @@ class PigRAD:
                 self.avg_data.dtype.names,                
                 self.fs, 
                 self.gpu_devices, 
+                self.fp_base
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
@@ -2866,12 +2880,12 @@ class PigRAD:
                     # eda.eda_plot("scatter", "EBV", feature)
                     # eda.eda_plot("histogram", feature)
                     eda.eda_plot("jointplot", "EBV", feature)
-                eda.corr_heatmap(sel_cols=sel_cols)
-                eda.sum_stats(sel_cols, "Numeric Features")
+                # eda.corr_heatmap(sel_cols=sel_cols)
+            
+            eda.sum_stats(sel_cols, "Numeric Features")
             console.print("[green]engineering features...[/]")
-
             engin = FeatureEngineering(eda)
-            #filterout time col 0
+            #select modeling columns of interest
             ofinterest = [engin.data.columns[x] for x in range(3, engin.data.shape[1])]
             
             #Engineer your features here. available transforms below
@@ -2934,7 +2948,8 @@ class PigRAD:
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
-            #TODO - Add SHAP Values as confirmation
+            
+            #TODO - Add SHAP Values as backup confirmation
 
 # --- Entry Point ---
 def load_choices(fp:str):
