@@ -88,7 +88,10 @@ class EDA(object):
         
         #Drop nulls
         # self.drop_nulls()
-
+        for col in ["EBV"]:
+            self.data.pop(col)
+            self.feature_names.pop(self.feature_names.index(col))
+            logger.info(f"removed {col}")
         #Drop the target column.
         self.target = self.data.pop("shock_class")
 
