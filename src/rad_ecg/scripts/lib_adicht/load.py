@@ -12,6 +12,7 @@ from rich.tree import Tree
 from rich.text import Text
 from rich.table import Table
 from rich.theme import Theme
+from rich.markup import escape
 
 class SignalDataLoader:
     """Handles loading and structuring the NPZ data."""
@@ -26,6 +27,8 @@ class SignalDataLoader:
             self.container = np.load(file_path, allow_pickle=True)
             self.full_data = self.container.to_dict(orient="series")
             self.channels = self.container.columns.to_list()
+            self.full_data.pop("Time")
+            self.channels.pop(self.channels.index("Time"))
             if "ShockClass" in self.channels:
                 self.outcomes = self.full_data.pop("ShockClass")
                 self.channels.pop(self.channels.index("ShockClass"))
@@ -225,7 +228,7 @@ class LabChartNavigator:
         current_channels = self.channels[start:end]
         self.active_data_map = [] 
         for i in range(self.streams_per_page):
-            if self.full_data[current_channels[i]].dtype.name != "float64":
+            if self.full_data[current_channels[i]].dtype.name != "float64" :#| (current_channels[i] == "Time")
                 continue
             ax = self.axes_pool[i]
             line = self.plot_lines[i]

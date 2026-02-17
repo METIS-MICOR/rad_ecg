@@ -87,7 +87,7 @@ class EDA(object):
         self.data.replace(0, np.nan, inplace=True)
 
         #Display nulls
-        self.print_nulls(False)
+        self.print_nulls(True)
         
         #Drop nulls
         # self.drop_nulls()
@@ -2572,8 +2572,11 @@ class PigRAD:
                         #Calc HR
                         RR_diffs = np.diff(e_peaks)
                         HR = np.round((60 / (RR_diffs / self.fs)), 2)
-                        self.avg_data["HR"][idx] = int(np.nanmean(HR))
-
+                        if HR.size > 0:
+                            self.avg_data["HR"][idx] = int(np.nanmean(HR))
+                        else:
+                            logger.warning(f"Empty slice encountered in sect {idx}")
+                            
                 except Exception as e:
                     logger.warning(f"{e}")
                 #Debug plot
@@ -2854,11 +2857,11 @@ class PigRAD:
             if self.view_eda:
                 sel_cols = eda.feature_names[4:]
                 #graph your features
-                # for feature in sel_cols:
-                #     eda.eda_plot("scatter", "EBV", feature)
+                for feature in sel_cols:
+                    # eda.eda_plot("scatter", "EBV", feature)
                     # eda.eda_plot("histogram", feature)
-                # eda.eda_plot("pairplot")
-                # eda.corr_heatmap(sel_cols=sel_cols)
+                    eda.eda_plot("jointplot", "EBV", feature)
+                eda.corr_heatmap(sel_cols=sel_cols)
                 eda.sum_stats(sel_cols, "Numeric Features")
             console.print("[green]engineering features...[/]")
 
