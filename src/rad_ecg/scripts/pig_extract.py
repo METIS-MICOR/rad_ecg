@@ -1091,10 +1091,7 @@ class DataPrep(object):
         X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
         self._traind[model_name]["X_train"] = X_train 
         self._traind[model_name]["y_train"] = y_train 
-        if model_name == "xgboost":
-            self._traind[model_name]["X_test"] = DMatrix(X_test)
-        else:
-            self._traind[model_name]["X_test"] = X_test
+        self._traind[model_name]["X_test"] = X_test
         self._traind[model_name]["y_test"] = y_test
 
 #CLASS Model Training
@@ -1219,7 +1216,7 @@ class ModelTraining(object):
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
                     "booster":"gbtree",
-                    "device":"cuda",
+                    "device":"cpu",
                     "gamma":0,
                     "objective":"multi:softmax",
                     "max_depth":6,
