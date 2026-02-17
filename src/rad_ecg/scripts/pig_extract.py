@@ -96,11 +96,12 @@ class EDA(object):
         #Drop nulls
         self.drop_nulls("HR")
         
-        #Drop cols
-        # for col in ["EBV"]:
-        #     self.data.pop(col)
-        #     self.feature_names.pop(self.feature_names.index(col))
-        #     logger.info(f"removed target {col}")
+        #Drop cols if we're not viewing EDA
+        if not self.view_eda:
+            for col in ["EBV"]:
+                self.data.pop(col)
+                self.feature_names.pop(self.feature_names.index(col))
+                logger.info(f"removed target {col}")
         
         #Drop the target column.
         self.target = self.data.pop("shock_class")
@@ -2387,7 +2388,7 @@ class PigRAD:
         self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
-        self.view_eda       :bool = False
+        self.view_eda       :bool = True
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2457,23 +2458,26 @@ class PigRAD:
         mb_size = os.path.getsize(output_path) / (1024 * 1024)
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
-    def _derivative(self, signal:np.array)->tuple:
+    def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed, 1st, and 2nd derivatives using scipy's Savitzky-Golay filter.
 
         Args:
             signal (np.array): waveform
 
         Returns:
-            smoothed, d1, d2 (tuple[np.array]): returns smoothed, 1st and 2nd derivatives
+            (np.array): returns smoothed, 1st or 2nd derivative
         """        
         # Window length must be odd; approx 20-30ms is usually good for smoothing derivatives
         window = int(0.03 * self.fs) 
         if window % 2 == 0: 
             window += 1
-        smoothed = savgol_filter(signal, window_length=window, polyorder=3)
-        d1 = savgol_filter(signal, window_length=window, polyorder=3, deriv=1)
-        d2 = savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
-        return smoothed, d1, d2
+        match deriv:
+            case 0:
+                return savgol_filter(signal, window_length=window, polyorder=3)
+            case 1:
+                return savgol_filter(signal, window_length=window, polyorder=3, deriv=1)
+            case 2:
+                return savgol_filter(signal, window_length=window, polyorder=3, deriv=2)
     
     def _integrate(self, signal:np.array)->float:
         """Apply integration of signal. Calculates area under curve. 
@@ -2614,8 +2618,10 @@ class PigRAD:
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
                 # plt.scatter(e_peaks, e_heights["peak_heights"], color="red")
 
-                #Calculate DNI from ss1 lead
+                #Select section leads
                 ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end].to_numpy()
+                ladwave = self.full_data[self.channels[self.lad_lead]][start:end]
+                carwave = self.full_data[self.channels[self.car_lead]][start:end]
 
                 # first find systolic peaks
                 s_peaks, s_heights = find_peaks(
@@ -2678,33 +2684,19 @@ class PigRAD:
                         #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
                         try:
                             # Get systolic deriv
-                            _, d1_sys, _ = self._derivative(sub_sys_up)
+                            d1_sys = self._derivative(sub_sys_up, 1)
                             # Get 1st, 2nd diastolic derivatives
-                            _, d1_notch, d1_notch = self._derivative(sub_notch)
+                            d1_notch = self._derivative(sub_notch, 1)
+                            d2_notch = self._derivative(sub_notch, 2)
 
                             #Get Dichrotic notch index from max of 2nd deriv
-                            bpf.notch_id = np.argmax(d1_notch).item()
+                            bpf.notch_id = np.argmax(d2_notch).item()
                             bpf.notch = sub_notch[bpf.notch_id].item()
                             if bpf.notch:
                                 bpf.dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
 
                         except Exception as e:
                             logger.warning(f"{e}")
-
-                        #Calc resistive index
-                        #BUG - range update
-                            #you need to update these ranges.  
-                            #psv -> bpf.onset:bpf.notch
-                            #edv -> bpf.notch:bpf.dbp_id
-                        # notch_full = bpf.notch_id + (bpf.sbp_id - bpf.onset)
-                        # sub_dias = ss1wave[bpf.sbp_id:notch_full]
-                        # sub_syst = ss1wave[notch_full:bpf.dbp_id]
-
-                        # _, d1_dias, _ = self._derivative(sub_dias)
-                        # psv = np.max(d1_sys)
-                        # edv = np.min(d1_dias)
-                        bpf.ri = self.calc_RI(psv, edv)
-
                         #Calc MAP (mmHgs)
                         if sub_full.shape[0] > 0:
                             bpf.true_MAP = self._integrate(sub_full) / (sub_full.shape[0] / self.fs)
@@ -2723,6 +2715,28 @@ class PigRAD:
                         
                         #Get diastolic slope via exponential decay (regression)
                         if bpf.notch:
+                            #Calc resistive index
+                            #BUG - calculation 
+                                #you need to update these ranges.  
+                                #psv -> bpf.onset:bpf.notch
+                                #edv -> bpf.notch:bpf.dbp_id
+                            psv, edv = None, None
+                            notch_full = bpf.sbp_id + bpf.notch_id
+                            sub_sy = ss1wave[notch_full:bpf.dbp_id]
+                            sub_di = ss1wave[bpf.onset:bpf.sbp_id]
+                            if sub_sy.shape[0] > 1:
+                                d1_sy = self._derivative(sub_sy, 1)
+                            if sub_di.shape[0] > 1:
+                                d1_di = self._derivative(sub_di, 1)
+                            psv = np.max(d1_sy)
+                            edv = np.min(d1_di)
+                            if psv and edv:
+                                bpf.ri = self.calc_RI(psv, edv)
+                            psv, edv = None, None
+                            #IDEA - true vascular resistance
+                                # Since we have pressure and flow, can we calculate true vascular resistance?
+
+
                             #BUG - Check peak refs here. 
                             pe, pe_heights = find_peaks(
                                 ss1wave[bpf.notch_id:bpf.dbp_id],
@@ -2749,7 +2763,7 @@ class PigRAD:
                             sub_syst = ss1wave[bpf.onset : notch_abs]
                             
                             # 1st derivative of complex to find shoulders
-                            _, d1_sys_comp, _ = self._derivative(sub_syst)
+                            d1_sys_comp = self._derivative(sub_syst, 1)
 
                             # 1. Find true peaks in the systolic complex (Type A vs Type C)
                             sys_peaks, _ = find_peaks(sub_syst)
@@ -2827,7 +2841,8 @@ class PigRAD:
                                 bpf.p1_p3 = p1_val / p3_val
                             
                         #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
-                        self.bp_data.append(bpf) 
+                        self.bp_data.append(bpf)
+                        
 
                     self.avg_data["shock_class"][idx] = Counter(self.target[start:end]).most_common()[0][0].item()
                     self.avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
@@ -2899,12 +2914,14 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
             sel_cols = eda.feature_names[4:]
             #graph your features
-            for feature in sel_cols:
-                # eda.eda_plot("scatter", "EBV", feature)
-                # eda.eda_plot("histogram", feature)
-                eda.eda_plot("jointplot", "EBV", feature)
-            eda.corr_heatmap(sel_cols=sel_cols)
-            
+            if eda.view_eda:
+                for feature in sel_cols:
+                    # eda.eda_plot("scatter", "EBV", feature)
+                    # eda.eda_plot("histogram", feature)
+                    eda.eda_plot("jointplot", "EBV", feature)
+                eda.corr_heatmap(sel_cols=sel_cols)
+                exit()
+                
             eda.sum_stats(sel_cols, "Numeric Features")
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)

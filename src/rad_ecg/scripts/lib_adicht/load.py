@@ -228,7 +228,7 @@ class LabChartNavigator:
         current_channels = self.channels[start:end]
         self.active_data_map = [] 
         for i in range(self.streams_per_page):
-            if self.full_data[current_channels[i]].dtype.name != "float64" :#| (current_channels[i] == "Time")
+            if self.full_data[current_channels[i]].dtype.name != "float64" :
                 continue
             ax = self.axes_pool[i]
             line = self.plot_lines[i]
