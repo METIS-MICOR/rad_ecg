@@ -62,11 +62,13 @@ class EDA(object):
             fs:float,
             gpu_devices:list,
             fp:str,
+            view_eda:bool
         ):
         self.data:pd.DataFrame = pd.DataFrame(avg_data)
         self.feature_names:list = list(col_names)
         self.fs:float = fs
         self.fp_base:Path = fp
+        self.view_eda = view_eda
         self.gpu_devices:list = gpu_devices
         self.task:str = "classification"
         self.target:pd.Series = None
@@ -523,9 +525,10 @@ class EDA(object):
 
             plt.xlabel(f'{feat_1}')
             plt.ylabel(f'{feat_2}')
-            plt.show()
+            if self.view_eda:
+                plt.show()
             if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base}) / {title} + .png"), dpi=300, bbox_inches='tight')
+                plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a histogram
@@ -571,7 +574,8 @@ class EDA(object):
             ax_hist.set_xlabel(f'Distribution of {feat_1}')
             ax_hist.set_ylabel('Count')
             ax_box.set_xlabel('')
-            plt.show()
+            if self.view_eda:
+                plt.show()
             if self.fp_base:
                 plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -639,7 +643,8 @@ class EDA(object):
                         # aspect=5
                         )
                     logger.info(f'plotting pairplot for\n{cols}')
-                plt.show()
+                if self.view_eda:
+                    plt.show()
                 if self.fp_base:
                     plt.savefig(Path(f"{self.fp_base}) / {title} + .png"), dpi=300, bbox_inches='tight')
                 plt.close()
@@ -697,7 +702,8 @@ class EDA(object):
             if group:
                 title += f" by {group.name}"
 
-            plt.show()
+            if self.view_eda:
+                plt.show()
             if self.fp_base:
                 plt.savefig(Path(f"{self.fp_base}) + {title} + .png"), dpi=300, bbox_inches='tight')
             plt.close()
@@ -2873,14 +2879,13 @@ class PigRAD:
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
-            if self.view_eda:
-                sel_cols = eda.feature_names[4:]
-                #graph your features
-                for feature in sel_cols:
-                    # eda.eda_plot("scatter", "EBV", feature)
-                    # eda.eda_plot("histogram", feature)
-                    eda.eda_plot("jointplot", "EBV", feature)
-                # eda.corr_heatmap(sel_cols=sel_cols)
+            sel_cols = eda.feature_names[4:]
+            #graph your features
+            for feature in sel_cols:
+                # eda.eda_plot("scatter", "EBV", feature)
+                # eda.eda_plot("histogram", feature)
+                eda.eda_plot("jointplot", "EBV", feature)
+            # eda.corr_heatmap(sel_cols=sel_cols)
             
             eda.sum_stats(sel_cols, "Numeric Features")
             console.print("[green]engineering features...[/]")
