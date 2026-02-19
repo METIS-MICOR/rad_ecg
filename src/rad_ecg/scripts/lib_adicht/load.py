@@ -227,9 +227,8 @@ class LabChartNavigator:
         end = start + self.streams_per_page
         current_channels = self.channels[start:end]
         self.active_data_map = [] 
+        
         for i in range(self.streams_per_page):
-            if self.full_data[current_channels[i]].dtype.name != "float64" :
-                continue
             ax = self.axes_pool[i]
             line = self.plot_lines[i]
             alert = self.alert_texts[i]
@@ -238,8 +237,17 @@ class LabChartNavigator:
             if alert in self.alert_timers:
                 self.alert_timers[alert].stop()
             
+            # 1. Safely check bounds
             if i < len(current_channels):
                 ch_name = current_channels[i]
+                
+                # 2. Safely check dtype; hide axes if skipped
+                if self.full_data[ch_name].dtype.name != "float64":
+                    ax.set_visible(False)
+                    if ax_freq: 
+                        ax_freq.set_visible(False)
+                    continue
+                
                 data = self.full_data[ch_name]
                 
                 ax.set_visible(True)
@@ -252,15 +260,17 @@ class LabChartNavigator:
                 
                 if data.size > 0:
                     init_view = data[self.current_pos : self.current_pos + self.window_size]
-                    self._apply_scale(ax, init_view)
+                    # self._apply_scale(ax, init_view)
                 
                 alert.set_visible(False)
                 self.active_data_map.append((line, data, ax, alert, ax_freq, ch_name))
             else:
+                # 3. Cleanly hide unused axes on the final page
                 ax.set_visible(False)
                 if ax_freq: 
                     ax_freq.set_visible(False)
 
+        # Setup the navigation trace at the bottom
         if current_channels:
             ref_data = self.full_data[current_channels[0]]
             ds_step = max(1, len(ref_data) // 5000) 
