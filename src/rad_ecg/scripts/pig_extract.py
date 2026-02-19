@@ -96,9 +96,9 @@ class EDA(object):
         
         #Drop nulls
         self.drop_nulls("HR")
-        
-        #Drop cols if we're not viewing EDA
-        if not self.view_eda:
+
+        #Drop col used to make target if we're modeling. 
+        if not self.fp_base:
             for col in ["EBV"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
@@ -2432,6 +2432,8 @@ class PigRAD:
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
         self.view_eda       :bool = False
+        self.view_gui       :bool = False
+
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2592,6 +2594,16 @@ class PigRAD:
         #Bandpass the flow streams and ECG.
         for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
             self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
+
+    def normalize(self, signal:np.array):
+        """Normalizes all the channels
+
+        Args:
+            signal (np.array): Various biological waveforms
+        """        
+        for channel in self.channels:
+            signal = self.full_data[channel]
+            self.full_data[channel] = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
 
     def calc_RI(self, psv:float, edv:float) -> float:
         """
@@ -2897,7 +2909,9 @@ class PigRAD:
 
     def create_features(self):
         self.band_pass()
+        self.normalize()
         self.section_extract()
+        
         console.print("[bold green]Features created...[/]")
 
     def run_pipeline(self):
@@ -2944,7 +2958,7 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
 
             #graph your features
-            if eda.view_eda:
+            if eda.fp_base:
                 sel_cols = eda.feature_names[4:]
 
                 #Sum basic stats
