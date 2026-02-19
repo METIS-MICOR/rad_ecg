@@ -732,11 +732,11 @@ class EDA(object):
                 if feat_1 == "EBV":
                     jplot.ax_joint.invert_xaxis()
 
-            title = f"Jointplot for {feat_1}"
+            title = f"Jointplot for {feat_1} "
             if feat_2:
-                title += f" and {feat_2}"
+                title += f"and {feat_2} "
             if group:
-                title += f" by {group.name}"
+                title += f"by {group.name} "
             #Set the title and adjust it up a bit
             jplot.figure.suptitle(f"{title}", y=0.98)
             jplot.figure.subplots_adjust(top=0.95)
@@ -2595,8 +2595,8 @@ class PigRAD:
         for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
             self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
 
-    def normalize(self, signal:np.array):
-        """Normalizes all the channels
+    def normalize(self):
+        """Normalizes all channels by min max method
 
         Args:
             signal (np.array): Various biological waveforms
@@ -2639,7 +2639,7 @@ class PigRAD:
                 end = section[1].item()
 
                 #Calc estimated blood volume for section. 
-                self.avg_data["EBV"][idx] = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
+                
                 
                 #Find R peaks from ECG lead
                 # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
@@ -2885,7 +2885,8 @@ class PigRAD:
                         
                     #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
                     self.bp_data.append(bpf)
-
+                
+                self.avg_data["EBV"][idx]         = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
                 self.avg_data["shock_class"][idx] = Counter(self.target[start:end]).most_common()[0][0].item()
                 self.avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
                 self.avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in self.bp_data if rec.SBP is not None]), precision)
@@ -2909,7 +2910,7 @@ class PigRAD:
 
     def create_features(self):
         self.band_pass()
-        self.normalize()
+        # self.normalize()
         self.section_extract()
         
         console.print("[bold green]Features created...[/]")
