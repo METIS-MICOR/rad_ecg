@@ -409,7 +409,7 @@ class EDA(object):
             cmap='RdYlGn')
         heatmap.set_title('Correlation Heatmap', fontdict={'fontsize':16}, pad=12)
         if self.fp_base:
-            fig.savefig(Path(f"{self.fp_base}") + Path("heatmap.png"), dpi=300, bbox_inches='tight')
+            fig.savefig(PurePath(self.fp_base, Path("heatmap.png")), dpi=300, bbox_inches='tight')
         if self.view_eda:
             plt.show()
         plt.close()
@@ -578,7 +578,7 @@ class EDA(object):
             ax_hist.set_ylabel('Count')
             ax_box.set_xlabel('')
             if self.fp_base:
-                fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
+                fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
             if self.view_eda:
                 plt.show()
             plt.close()
@@ -647,7 +647,7 @@ class EDA(object):
                         )
                     logger.info(f'plotting pairplot for\n{cols}')
                 if self.fp_base:
-                    pg.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
+                    pg.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
                 if self.view_eda:
                     plt.show()
                 plt.close()
@@ -705,7 +705,7 @@ class EDA(object):
             if group:
                 title += f" by {group.name}"
             if self.fp_base:
-                plt.savefig(PurePath(f"{self.fp_base}", Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+                plt.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
             if self.view_eda:
                 plt.show()
             plt.close()
@@ -2921,7 +2921,7 @@ class PigRAD:
             if eda.view_eda:
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
-                    # eda.eda_plot("histogram", feature)
+                    eda.eda_plot("histogram", feature)
                     eda.eda_plot("jointplot", "EBV", feature)
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
