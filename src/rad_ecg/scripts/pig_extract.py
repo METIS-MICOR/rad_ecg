@@ -444,11 +444,20 @@ class EDA(object):
             group (str or bool, optional): Column you want to group on. Usually
                 a categorical. Defaults to False.
         """		
+        def onSpacebar(event):
+            """When scanning ECG's, hit the spacebar if keep the chart from closing. 
 
-        #quick correlation
-        if not isinstance(feat_1, bool) and not isinstance(feat_2, bool):
-            self.corr = self.data[feat_1].corr(self.data[feat_2])
-            logger.warning(f'correlation of {feat_1} and {feat_2}: {self.corr:.2f}')
+            Args:
+                event (_type_): accepts the key event.  In this case its looking for the spacebar.
+            """	
+            if event.key == " ": 
+                timer_error.stop()
+                timer_error.remove_callback(timer_cid)
+                logger.warning(f'Timer stopped')
+            #quick correlation
+            if not isinstance(feat_1, bool) and not isinstance(feat_2, bool):
+                self.corr = self.data[feat_1].corr(self.data[feat_2])
+                logger.warning(f'correlation of {feat_1} and {feat_2}: {self.corr:.2f}')
 
         #Generates repeatable colordict for all values in the group
         if not isinstance(group, bool):
@@ -531,6 +540,11 @@ class EDA(object):
             if self.fp_base:
                 fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             if self.view_eda:
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
                 plt.show()
             plt.close()
 
@@ -580,6 +594,11 @@ class EDA(object):
             if self.fp_base:
                 fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
             if self.view_eda:
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
                 plt.show()
             plt.close()
 
@@ -649,6 +668,11 @@ class EDA(object):
                 if self.fp_base:
                     pg.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
                 if self.view_eda:
+                    timer_error = fig.canvas.new_timer(interval = 3000)
+                    timer_error.single_shot = True
+                    timer_cid = timer_error.add_callback(plt.close, fig)
+                    spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                    timer_error.start()
                     plt.show()
                 plt.close()
 
@@ -705,8 +729,14 @@ class EDA(object):
             if group:
                 title += f" by {group.name}"
             if self.fp_base:
-                plt.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+                jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+
             if self.view_eda:
+                timer_error = jplot.figure.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, jplot.figure)
+                spacejam = jplot.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
                 plt.show()
             plt.close()
 
