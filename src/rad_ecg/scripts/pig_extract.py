@@ -2431,7 +2431,7 @@ class PigRAD:
         self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
         self.bp_data        :List[BP_Feat] = []
         self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
-        self.view_eda       :bool = True
+        self.view_eda       :bool = False
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2731,7 +2731,7 @@ class PigRAD:
                         bpf.notch_id = np.argmax(d2_notch).item()
                         bpf.notch = sub_notch[bpf.notch_id].item()
                         if bpf.notch:
-                            bpf.dni = (bpf.notch - bpf.SBP) / (bpf.SBP - bpf.DBP)
+                            bpf.dni = (bpf.SBP - bpf.notch ) / (bpf.SBP - bpf.DBP)
 
                     except Exception as e:
                         logger.warning(f"{e}")
@@ -2942,12 +2942,13 @@ class PigRAD:
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
-            #Sum basic stats
-            eda.sum_stats(sel_cols, "Numeric Features")
 
             #graph your features
             if eda.view_eda:
                 sel_cols = eda.feature_names[4:]
+
+                #Sum basic stats
+                eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
@@ -3123,3 +3124,6 @@ if __name__ == "__main__":
 #9.  Maybe use a clustering approach for labeling sections
 #10. Throw it all at an XGBOOST and look at feature importance. 
 #11. Couldn't hurt to verify feature importance with some SHAP values
+
+#Early models to try. 
+#https://computationalphysiology.github.io/circulation/examples/regazzoni_scipy.html
