@@ -542,7 +542,7 @@ class EDA(object):
             plt.xlabel(f'{feat_1}')
             plt.ylabel(f'{feat_2}')
             if self.fp_base:
-                fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
+                fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300)
             if self.view_eda:
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
@@ -596,7 +596,7 @@ class EDA(object):
             ax_hist.set_ylabel('Count')
             ax_box.set_xlabel('')
             if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+                fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
             if self.view_eda:
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
@@ -737,10 +737,10 @@ class EDA(object):
             if group:
                 title += f" by {group.name}"
             #Set the title and adjust it up a bit
-            jplot.fig.suptitle(f"{title}", y=0.98)
-            jplot.fig.subplots_adjust(top=0.95)
+            jplot.figure.suptitle(f"{title}", y=0.98)
+            jplot.figure.subplots_adjust(top=0.95)
             if self.fp_base:
-                jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+                jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
 
             if self.view_eda:
                 timer_error = jplot.figure.canvas.new_timer(interval = 3000)
@@ -2748,19 +2748,20 @@ class PigRAD:
                         sys_slope = None
                     if sys_slope:
                         bpf.sys_sl = sys_slope.item()
-                    
+                
 
-                        #updated this to calc off the carotid stream.  LAD 
-                        psv, edv = None, None
-                        sub_car = carwave[bpf.onset:s_peaks[id+1]]
-                        if sub_car.size == 0:
-                            bpf.ri = 0
-                        else:
-                            psv = np.max(sub_car)
-                            edv = sub_car[-1]
-                            if psv and edv:
-                                bpf.ri = self.calc_RI(psv, edv)
-                        
+                    #updated this to calc off the carotid stream.  LAD 
+                    psv, edv = None, None
+                    sub_car = carwave[bpf.onset:s_peaks[id+1]]
+                    if sub_car.size == 0:
+                        bpf.ri = 0
+                    else:
+                        psv = np.max(sub_car)
+                        edv = sub_car[-1]
+                        if psv and edv:
+                            bpf.ri = self.calc_RI(psv, edv)
+
+                    if bpf.notch:
                         #Get diastolic slope via exponential decay (regression)
                         notch_abs = bpf.sbp_id + bpf.notch_id
                         pe, pe_heights = find_peaks(
@@ -2777,8 +2778,7 @@ class PigRAD:
                             pass
                             #TODO - Need a backup for if it doesn't find a peak
                         
-                    # SS1 Features: P1, P2, P3 & AIx
-                    if bpf.notch:
+                        #Generate SS1 Features: P1, P2, P3 & AIx
                         p1_val, p2_val, p3_val = None, None, None
 
                         # Absolute index of the notch
