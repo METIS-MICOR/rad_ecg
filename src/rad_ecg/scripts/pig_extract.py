@@ -586,7 +586,7 @@ class EDA(object):
                 logger.info(f'plotting histogram for\n{feat_1}')
 
             sns.boxplot(data = _comb_df, x = _comb_df[feat_1], ax=ax_box)
-            title = f"Histogram_Boxplot_of_{feat_1}"
+            title = f"Histogram Boxplot of {feat_1}"
             ax_hist.set_title(f"{title}")
             ax_hist.set_xlabel(f'Distribution of {feat_1}')
             ax_hist.set_ylabel('Count')
@@ -708,6 +708,7 @@ class EDA(object):
                 for label, color in group_color_dict.items():
                     sns.regplot(
                         data = _comb_df.iloc[np.where(hue_target==label)[0], :],
+                        ax = jplot.ax_joint,
                         x = feat_1, 
                         y = feat_2,
                         color=color,
@@ -728,6 +729,9 @@ class EDA(object):
                 title += f" and {feat_2}"
             if group:
                 title += f" by {group.name}"
+            #Set the title and adjust it up a bit
+            jplot.fig.suptitle(f"{title}", y=0.98)
+            jplot.fig.subplots_adjust(top=0.95)
             if self.fp_base:
                 jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
 
