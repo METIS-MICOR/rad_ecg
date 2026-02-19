@@ -44,6 +44,7 @@ from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_auc_score, roc_curve, auc
 from sklearn.metrics import classification_report
+from shap import TreeExplainer
 
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
@@ -2943,14 +2944,16 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
             #Sum basic stats
             eda.sum_stats(sel_cols, "Numeric Features")
-            #Plot your eda charts
-            sel_cols = eda.feature_names[4:]
+
             #graph your features
             if eda.view_eda:
+                sel_cols = eda.feature_names[4:]
+                #Plot your eda charts
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
                     eda.eda_plot("histogram", feature)
                     eda.eda_plot("jointplot", "EBV", feature)
+                #Plot the heatmap
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
             
@@ -3019,8 +3022,9 @@ class PigRAD:
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
+                #TODO - Add SHAP Values as backup confirmation
                 modeltraining.SHAP()
-            #TODO - Add SHAP Values as backup confirmation
+            
 
 # --- Entry Point ---
 def load_choices(fp:str):
