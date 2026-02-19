@@ -1715,7 +1715,9 @@ class ModelTraining(object):
                 classification_summary(model_name, y_pred, True)
                 
             return scores.mean()
-
+        
+        def SHAP(self):
+            pass
 
         ###################### METRIC CENTRAL ##################################################
         metric = self._model_params[model_name]["scoring_metric"]
@@ -2939,6 +2941,9 @@ class PigRAD:
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
+            #Sum basic stats
+            eda.sum_stats(sel_cols, "Numeric Features")
+            #Plot your eda charts
             sel_cols = eda.feature_names[4:]
             #graph your features
             if eda.view_eda:
@@ -2948,8 +2953,7 @@ class PigRAD:
                     eda.eda_plot("jointplot", "EBV", feature)
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
-
-            eda.sum_stats(sel_cols, "Numeric Features")
+            
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
@@ -3015,7 +3019,7 @@ class PigRAD:
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
-            
+                modeltraining.SHAP()
             #TODO - Add SHAP Values as backup confirmation
 
 # --- Entry Point ---
