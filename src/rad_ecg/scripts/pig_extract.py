@@ -395,7 +395,7 @@ class EDA(object):
         # self.num_df.drop(more_drop_cols, axis=1, inplace=True)
 
         #Make correlation chart
-        fig = plt.figure(figsize=(16, 12))
+        fig = plt.figure(figsize=(12, 8))
         mask = np.triu(np.ones_like(self.num_corr, dtype=bool))
         heatmap = sns.heatmap(self.num_corr,
             mask=mask,
@@ -411,6 +411,10 @@ class EDA(object):
         if self.fp_base:
             fig.savefig(PurePath(self.fp_base, Path("heatmap.png")), dpi=300, bbox_inches='tight')
         if self.view_eda:
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            timer_error.start()
             plt.show()
         plt.close()
 
@@ -2623,20 +2627,19 @@ class PigRAD:
                 self.avg_data["EBV"][idx] = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
                 
                 #Find R peaks from ECG lead
+                # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
+                # #BUG - Erratic ECG
+                #     # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
+                #     # Need something.  Running blind now
+                #         #IDEA - could put STFT here for clean signal check 
+                #         #IDEA - What about phase variance?  Wavelets are quick!
 
-                ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
-                #BUG - Erratic ECG
-                    # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
-                    # Need something.  Running blind now
-                        #IDEA - could put STFT here for clean signal check 
-                        #IDEA - What about phase variance?  Wavelets are quick!
-
-                e_peaks, e_heights = find_peaks(
-                    x = ecgwave,
-                    prominence = np.percentile(ecgwave, 95),  #99 -> stock
-                    height = np.percentile(ecgwave, 90),      #95 -> stock
-                    distance = round(self.fs*(0.200))           
-                )
+                # e_peaks, e_heights = find_peaks(
+                #     x = ecgwave,
+                #     prominence = np.percentile(ecgwave, 95),  #99 -> stock
+                #     height = np.percentile(ecgwave, 90),      #95 -> stock
+                #     distance = round(self.fs*(0.200))           
+                # )
 
                 #Debug plot
                 # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
@@ -2644,7 +2647,7 @@ class PigRAD:
 
                 #Select section leads
                 ss1wave = self.full_data[self.channels[self.ss1_lead]][start:end].to_numpy()
-                ladwave = self.full_data[self.channels[self.lad_lead]][start:end]
+                # ladwave = self.full_data[self.channels[self.lad_lead]][start:end]
                 carwave = self.full_data[self.channels[self.car_lead]][start:end]
 
                 # first find systolic peaks
@@ -2750,14 +2753,13 @@ class PigRAD:
                         #updated this to calc off the carotid stream.  LAD 
                         psv, edv = None, None
                         sub_car = carwave[bpf.onset:s_peaks[id+1]]
-                        if len(sub_car) == 0:
+                        if sub_car.size == 0:
                             bpf.ri = 0
                         else:
                             psv = np.max(sub_car)
                             edv = sub_car[-1]
                             if psv and edv:
                                 bpf.ri = self.calc_RI(psv, edv)
-                            psv, edv = None, None
                         
                         #Get diastolic slope via exponential decay (regression)
                         notch_abs = bpf.sbp_id + bpf.notch_id
@@ -2878,7 +2880,7 @@ class PigRAD:
                 self.avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
                 self.avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
                 self.avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
-                # self.avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
+                self.avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
                 self.avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
                 self.avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
                 self.avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
@@ -2887,8 +2889,8 @@ class PigRAD:
                 self.avg_data["p1_p3"][idx]       = np.round(np.nanmean([rec.p1_p3 for rec in self.bp_data if rec.p1_p3 is not None]), precision)
                 self.avg_data["aix"][idx]         = np.round(np.nanmean([rec.aix for rec in self.bp_data if rec.aix is not None]), precision)
 
-            #Move the progbar
-            progress.advance(task)
+                #Move the progbar
+                progress.advance(task)
 
     def create_features(self):
         self.band_pass()
