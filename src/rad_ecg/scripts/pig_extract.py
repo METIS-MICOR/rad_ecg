@@ -46,12 +46,12 @@ from sklearn.metrics import roc_auc_score, roc_curve, auc
 from sklearn.metrics import classification_report
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import KFold, StratifiedKFold, LeavePOut, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
+from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
-from xgboost import XGBClassifier, DMatrix
+from xgboost import XGBClassifier
 
 #CLASS EDA
 class EDA(object):
@@ -395,7 +395,7 @@ class EDA(object):
         # self.num_df.drop(more_drop_cols, axis=1, inplace=True)
 
         #Make correlation chart
-        plt.figure(figsize=(16, 12))
+        fig = plt.figure(figsize=(16, 12))
         mask = np.triu(np.ones_like(self.num_corr, dtype=bool))
         heatmap = sns.heatmap(self.num_corr,
             mask=mask,
@@ -408,10 +408,10 @@ class EDA(object):
             fmt='.1f',
             cmap='RdYlGn')
         heatmap.set_title('Correlation Heatmap', fontdict={'fontsize':16}, pad=12)
+        if self.fp_base:
+            fig.savefig(Path(f"{self.fp_base}") + Path("heatmap.png"), dpi=300, bbox_inches='tight')
         if self.view_eda:
             plt.show()
-        if self.fp_base:
-            plt.savefig(Path(f"{self.fp_base}") + Path("heatmap.png"), dpi=300, bbox_inches='tight')
         plt.close()
 
     #FUNCTION eda_plot
@@ -528,10 +528,10 @@ class EDA(object):
 
             plt.xlabel(f'{feat_1}')
             plt.ylabel(f'{feat_2}')
+            if self.fp_base:
+                fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             if self.view_eda:
                 plt.show()
-            if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a histogram
@@ -577,10 +577,10 @@ class EDA(object):
             ax_hist.set_xlabel(f'Distribution of {feat_1}')
             ax_hist.set_ylabel('Count')
             ax_box.set_xlabel('')
+            if self.fp_base:
+                fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             if self.view_eda:
                 plt.show()
-            if self.fp_base:
-                plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
             plt.close()
 
         #If its a pairplot
@@ -627,7 +627,7 @@ class EDA(object):
                         markerfacecolor = val[1], 
                         markersize = 10) for val in group_color_dict.items()
                     ]
-                    pg.fig.get_axes()[-1].legend(
+                    pg.figure.get_axes()[-1].legend(
                         handles=legend_elements,
                         loc='upper right', 
                         # bbox_to_anchor = (0.98, 0.15),
@@ -646,10 +646,10 @@ class EDA(object):
                         # aspect=5
                         )
                     logger.info(f'plotting pairplot for\n{cols}')
+                if self.fp_base:
+                    pg.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
                 if self.view_eda:
                     plt.show()
-                if self.fp_base:
-                    plt.savefig(Path(f"{self.fp_base + title}.png"), dpi=300, bbox_inches='tight')
                 plt.close()
 
             # ax_hist.set_xlabel(f'Distribution of {feat_1}')
@@ -704,11 +704,10 @@ class EDA(object):
                 title += f" and {feat_2}"
             if group:
                 title += f" by {group.name}"
-
-            if self.view_eda:
-                plt.show()
             if self.fp_base:
                 plt.savefig(PurePath(f"{self.fp_base}", Path(f"{title}.png")), dpi=300, bbox_inches='tight')
+            if self.view_eda:
+                plt.show()
             plt.close()
 
 #CLASS Feature Engineering
@@ -1367,13 +1366,13 @@ class ModelTraining(object):
         Args:
             model_name (str): abbreviated name of the model
         """		
+        logger.info(f'{model_name}: making predictions')
+
         if self.category_value != None:
             self._predictions[model_name][self.category_value] = self._models[model_name][self.category_value].predict(self.X_test)
         else:
             self._predictions[model_name] = self._models[model_name].predict(self.X_test)
         
-        logger.info(f'{model_name}: making predictions')
-    
     #FUNCTION validate
     def validate(self, model_name):
         """This module handles the model metrics and which to run.   It
@@ -1432,10 +1431,10 @@ class ModelTraining(object):
                 # For multi-class, we just use Counts and Percentages (No TP/TN/FP/FN categories)
                 labs = [f"{count}\n{p}" for count, p in zip(counts, perc)]
                 
-            # Dynamically reshape labels to match the matrix dimensions
+            # reshape labels to match the matrix dimensions
             labs = np.asarray(labs).reshape(n_classes, n_classes)
             
-            # Dynamically size the figure based on the number of classes
+            # resize the figure based on the number of classes
             fig_size = max(6, n_classes * 1.5)
             fig, ax = plt.subplots(figsize=(fig_size, fig_size))
             
@@ -2353,12 +2352,12 @@ class PigRAD:
         self.full_data      :dict = self.loader.full_data
         self.channels       :list = self.loader.channels
         self.outcomes       :list = self.loader.outcomes
-        self.fs             :float = 1000.0                       #Hz
-        self.windowsize     :int = 8                              #size of section window 
-        self.ecg_lead       :str = 2 # self.pick_lead("ECG")      #pick the ECG lead
-        self.lad_lead       :str = 1 # self.pick_lead("Lad")      #pick the Lad lead
-        self.car_lead       :str = 6 # self.pick_lead("Cartoid")  #pick the Carotid lead
-        self.ss1_lead       :str = 4 # self.pick_lead("SS1")      #pick the SS1 lead
+        self.fs             :float = 1000.0                   #Hz
+        self.windowsize     :int = 8                          #size of section window 
+        self.ecg_lead       :str = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
+        self.lad_lead       :str = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
+        self.car_lead       :str = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
+        self.ss1_lead       :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
         #Section signals
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.avg_dtypes = [
@@ -2587,6 +2586,7 @@ class PigRAD:
                 self.avg_data["EBV"][idx] = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
                 
                 #Find R peaks from ECG lead
+
                 ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
                 #BUG - Erratic ECG
                     # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
@@ -2716,22 +2716,24 @@ class PigRAD:
                         
                         #Calc resistive index
                         if bpf.notch:
-                            
                             #BUG - calculation 
-                                #you need to update these ranges.  
+                                #Check this calc.  Not sure its on the right data stream.
+                                #I think this should be in LAD. 
                                 #psv -> bpf.onset:bpf.notch
                                 #edv -> bpf.notch:bpf.dbp_id
-                            psv, edv = None, None
+                                
                             notch_abs = bpf.sbp_id + bpf.notch_id
-                            sub_sy = ss1wave[bpf.onset:bpf.sbp_id]
-                            sub_di = ss1wave[notch_abs:bpf.dbp_id]
-                            d1_sy = self._derivative(sub_sy, 1)
-                            d1_di = self._derivative(sub_di, 1)
-                            psv = np.max(d1_sy)
-                            edv = np.min(d1_di)
-                            if psv and edv:
-                                bpf.ri = self.calc_RI(psv, edv)
-                            psv, edv = None, None
+                            # psv, edv = None, None
+                            # sub_sy = ss1wave[bpf.onset:notch_abs]
+                            # sub_di = ss1wave[notch_abs:bpf.dbp_id]
+                            # d1_sy = self._derivative(sub_sy, 1)
+                            # d1_di = self._derivative(sub_di, 1)
+                            # psv = np.max(d1_sy)
+                            # edv = np.min(d1_di)
+                            # if psv and edv:
+                            #     bpf.ri = self.calc_RI(psv, edv)
+                            # psv, edv = None, None
+                            
                             #IDEA - true vascular resistance
                                 # Since we have pressure and flow, can we calculate true vascular resistance?
 
@@ -2758,10 +2760,15 @@ class PigRAD:
                             notch_abs = bpf.sbp_id + bpf.notch_id
                             
                             # Define the entire systolic complex (onset to notch)
-                            sub_syst = ss1wave[bpf.onset : notch_abs]
-                            
-                            # 1st derivative of complex to find shoulders
-                            d1_sys_comp = self._derivative(sub_syst, 1)
+                            sub_syst = ss1wave[bpf.onset:notch_abs]
+                            try:
+                                # 1st derivative of complex to find shoulders
+                                d1_sys_comp = self._derivative(sub_syst, 1)
+
+                            except Exception as e:
+                                logger.info(f"shape of sub_syst = {sub_syst.shape}")
+                                logger.warning(f"{e}")
+                                continue
 
                             # Find true peaks in the systolic complex (Type A vs Type C)
                             sys_peaks, _ = find_peaks(sub_syst)
@@ -2850,7 +2857,7 @@ class PigRAD:
                     self.avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
                     self.avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
                     self.avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
-                    self.avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
+                    # self.avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
                     self.avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
                     self.avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
                     self.avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
