@@ -1709,7 +1709,8 @@ class ModelTraining(object):
                     "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     "leaveoneout" :LeaveOneOut(),
-                    # "leavepout"   :LeaveOneOut(p=2),
+                    "groupkfold"  :GroupKFold(n_splits=len(self.target_names), shuffle=True, random_state=42),
+                    # "leavepout"   :LeaveOneOut(p=2),  #Maybe try this one too 
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
                 }
@@ -3119,7 +3120,7 @@ class PigRAD:
         # Call it right here!
         self.save_results()
         console.print("[bold green]Features saved[/]")
-        
+
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
         If not found, runs the feature creation and modeling pipeline
@@ -3264,6 +3265,7 @@ def load_choices(fp:str, batch_process:bool=False):
         tree = Tree(f":open_file_folder: [link file://{fp}]{fp}", guide_style="bold bright_blue")
         walk_directory(Path(fp), tree)
         pprint(tree)
+
     except Exception as e:
         logger.warning(f"{e}")
     
@@ -3276,8 +3278,7 @@ def load_choices(fp:str, batch_process:bool=False):
         else:
             raise ValueError("Invalid choice")
     else:
-        files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
-        return files
+        return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
 
 # --- Entry Point ---
 @log_time
