@@ -1047,6 +1047,7 @@ class DataPrep(object):
         
         if engin:
             self.data = engin.data[features]
+            self.groups = list(set(engin.data["pig_id"]))
             self.feature_names = features
             self.target = engin.target
             self.target_names = engin.target_names
@@ -1208,6 +1209,7 @@ class ModelTraining(object):
         self.category_value = dataprep.category_value
         self.feature_names = dataprep.feature_names
         self.split = dataprep.split
+        self.groups = dataprep.groups
         self.target_names = dataprep.target_names
         self.gpu_devices = dataprep.gpu_devices
         self.task = dataprep.task
@@ -1736,8 +1738,11 @@ class ModelTraining(object):
             CV_func = load_cross_val(self.cross_val)
 
             #Validate
-            scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func)["test_score"]
-                #BUG - Don't i need to eval on the test set? for above?
+            if self.cross_val == "groupkfold":
+                groups = list(set(self.avg_data["pig_id"]))
+                scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), groups=groups, cv=CV_func)["test_score"]
+            else:
+                scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func)["test_score"]
 
             #reload model untrained model for cross_validation predictions
             freshmodel = ModelTraining.load_model(self, model_name)
@@ -3117,9 +3122,9 @@ class PigRAD:
     def create_features(self):
         self.section_extract()
         console.print("[bold green]Features created...[/]")
-        # Call it right here!
-        self.save_results()
-        console.print("[bold green]Features saved[/]")
+        # #Save Results
+        # self.save_results()
+        # console.print("[bold green]Features saved[/]")
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -3181,7 +3186,7 @@ class PigRAD:
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
-            ofinterest = [engin.data.columns[x] for x in range(3, engin.data.shape[1])]
+            ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             
             #Engineer your features here. available transforms below
             #log:  Log Transform
