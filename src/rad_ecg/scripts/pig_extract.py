@@ -1047,7 +1047,7 @@ class DataPrep(object):
         
         if engin:
             self.data = engin.data[features]
-            self.groups = list(set(engin.data["pig_id"]))
+            self.groups = engin.data["pig_id"]
             self.feature_names = features
             self.target = engin.target
             self.target_names = engin.target_names
@@ -1711,7 +1711,7 @@ class ModelTraining(object):
                     "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     "leaveoneout" :LeaveOneOut(),
-                    "groupkfold"  :GroupKFold(n_splits=len(self.target_names), shuffle=True, random_state=42),
+                    "groupkfold"  :GroupKFold(n_splits=10, shuffle=True, random_state=42),
                     # "leavepout"   :LeaveOneOut(p=2),  #Maybe try this one too 
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
@@ -1739,7 +1739,7 @@ class ModelTraining(object):
 
             #Validate
             if self.cross_val == "groupkfold":
-                groups = list(set(self.avg_data["pig_id"]))
+                groups = self.groups
                 scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), groups=groups, cv=CV_func)["test_score"]
             else:
                 scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func)["test_score"]
@@ -3171,7 +3171,6 @@ class PigRAD:
             #graph your features
             if eda.view_eda:
                 sel_cols = eda.feature_names[4:]
-
                 #Sum basic stats
                 eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
