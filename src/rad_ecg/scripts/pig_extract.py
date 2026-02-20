@@ -100,7 +100,7 @@ class EDA(object):
         self.drop_nulls("HR")
 
         #Drop col used to make target if we're modeling. 
-        if self.fp_base:
+        if not self.view_eda:
             for col in ["EBV"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
@@ -1856,7 +1856,7 @@ class ModelTraining(object):
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize = (10, 8))
         feat_imp = sorted(zip(features, imps), key=lambda x: -x[1])[:20]
         dfeats = pd.DataFrame(data = feat_imp, columns=["Name", "Imp"])
-        plt.barh(
+        barchart = plt.barh(
             y=dfeats["Name"], 
             height=0.8,
             width=dfeats["Imp"],
@@ -1870,7 +1870,7 @@ class ModelTraining(object):
     #FUNCTION importance plot
     def SHAP(self, model:str, features:list):
         #Variable definition
-        plots_to_show = ["bar", "violin", "waterfall"]
+        plots_to_show = ["bar",] #"waterfall", "violin"
         X_train = self._traind[model]["X_train"]
         fitted_model = self._models[model]
 
@@ -1893,10 +1893,10 @@ class ModelTraining(object):
             plt.show()
 
         if "violin" in plots_to_show:
-            plt.figure()
+            fig = plt.figure()
             # Summary plot still uses raw values for violin type
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="violin", color="coolwarm", show=False)
-            plt.title(f"{model} Violin of Feature Importance", size=12)
+            fig.figure.suptitle(f"{model} Violin of Feature Importance", size=12)
             plt.show()
 
         if "beeswarm" in plots_to_show:
@@ -1921,24 +1921,24 @@ class ModelTraining(object):
 
         if "waterfall" in plots_to_show:
             try:
-                plt.figure()
-                
+                fig = plt.figure()
                 # Check if the explanation object is 3D (Multi-class/Multi-output)
                 if len(explanation.shape) == 3:
                     # explanation[instance_index, feature_slice, class_index]
                     # We'll plot the explanation for the 1st observation (0), all features (:), and the 1st class (0)
                     target_class = 0 
                     shap.plots.waterfall(explanation[0, :, target_class], show=False)
-                    plt.title(f"{model} Waterfall Plot (Instance 0, Class {target_class})", size=12)
+                    fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0, Class {target_class})", size=12)
                 else:
                     # Standard 2D explanation (Binary classification or Regression)
                     shap.plots.waterfall(explanation[0], show=False)
-                    plt.title(f"{model} Waterfall Plot (Instance 0)", size=12)
+                    fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0)", size=12)
                     
                 plt.show()
                 
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
+
     #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name:str, folds:int):
@@ -1951,7 +1951,8 @@ class ModelTraining(object):
             clf, 
             n_jobs=-1, 
             param_grid=params, 
-            cv = folds, scoring=metric
+            cv = folds, 
+            scoring=metric
         )
         
         # For super fun spinner action in your terminal.
@@ -2128,27 +2129,62 @@ class CardiacPhaseTools:
                 progress.advance(task)
 
         return metric_curve
+    def STFT(self):
+        pass
+    #TODO - Add STFT components. 
+        #Port over code from peak_detect_v3 to try and generate the first 3 harmonics of frequency and PSD (Power spectral density) as averaged model inputs for your avg data
+    #Or use wasserstein distance of the distribution of frequencies to test for a distributional shift. 
+        #Ask Ryan if there would be a better distribution test. (Heavily right tailed)
 
-# --- Data Loader ---
+# --- Data Loader ---   
 class SignalDataLoader:
-    """Handles loading and structuring the NPZ data."""
+    """Handles loading and structuring of the data. Will do single file and batch loading."""
     def __init__(self, file_path):
-        self.file_path = str(file_path)
-        if self.file_path.endswith("npz"):
-            self.container = np.load(self.file_path)
-            self.files = self.container.files
-            self.channels = self._identify_and_sort_channels()
-            self.full_data = self._stitch_blocks()
-        elif self.file_path.endswith("pkl"):
-            self.container = np.load(self.file_path, allow_pickle=True)
-            self.full_data = self.container.to_dict(orient="series")
-            self.channels = self.container.columns.to_list()
-            if "ShockClass" in self.channels:
-                self.outcomes = self.full_data.pop("ShockClass")
-                self.channels.pop(self.channels.index("ShockClass"))
-            else:
-                self.outcomes = None
+        self.is_batch = isinstance(file_path, list)
         
+        # Batch loading
+        if self.is_batch:
+            self.file_paths = file_path
+            self.full_data = []
+            self.channels = []
+            self.outcomes = []
+            
+            for id, path in enumerate(self.file_paths):
+                data, channels, outcomes = self._load_single_file(path, id)
+                self.full_data.append(data)
+                self.channels.append(channels)
+                self.outcomes.append(outcomes)
+                
+        # Single file loading
+        elif isinstance(file_path, str):
+            self.file_path = file_path
+            self.full_data, self.channels, self.outcomes = self._load_single_file(file_path)
+            
+        else:
+            raise ValueError("Path input selected invalid. Must be a string or a list of strings.")
+
+    def _load_single_file(self, path, file_num:int):
+        """Core logic to load, extract, and structure data for a single file."""
+        full_data = {}
+        channels = []
+        outcomes = None
+
+        if path.endswith("npz"):
+            container = np.load(path)
+            files = container.files
+            channels = self._identify_and_sort_channels(files)
+            full_data = self._stitch_blocks(container, files, channels)
+            
+        elif path.endswith("pkl"):
+            container = np.load(path, allow_pickle=True)
+            full_data = container.to_dict(orient="series")
+            channels = container.columns.to_list()
+            if "ShockClass" in channels:
+                outcomes = full_data.pop("ShockClass")
+                channels.remove("ShockClass") # Cleaner than pop(index)
+                
+        return full_data, channels, outcomes
+
     def _identify_and_sort_channels(self):
         """
         Identifies unique channel names from NPZ keys and returns them 
@@ -2521,16 +2557,26 @@ class PigRAD:
         self.npz_path     :Path = npz_path
         self.fp_base      :Path = Path(npz_path).parent / Path(npz_path).stem                  # For saving graphs
         self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")  # For saving features
-        self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        self.full_run     :bool = isinstance(npz_path, list)
+
+        #Single file load
+        if not self.full_run:
+            self.loader   :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        #Batch files load
+        elif self.full_run:
+            self.loader   :SignalDataLoader = SignalDataLoader(self.npz_path)
+
         self.full_data    :dict = self.loader.full_data
         self.channels     :list = self.loader.channels
         self.outcomes     :list = self.loader.outcomes
         self.fs           :float = 1000.0                   #Hz
         self.windowsize   :int = 8                          #size of section window 
+        #TODO - Will need logic to automatically select leads
         self.ecg_lead     :str = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
         self.lad_lead     :str = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
         self.car_lead     :str = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
         self.ss1_lead     :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
+
         #Section signals
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.avg_dtypes = [
@@ -2562,8 +2608,7 @@ class PigRAD:
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.view_eda     :bool = False
         self.view_gui     :bool = False
-        #TODO - Build loop to load all pig data and run with GroupKFold cross val
-        self.full_run     :bool = False
+
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2587,15 +2632,15 @@ class PigRAD:
                 "C3":(0.60, 0.70),   
                 "C4":(0.00, 0.60),   
             }
-            levels = list(self.target_levels.keys())
-            conditions = [
-                ebv_arr >= 1.00,                       #Baseline - No blood loss
-                (ebv_arr >= 0.85) & (ebv_arr < 1.00),  #C1 - 0.85 <= ebv <= 1.0
-                (ebv_arr >= 0.70) & (ebv_arr < 0.85),  #C2 - 0.7 <= ebv <= 0.85
-                (ebv_arr >= 0.60) & (ebv_arr < 0.70),  #C3 - 0.6 <= ebv <= 0.7
-                ebv_arr < 0.60                         #C4 - 0.0 = ebv <= 0.6
-            ]
-            self.target = np.select(conditions, levels, default="UNKNOWN")
+        levels = list(self.target_levels.keys())
+        conditions = [
+            ebv_arr >= 1.00,                       #Baseline - No blood loss
+            (ebv_arr >= 0.85) & (ebv_arr < 1.00),  #C1 - 0.85 <= ebv <= 1.0
+            (ebv_arr >= 0.70) & (ebv_arr < 0.85),  #C2 - 0.7 <= ebv <= 0.85
+            (ebv_arr >= 0.60) & (ebv_arr < 0.70),  #C3 - 0.6 <= ebv <= 0.7
+            ebv_arr < 0.60                         #C4 - 0.0 = ebv <= 0.6
+        ]
+        self.target = np.select(conditions, levels, default="UNKNOWN")
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -2634,7 +2679,7 @@ class PigRAD:
         logger.warning(f"Saved {output_path.name} ({mb_size:.2f} MB)")
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
-        """Calculates smoothed, 1st, and 2nd derivatives using scipy's Savitzky-Golay filter.
+        """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
 
         Args:
             signal (np.array): waveform
@@ -2804,7 +2849,7 @@ class PigRAD:
 
                 #NOTE - Changing HR extraction to SS1. ECG is too unreliable.
                 if 3 <= s_peaks.size >= 100:
-                    logger.info(f"sect {idx} peaks invalid for HR/SS1 extract")
+                    logger.info(f"sect {idx} peaks invalid for extract")
                     continue
                 else:                
                     #Calc HR
@@ -2815,7 +2860,6 @@ class PigRAD:
                     else:
                         logger.warning(f"Empty slice encountered in sect {idx}")
 
-                
                 for id, peak in enumerate(s_peaks[:-1]):
                     #Load a dataclass  of features to attach to pigrad bp_data
                     bpf = BP_Feat()
@@ -3132,7 +3176,6 @@ class PigRAD:
             #'rfc':RandomForestClassifier
             #'xgboost':XGBoostClassfier
             #'kneigh': KNeighborsClassifier
-            #TODO - Add KNeighbors params
             console.print("[green]prepping data for training...[/]")
             dp = DataPrep(ofinterest, scaler, cross_val, engin)
             modellist = ['svm', 'rfc', 'xgboost', 'kneigh']
@@ -3161,7 +3204,7 @@ class PigRAD:
                 #TODO - refactor grid_search
                 # modeltraining._grid_search(tree, 5)
 
-def load_choices(fp:str):
+def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
 
     Args:
@@ -3178,20 +3221,26 @@ def load_choices(fp:str):
         walk_directory(Path(fp), tree)
         pprint(tree)
     except Exception as e:
-        logger.warning(f"{e}")        
-
-    question = "What file would you like to load?\n"
-    file_choice = console.input(f"{question}")
-    if file_choice.isnumeric():
-        files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
-        return files[int(file_choice)]
+        logger.warning(f"{e}")
+    
+    if not batch_process:
+        question = "What file would you like to load?\n"
+        file_choice = console.input(f"{question}")
+        if file_choice.isnumeric():
+            files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+            return files[int(file_choice)]
+        else:
+            raise ValueError("Invalid choice")
     else:
-        raise ValueError("Invalid choice")
+        files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+        return files
 
 # --- Entry Point ---
+@log_time
 def main():
-    fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    selected = load_choices(fp)
+    fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
+    batch_process:bool = False
+    selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
     rad.run_pipeline()
 
