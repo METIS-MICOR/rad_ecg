@@ -3116,7 +3116,10 @@ class PigRAD:
     def create_features(self):
         self.section_extract()
         console.print("[bold green]Features created...[/]")
-
+        # Call it right here!
+        self.save_results()
+        console.print("[bold green]Features saved[/]")
+        
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
         If not found, runs the feature creation and modeling pipeline
@@ -3209,7 +3212,7 @@ class PigRAD:
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
             #stratshuffle: StratifiedShuffleSplit
-            cross_val = "kfold"
+            cross_val = "groupkfold"
             
             #Classifiers
             #'svm':LinearSVC
