@@ -3033,6 +3033,7 @@ class PigRAD:
             #kfold       : KFold Validation
             #stratkfold  : StratifiedKFold
             #groupkfold  : GroupKfold
+            #TODO Add GroupKFold Params
             #leavepout   : Leave p out 
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
@@ -3070,7 +3071,8 @@ class PigRAD:
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
-                modeltraining._grid_search(tree, 10)
+                #TODO - refactor grid_search
+                # modeltraining._grid_search(tree, 10)
 
 # --- Entry Point ---
 def load_choices(fp:str):
