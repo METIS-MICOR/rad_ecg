@@ -2141,7 +2141,8 @@ class SignalDataLoader:
     """Handles loading and structuring of the data. Will do single file and batch loading."""
     def __init__(self, file_path):
         self.is_batch = isinstance(file_path, list)
-        self.records = {} # Dictionary mapping {pig_id: {'data': full_data, 'channels': channels, 'outcomes': outcomes}}
+        # Dictionary mapping {pig_id: {'data': full_data, 'channels': channels, 'outcomes': outcomes}}
+        self.records = {} 
         
         # Standardize to a list
         paths = file_path if self.is_batch else [file_path]
@@ -2751,8 +2752,6 @@ class PigRAD:
         """Function to run the bandpass over LAD and Carotid leads
         """        
         #Bandpass the flow streams and ECG.
-        for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
-            self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
 
     def calc_RI(self, psv:float, edv:float) -> float:
         """
@@ -2799,7 +2798,7 @@ class PigRAD:
                 pig_avg_data["start"] = sections[:, 0]
                 pig_avg_data["end"] = sections[:, 1]
                 pig_avg_data["valid"] = sections[:, 2]
-                del self.sections
+                del sections
 
                 #Calc estimated blood volume for section. 
                 if "EBV" in channels:
@@ -2821,7 +2820,12 @@ class PigRAD:
                     (ebv_arr >= 0.60) & (ebv_arr < 0.70),  #C3 - 0.6 <= ebv <= 0.7
                     ebv_arr < 0.60                         #C4 - 0.0 = ebv <= 0.6
                 ]
+
                 target = np.select(conditions, levels, default="UNKNOWN")
+
+                #bandpass the ecg, lad, and carotid signals
+                for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
+                    full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
 
                 jobtask_proc = progress.add_task(f"Calculating features for {pig_id}...", total=pig_avg_data.shape[0])
                 for idx, section in enumerate(pig_avg_data):
@@ -2848,9 +2852,9 @@ class PigRAD:
                     # plt.scatter(e_peaks, e_heights["peak_heights"], color="red")
 
                     #Select section leads
-                    ss1wave = pig_avg_data[channels[self.ss1_lead]][start:end].to_numpy()
+                    ss1wave = full_data[channels[self.ss1_lead]][start:end].to_numpy()
                     # ladwave = self.full_data[channels[self.lad_lead]][start:end]
-                    carwave = pig_avg_data[channels[self.car_lead]][start:end]
+                    carwave = full_data[channels[self.car_lead]][start:end]
 
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
@@ -3072,8 +3076,8 @@ class PigRAD:
                         #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
                         self.bp_data.append(bpf)
                     
-                    pig_avg_data["EBV"][idx]         = np.round(np.nanmean(self.full_data["EBV"][start:end]), precision)
-                    pig_avg_data["shock_class"][idx] = Counter(self.target[start:end]).most_common()[0][0].item()
+                    pig_avg_data["EBV"][idx]         = np.round(np.nanmean(full_data["EBV"][start:end]), precision)
+                    pig_avg_data["shock_class"][idx] = Counter(target[start:end]).most_common()[0][0].item()
                     pig_avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
                     pig_avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in self.bp_data if rec.SBP is not None]), precision)
                     pig_avg_data["DBP"][idx]         = np.round(np.nanmean([rec.DBP for rec in self.bp_data if rec.DBP is not None]), precision)
@@ -3100,8 +3104,9 @@ class PigRAD:
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
                 #Move the larger progbar
+                progress.remove_task(jobtask_proc)
                 progress.advance(jobtask)
-
+                
         # After all pigs are processed, concatenate into a single master array
         self.avg_data = np.concatenate(self.all_avg_data)
         end_text = f"[bold green]Batch processing complete. Total records: {self.avg_data.shape[0]}[/]"
@@ -3109,7 +3114,6 @@ class PigRAD:
         console.print(end_text)    
 
     def create_features(self):
-        self.band_pass()
         self.section_extract()
         console.print("[bold green]Features created...[/]")
 
@@ -3276,7 +3280,7 @@ def load_choices(fp:str, batch_process:bool=False):
 @log_time
 def main():
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    batch_process:bool = False
+    batch_process:bool = True
     selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
     rad.run_pipeline()
