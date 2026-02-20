@@ -51,6 +51,7 @@ from shap import TreeExplainer
 from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
@@ -1833,6 +1834,7 @@ class ModelTraining(object):
         shap.summary_plot(shap_values, self._traind[model]["X_train"], feature_names=features, plot_type="bar", show=False)
         plt.title("SHAP Feature Importance", size=12)
         plt.show()
+
         try:
             #Waterfall
             shap.waterfall_plot(shap_water[0, 0])
@@ -1841,13 +1843,7 @@ class ModelTraining(object):
 
         except Exception as e:
             logger.warning(f"{e}")
-        # interactions = explainer.shap_interaction_values(self._traind[model]["X_train"])
-        # feature_index = features
-        # for feature in feature_index:
-        #     shap.dependence_plot((feature, "EBV"), interactions, self._traind[model]["X_train"], feature_names=features, show=False)
-        #     plt.title(f"SHAP Dependence Plot - {feature_index[feature_index.index(feature)]}")
-        #     plt.show()    
-    
+
     #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name:str, folds:int):
@@ -3047,6 +3043,8 @@ class PigRAD:
             #'svm':LinearSVC
             #'rfc':RandomForestClassifier
             #'xgboost':XGBoostClassfier
+            #'kneigh': KNeighborsClassifier
+            #TODO - Add KNeighbors params
             console.print("[green]prepping data for training...[/]")
             dp = DataPrep(ofinterest, scaler, cross_val, engin)
             modellist = ['svm', 'rfc', 'xgboost']
@@ -3063,7 +3061,6 @@ class PigRAD:
                 modeltraining.fit(model)
                 modeltraining.predict(model)
                 modeltraining.validate(model)
-                
                 time.sleep(1)
             
             modeltraining.show_results(modellist, sort_des=False) 
@@ -3073,7 +3070,7 @@ class PigRAD:
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
-            
+                modeltraining._grid_search(tree, 10)
 
 # --- Entry Point ---
 def load_choices(fp:str):
