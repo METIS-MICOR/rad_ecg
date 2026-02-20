@@ -1047,7 +1047,7 @@ class DataPrep(object):
         
         if engin:
             self.data = engin.data[features]
-            self.groups = engin.data["pig_id"]
+            self.groups = np.unique(engin.data["pig_id"])
             self.feature_names = features
             self.target = engin.target
             self.target_names = engin.target_names
@@ -1712,6 +1712,8 @@ class ModelTraining(object):
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     "leaveoneout" :LeaveOneOut(),
                     "groupkfold"  :GroupKFold(n_splits=10, shuffle=True, random_state=42),
+                    # TODO - Look at GroupShuffle
+                        #may be data leakage through kfold
                     # "leavepout"   :LeaveOneOut(p=2),  #Maybe try this one too 
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
@@ -3217,7 +3219,7 @@ class PigRAD:
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
             #stratshuffle: StratifiedShuffleSplit
-            cross_val = "groupkfold"
+            cross_val = "kfold"
             
             #Classifiers
             #'svm':LinearSVC
