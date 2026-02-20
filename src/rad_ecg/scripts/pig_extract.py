@@ -36,7 +36,7 @@ from setup_globals import walk_directory
 from support import logger, console, log_time, NumpyArrayEncoder
 
 ########################### Sklearn imports ###############################
-from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
@@ -1160,7 +1160,8 @@ class DataPrep(object):
             scalernm = self.scaler
             scaler_dict = {
                 "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
-                "s_scale":StandardScaler()
+                "s_scale":StandardScaler(), 
+                "m_scale":MinMaxScaler(feature_range=(0, 1))
             }
             scaler = scaler_dict.get(scalernm)
             if not scaler:
@@ -1169,7 +1170,6 @@ class DataPrep(object):
             self._traind[model_name]["X"] = scaler.fit_transform(self._traind[model_name]["X"], self._traind[model_name]["y"])
             self.scaled = True
             logger.info(f"{model_name}'s data has been scaled with {scaler.__class__()} ")
-        
 
         #MEAS Test train split
         X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
@@ -1259,6 +1259,39 @@ class ModelTraining(object):
                     # "max_features":["sqrt", "log2", None]
                 }
             },
+            "kneigh":{
+                "model_name":"KNeighborsClassifier  ", 
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
+                "base_params":{
+                    "n_neighbors":5,                   #int | 100		
+                    "weights":"uniform",                #str | uniform
+                    "algorithm":"auto",                 #str | auto
+                    "leaf_size":30,                     #int | 30
+                    "p":2,                              #int | 2
+                    "metric":"minkowski",               #str | minkowski
+                    "metric_params":None,               #dict | None
+                    "n_jobs":None,                      #int | None
+                },
+                "init_params":{
+                    "n_neighbors":5,                   #int | 100		
+                    "weights":"uniform",                #str | uniform
+                    "algorithm":"auto",                 #str | auto
+                    "leaf_size":30,                     #int | 30
+                    "p":2,                              #int | 2
+                    "metric":"minkowski",               #str | minkowski
+                    "metric_params":None,               #dict | None
+                    "n_jobs":None,                      #int | None
+                },
+                "grid_srch_params":{
+                    "n_estimators":range(5, 200, 10),
+                    "weights":["uniform", "distance"],
+                    "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
+                    "leaf_size":range(5, 50),             
+                }
+            },
             "svm":{
                 #Notes. 
                     #
@@ -1338,13 +1371,13 @@ class ModelTraining(object):
 
     #FUNCTION Load Model
     def load_model(self, model_name:str):
-        """_summary_
+        """Loads model with initial parameters
 
         Args:
             model_name (str): _description_
 
         Returns:
-            _type_: _description_
+            model: Model ready for training
         """			
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
@@ -1360,6 +1393,8 @@ class ModelTraining(object):
                 return RandomForestClassifier(**params)
             case 'xgboost':
                 return XGBClassifier(**params)
+            case 'kneigh':
+                return KNeighborsClassifier(**params)
 
     #FUNCTION models fit
     @log_time
@@ -1834,29 +1869,76 @@ class ModelTraining(object):
 
     #FUNCTION importance plot
     def SHAP(self, model:str, features:list):
+        #Variable definition
+        plots_to_show = ["bar", "violin", "waterfall"]
+        X_train = self._traind[model]["X_train"]
+        fitted_model = self._models[model]
+
         #Load the trained model into the tree explainer
-        tree_explainer = shap.TreeExplainer(self._models[model])
-        shap_values = tree_explainer.shap_values(self._traind[model]["X_train"], self._predictions[model])
-        shap_water = tree_explainer(self._traind[model]["X_train"])
-        #Violin type summary of SHAP
-        shap.summary_plot(shap_values, self._traind[model]["X_train"], feature_names=features, plot_type="violin", color="coolwarm", show=False)
-        plt.title("Violin of feature importance")
-        plt.show()
+        # 1. Load the TreeExplainer
+        tree_explainer = shap.TreeExplainer(fitted_model)
+        
+        # 2. Generate the Explanation object (modern API)
+        # This replaces the need for raw shap_values in most modern plots
+        explanation = tree_explainer(X_train, self._predictions[model])
+        
+        # Fallback raw values (legacy) for plots that haven't migrated yet
+        shap_values_raw = tree_explainer.shap_values(X_train, self._predictions[model])
 
-        #Bar type summary of SHAP
-        shap.summary_plot(shap_values, self._traind[model]["X_train"], feature_names=features, plot_type="bar", show=False)
-        plt.title("SHAP Feature Importance", size=12)
-        plt.show()
-
-        try:
-            #Waterfall
-            shap.waterfall_plot(shap_water[0, 0])
-            plt.title("Waterfall Plot", size=12)
+        if "bar" in plots_to_show:
+            splot = plt.figure()
+            shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="bar", show=False)
+            splot.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
+            splot.figure.subplots_adjust(top=0.95)
             plt.show()
 
-        except Exception as e:
-            logger.warning(f"{e}")
+        if "violin" in plots_to_show:
+            plt.figure()
+            # Summary plot still uses raw values for violin type
+            shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="violin", color="coolwarm", show=False)
+            plt.title(f"{model} Violin of Feature Importance", size=12)
+            plt.show()
 
+        if "beeswarm" in plots_to_show:
+            plt.figure()
+            shap.plots.beeswarm(explanation, show=False)
+            plt.title(f"{model} SHAP Beeswarm Summary", size=12)
+            plt.show()
+
+        if "heatmap" in plots_to_show:
+            plt.figure()
+            shap.plots.heatmap(explanation, show=False)
+            plt.title(f"{model} SHAP Heatmap", size=12)
+            plt.show()
+
+        if "scatter" in plots_to_show:
+            plt.figure()
+            # Defaults to showing the first feature's dependence, colored by the strongest interacting feature
+            top_feature = features[0] if features else 0
+            shap.plots.scatter(explanation[:, top_feature], color=explanation, show=False)
+            plt.title(f"{model} SHAP Scatter/Dependence", size=12)
+            plt.show()
+
+        if "waterfall" in plots_to_show:
+            try:
+                plt.figure()
+                
+                # Check if the explanation object is 3D (Multi-class/Multi-output)
+                if len(explanation.shape) == 3:
+                    # explanation[instance_index, feature_slice, class_index]
+                    # We'll plot the explanation for the 1st observation (0), all features (:), and the 1st class (0)
+                    target_class = 0 
+                    shap.plots.waterfall(explanation[0, :, target_class], show=False)
+                    plt.title(f"{model} Waterfall Plot (Instance 0, Class {target_class})", size=12)
+                else:
+                    # Standard 2D explanation (Binary classification or Regression)
+                    shap.plots.waterfall(explanation[0], show=False)
+                    plt.title(f"{model} Waterfall Plot (Instance 0)", size=12)
+                    
+                plt.show()
+                
+            except Exception as e:
+                logger.warning(f"Waterfall plot failed: {e}")
     #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name:str, folds:int):
@@ -1865,7 +1947,12 @@ class ModelTraining(object):
         clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
-        grid = GridSearchCV(clf, param_grid=params, cv = folds, scoring=metric)
+        grid = GridSearchCV(
+            clf, 
+            n_jobs=-1, 
+            param_grid=params, 
+            cv = folds, scoring=metric
+        )
         
         # For super fun spinner action in your terminal.
         progress = Progress(
@@ -2475,7 +2562,8 @@ class PigRAD:
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         self.view_eda     :bool = False
         self.view_gui     :bool = False
-
+        #TODO - Build loop to load all pig data and run with GroupKFold cross val
+        self.full_run     :bool = False
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
         self.avg_data["end"] = self.sections[:, 1]
@@ -2636,16 +2724,6 @@ class PigRAD:
         #Bandpass the flow streams and ECG.
         for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
             self.full_data[self.channels[lead]] = self._bandpass_filt(data=self.full_data[self.channels[lead]])
-
-    def normalize(self):
-        """Normalizes all channels by min max method
-
-        Args:
-            signal (np.array): Various biological waveforms
-        """        
-        for channel in self.channels:
-            signal = self.full_data[channel]
-            self.full_data[channel] = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
 
     def calc_RI(self, psv:float, edv:float) -> float:
         """
@@ -2952,9 +3030,7 @@ class PigRAD:
 
     def create_features(self):
         self.band_pass()
-        # self.normalize()
         self.section_extract()
-        
         console.print("[bold green]Features created...[/]")
 
     def run_pipeline(self):
@@ -3039,13 +3115,12 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "s_scale"
+            scaler = "m_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
             #stratkfold  : StratifiedKFold
             #groupkfold  : GroupKfold
-            #TODO Add GroupKFold Params
             #leavepout   : Leave p out 
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
@@ -3060,7 +3135,7 @@ class PigRAD:
             #TODO - Add KNeighbors params
             console.print("[green]prepping data for training...[/]")
             dp = DataPrep(ofinterest, scaler, cross_val, engin)
-            modellist = ['svm', 'rfc', 'xgboost']
+            modellist = ['svm', 'rfc', 'xgboost', 'kneigh']
             
             #split the training data #splits: test 25%, train 75% 
             [dp.data_prep(model, 0.25) for model in modellist]
@@ -3084,9 +3159,8 @@ class PigRAD:
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
                 #TODO - refactor grid_search
-                modeltraining._grid_search(tree, 5)
+                # modeltraining._grid_search(tree, 5)
 
-# --- Entry Point ---
 def load_choices(fp:str):
     """Loads whatever file you pick
 
@@ -3114,6 +3188,7 @@ def load_choices(fp:str):
     else:
         raise ValueError("Invalid choice")
 
+# --- Entry Point ---
 def main():
     fp = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     selected = load_choices(fp)
