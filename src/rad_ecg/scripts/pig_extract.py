@@ -1,5 +1,6 @@
 import os
 import time
+import shap
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -98,7 +99,7 @@ class EDA(object):
         self.drop_nulls("HR")
 
         #Drop col used to make target if we're modeling. 
-        if not self.fp_base:
+        if self.fp_base:
             for col in ["EBV"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
@@ -106,6 +107,12 @@ class EDA(object):
         
         #Drop the target column.
         self.target = self.data.pop("shock_class")
+
+        #BUG - Class imbalance.  
+        #We will have a class imbalance because some of the pigs don't represent
+        #each stage of hem shock.  So either I can rebalance them with something
+        #like SMOTE, or...  assign class weights to the models. 
+        
 
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
@@ -1365,7 +1372,6 @@ class ModelTraining(object):
             model_name (str): abbreviated name of the model to run
             
         """
-
         #MEAS Model training \ Param loading
         ####################  Model Load  ##############################		
         self.model = ModelTraining.load_model(self, model_name)
@@ -1716,9 +1722,6 @@ class ModelTraining(object):
                 classification_summary(model_name, y_pred, True)
                 
             return scores.mean()
-        
-        def SHAP(self):
-            pass
 
         ###################### METRIC CENTRAL ##################################################
         metric = self._model_params[model_name]["scoring_metric"]
@@ -1815,6 +1818,36 @@ class ModelTraining(object):
         plt.ylabel("Feature Name")
         plt.show()
 
+    #FUNCTION importance plot
+    def SHAP(self, model:str, features:list):
+        #Load the trained model into the tree explainer
+        tree_explainer = shap.TreeExplainer(self._models[model])
+        shap_values = tree_explainer.shap_values(self._traind[model]["X_train"], self._predictions[model])
+        shap_water = tree_explainer(self._traind[model]["X_train"])
+        #Violin type summary of SHAP
+        shap.summary_plot(shap_values, self._traind[model]["X_train"], feature_names=features, plot_type="violin", color="coolwarm", show=False)
+        plt.title("Violin of feature importance")
+        plt.show()
+
+        #Bar type summary of SHAP
+        shap.summary_plot(shap_values, self._traind[model]["X_train"], feature_names=features, plot_type="bar", show=False)
+        plt.title("SHAP Feature Importance", size=12)
+        plt.show()
+        try:
+            #Waterfall
+            shap.waterfall_plot(shap_water[0, 0])
+            plt.title("Waterfall Plot", size=12)
+            plt.show()
+
+        except Exception as e:
+            logger.warning(f"{e}")
+        # interactions = explainer.shap_interaction_values(self._traind[model]["X_train"])
+        # feature_index = features
+        # for feature in feature_index:
+        #     shap.dependence_plot((feature, "EBV"), interactions, self._traind[model]["X_train"], feature_names=features, show=False)
+        #     plt.title(f"SHAP Dependence Plot - {feature_index[feature_index.index(feature)]}")
+        #     plt.show()    
+    
     #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name:str, folds:int):
@@ -2959,7 +2992,7 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
 
             #graph your features
-            if eda.fp_base:
+            if eda.view_eda:
                 sel_cols = eda.feature_names[4:]
 
                 #Sum basic stats
@@ -3030,6 +3063,7 @@ class PigRAD:
                 modeltraining.fit(model)
                 modeltraining.predict(model)
                 modeltraining.validate(model)
+                
                 time.sleep(1)
             
             modeltraining.show_results(modellist, sort_des=False) 
@@ -3038,8 +3072,7 @@ class PigRAD:
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, ofinterest, feats)
-                #TODO - Add SHAP Values as backup confirmation
-                modeltraining.SHAP()
+                modeltraining.SHAP(tree, ofinterest)
             
 
 # --- Entry Point ---
