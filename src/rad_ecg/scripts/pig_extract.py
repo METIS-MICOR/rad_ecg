@@ -1450,6 +1450,17 @@ class ModelTraining(object):
             Plots a custom confusion matrix with percentages and counts. 
             Automatically handles both binary and multi-class classification.
             """
+            def onSpacebar(event):
+                """When plotting, hit the spacebar if keep the chart from closing. 
+
+                Args:
+                    event (_type_): accepts the key event.  In this case its looking for the spacebar.
+                """	
+                if event.key == " ": 
+                    timer_error.stop()
+                    timer_error.remove_callback(timer_cid)
+                    logger.warning(f'Timer stopped')
+
             from sklearn.metrics import confusion_matrix
             # Generate base confusion matrix
             cm = confusion_matrix(y_true, y_pred)
@@ -1509,6 +1520,11 @@ class ModelTraining(object):
             plt.yticks(rotation=0, fontsize=12)
             
             plt.tight_layout()
+            timer_error = fig.figure.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig.figure)
+            spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
             plt.close()
 
@@ -2986,7 +3002,6 @@ class PigRAD:
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
-
             #graph your features
             if eda.view_eda:
                 sel_cols = eda.feature_names[4:]
