@@ -24,7 +24,7 @@ from rich.text import Text
 from rich.table import Table
 from rich.theme import Theme
 from rich.progress import (
-    Progress, SpinnerColumn, TextColumn, BarColumn
+    Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 )
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt, savgol_filter
@@ -1252,11 +1252,11 @@ class ModelTraining(object):
                     "warm_start":False                  #bool | False
                 },
                 "grid_srch_params":{
-                    "n_estimators":range(5, 200, 5),
+                    "n_estimators":range(5, 200, 10),
                     "criterion":["gini", "entropy", "log_loss"],
                     "min_samples_split":range(5, 50),            
                     "min_samples_leaf":range(5, 50),             
-                    "max_features":["sqrt", "log2", None]
+                    # "max_features":["sqrt", "log2", None]
                 }
             },
             "svm":{
@@ -1381,24 +1381,22 @@ class ModelTraining(object):
         logger.info(f'{model_name}: fitting model')
         
         #For super fun spinner action in your terminal.
-            #Doesn't work in a notebook without ipywidgets, and even then it
-            #doesn't look very good. 
-        # progress = Progress(
-        #     SpinnerColumn(
-        #         spinner_name="pong",
-        #         speed = 1.2, 
-        #         finished_text="fit complete in",
-        #     ),
-        #     "time elapsed:",
-        #     TimeElapsedColumn(),
-        # )
+        progress = Progress(
+            SpinnerColumn(
+                spinner_name="pong",
+                speed = 1.2, 
+                finished_text="fit complete in",
+            ),
+            "time elapsed:",
+            TimeElapsedColumn(),
+        )
 
-        # with progress:
-        #     task = progress.add_task("Fitting Model", total=1)
-        #     self.model.fit(self.X_train, self.y_train)
-        #     progress.update(task, advance=1)
+        with progress:
+            task = progress.add_task("Fitting Model", total=1)
+            self.model.fit(self.X_train, self.y_train)
+            progress.update(task, advance=1)
 
-        self.model.fit(self.X_train, self.y_train)
+        # self.model.fit(self.X_train, self.y_train)
         
         if self.category_value != None:
             self._models[model_name][self.category_value] = self.model
@@ -1490,7 +1488,7 @@ class ModelTraining(object):
             else:
                 # For multi-class, we just use Counts and Percentages (No TP/TN/FP/FN categories)
                 labs = [f"{count}\n{p}" for count, p in zip(counts, perc)]
-                
+
             # reshape labels to match the matrix dimensions
             labs = np.asarray(labs).reshape(n_classes, n_classes)
             
@@ -1536,9 +1534,8 @@ class ModelTraining(object):
                 labels = np.unique(y_pred), 
                 target_names=display_labels,
                 zero_division=False
-            ) 
+            )
             #BUG. Unrepresented classes throw a div by zero error.  Look into this later. 
-
             body = report.split("\n\n")
             header = body[0]
             rows = [body[x].split("\n") for x in range(1, len(body))]
@@ -1864,29 +1861,29 @@ class ModelTraining(object):
     @log_time
     def _grid_search(self, model_name:str, folds:int):
         from sklearn.model_selection import GridSearchCV
-        logger.info(f'{model_name} grid search initiated')
+        console.print(f'{model_name} grid search initiated')
         clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
         grid = GridSearchCV(clf, param_grid=params, cv = folds, scoring=metric)
         
         # For super fun spinner action in your terminal.
-        # progress = Progress(
-        #         SpinnerColumn(
-        #             spinner_name="shark",
-        #             speed = 1.2, 
-        #             finished_text="searching parameters",
-        #         ),
-        #         "time elapsed:",
-        #         TimeElapsedColumn(),
+        progress = Progress(
+                SpinnerColumn(
+                    spinner_name="shark",
+                    speed = 1.2, 
+                    finished_text="searching parameters",
+                ),
+                "time elapsed:",
+                TimeElapsedColumn(),
 
-        #     )
-        # with progress:
-        #     task = progress.add_task("Fitting Model", total=1)
-        #     grid.fit(self.X_train, self.y_train)
-        #     progress.update(task, advance=1)
+            )
+        with progress:
+            task = progress.add_task("Fitting Model", total=1)
+            grid.fit(self.X_train, self.y_train)
+            progress.update(task, advance=1)
 
-        grid.fit(self.X_train, self.y_train)
+        # grid.fit(self.X_train, self.y_train)
         logger.info(f"{model_name} best params\n{grid.best_params_}")
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
         fp = "./data/datasets/JT/gridresults.txt"
@@ -2408,45 +2405,45 @@ class RegimeViewer:
 
 @dataclass
 class BP_Feat():
-    id       :str = None     #record index
-    onset    :int = None     #Left trough of Systolic peak
-    sbp_id   :int = None     #Sytolic Index
-    dbp_id   :int = None     #Diastolic Index
-    notch_id :int   = None   #Dicrotic notch
-    SBP      :float = None   #Systolic peak val
-    DBP      :float = None   #Diastolic trough val
-    notch    :float = None   #Notch val
-    true_MAP :float = None   #MAP via integral
-    ap_MAP   :float = None   #MAP via formula
-    shock_gap:float = None   #Diff of trueMAP and apMAP
-    dni      :float = None   #dicrotic Notch Index
-    sys_sl   :float = None   #systolic slope
-    dia_sl   :float = None   #diastolic slope
-    ri       :float = None   #resistive index
-    pul_wid  :float = None   #pulse width 
-    p1       :float = None   #Percussion Wave (P1)
-    p2       :float = None   #Tidal Wave (P2)
-    p3       :float = None   #Dicrotic Wave (P3)
-    p1_p2    :float = None   #Ratio of P1 to P2
-    p1_p3    :float = None   #Ratio of P1 to P3,
-    aix      :float = None   #Augmentation Index (AIx)
+    id       :str   = None #record index
+    onset    :int   = None #Left trough of Systolic peak
+    sbp_id   :int   = None #Sytolic Index
+    dbp_id   :int   = None #Diastolic Index
+    notch_id :int   = None #Dicrotic notch
+    SBP      :float = None #Systolic peak val
+    DBP      :float = None #Diastolic trough val
+    notch    :float = None #Notch val
+    true_MAP :float = None #MAP via integral
+    ap_MAP   :float = None #MAP via formula
+    shock_gap:float = None #Diff of trueMAP and apMAP
+    dni      :float = None #dicrotic Notch Index
+    sys_sl   :float = None #systolic slope
+    dia_sl   :float = None #diastolic slope
+    ri       :float = None #resistive index
+    pul_wid  :float = None #pulse width 
+    p1       :float = None #Percussion Wave (P1)
+    p2       :float = None #Tidal Wave (P2)
+    p3       :float = None #Dicrotic Wave (P3)
+    p1_p2    :float = None #Ratio of P1 to P2
+    p1_p3    :float = None #Ratio of P1 to P3,
+    aix      :float = None #Augmentation Index (AIx)
 
 class PigRAD:
     def __init__(self, npz_path):
         # load data / params
-        self.npz_path       :Path = npz_path
-        self.fp_base        :Path = Path(npz_path).parent / Path(npz_path).stem                  # For saving graphs
-        self.fp_save        :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")  # For saving features
-        self.loader         :SignalDataLoader = SignalDataLoader(str(self.npz_path))
-        self.full_data      :dict = self.loader.full_data
-        self.channels       :list = self.loader.channels
-        self.outcomes       :list = self.loader.outcomes
-        self.fs             :float = 1000.0                   #Hz
-        self.windowsize     :int = 8                          #size of section window 
-        self.ecg_lead       :str = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
-        self.lad_lead       :str = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
-        self.car_lead       :str = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
-        self.ss1_lead       :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
+        self.npz_path     :Path = npz_path
+        self.fp_base      :Path = Path(npz_path).parent / Path(npz_path).stem                  # For saving graphs
+        self.fp_save      :Path = Path(npz_path).parent / (Path(npz_path).stem + "_feat.npz")  # For saving features
+        self.loader       :SignalDataLoader = SignalDataLoader(str(self.npz_path))
+        self.full_data    :dict = self.loader.full_data
+        self.channels     :list = self.loader.channels
+        self.outcomes     :list = self.loader.outcomes
+        self.fs           :float = 1000.0                   #Hz
+        self.windowsize   :int = 8                          #size of section window 
+        self.ecg_lead     :str = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
+        self.lad_lead     :str = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
+        self.car_lead     :str = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
+        self.ss1_lead     :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
         #Section signals
         self.sections       :np.array = segment_ECG(self.full_data[self.channels[self.ecg_lead]], self.fs, self.windowsize)
         self.avg_dtypes = [
@@ -2473,11 +2470,11 @@ class PigRAD:
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
         ]
-        self.avg_data       :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
-        self.bp_data        :List[BP_Feat] = []
-        self.gpu_devices    :list = [device.id for device in cuda.list_devices()]
-        self.view_eda       :bool = False
-        self.view_gui       :bool = False
+        self.avg_data     :np.array = np.zeros(self.sections.shape[0], dtype=self.avg_dtypes)
+        self.bp_data      :List[BP_Feat] = []
+        self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
+        self.view_eda     :bool = False
+        self.view_gui     :bool = False
 
         #Input section data into avg_data container
         self.avg_data["start"] = self.sections[:, 0]
@@ -3087,7 +3084,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
                 #TODO - refactor grid_search
-                # modeltraining._grid_search(tree, 10)
+                modeltraining._grid_search(tree, 5)
 
 # --- Entry Point ---
 def load_choices(fp:str):
