@@ -65,7 +65,7 @@ class EDA(object):
             fs:float,
             gpu_devices:list,
             fp:str,
-            view_eda:bool
+            view_eda:bool,
         ):
         self.data:pd.DataFrame = pd.DataFrame(avg_data)
         self.feature_names:list = list(col_names)
@@ -75,6 +75,7 @@ class EDA(object):
         self.gpu_devices:list = gpu_devices
         self.task:str = "classification"
         self.target:pd.Series = None
+        self.target_name:str = "shock_class"
         self.target_names:list = ["BL", "C1", "C2", "C3", "C4"]
         self.rev_target_dict:dict = {
             0:"BL",
@@ -97,7 +98,7 @@ class EDA(object):
         self.print_nulls(False)
         
         #Drop nulls
-        self.drop_nulls(self.feature_names[5:])
+        self.drop_nulls(self.feature_names[4:])
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
@@ -108,7 +109,7 @@ class EDA(object):
         
         #Drop the target column.
         self.target = self.data.pop("shock_class")
-
+        self.feature_names.pop(self.feature_names.index("shock_class"))
         #BUG - Class imbalance.  
         #We will have a class imbalance because some of the pigs don't represent
         #each stage of hem shock.  So either I can rebalance them with something
@@ -434,7 +435,7 @@ class EDA(object):
         plot_type:str="histogram",
         feat_1:str=False, 
         feat_2:str=False, 
-        group:str=False
+        group:pd.Series=None
         ):
         """Basic plotting method for EDA class
 
@@ -456,7 +457,7 @@ class EDA(object):
             plot_type(str): type of plot you want graphed. 
             feat_1 (str or bool): feature of interest (col name)
             feat_2 (str or bool, optional): feature of interest (col name)
-            group (str or bool, optional): Column you want to group on. Usually
+            group (pd.Series or bool, optional): Column you want to group on. Usually
                 a categorical. Defaults to False.
         """		
         def onSpacebar(event):
@@ -573,12 +574,12 @@ class EDA(object):
             )
             if not isinstance(group, bool):
                 if hue_col == self.target.name:
-                    group_color_dict = {self.rev_target_dict[k]:v for k, v in group_color_dict.items()}
+                    # group_color_dict = {self.rev_target_dict[k]:v for k, v in group_color_dict.items()}
                     sns.histplot(
                         data = _comb_df, 
                         x=feat_1, 
                         ax=ax_hist, 
-                        hue=group.map(self.rev_target_dict),
+                        hue=group,
                         palette=group_color_dict,
                         multiple='stack'
                         )
@@ -699,12 +700,12 @@ class EDA(object):
             if not isinstance(group, bool):
                 # mapped_df = _comb_df.copy()
                 if hue_col == self.target.name:
-                    group_color_dict = {self.rev_target_dict[k]:v for k, v in group_color_dict.items()}
+                    # group_color_dict = {self.rev_target_dict[v]:k for k, v in group_color_dict.items()}
                     # inv_t_dict = {v: k for k, v in self.target_dict.items()}
                     # mapped_df[hue_col] = mapped_df[hue_col].map(inv_t_dict)
                     # group_color_dict = {inv_t_dict[int(k)]:v for k, v in group_color_dict.items()}
                     label_list = self.target_names
-                    hue_target = _comb_df[hue_col].map(self.rev_target_dict)
+                    hue_target = _comb_df[hue_col] #.map(self.rev_target_dict)
                 else:
                     label_list = sorted(Counter(group).keys())
                     hue_target = _comb_df[hue_col]
@@ -739,13 +740,13 @@ class EDA(object):
                     kind = 'reg',
                     space = 0,
                 )
-                if feat_1 == "EBV":
-                    jplot.ax_joint.invert_xaxis()
+            if feat_1 == "EBV":
+                jplot.ax_joint.invert_xaxis()
 
             title = f"Jointplot for {feat_1} "
             if feat_2:
                 title += f"and {feat_2} "
-            if group:
+            if isinstance(group, pd.Series):
                 title += f"by {group.name} "
             #Set the title and adjust it up a bit
             jplot.figure.suptitle(f"{title}", y=0.98)
@@ -3126,7 +3127,7 @@ class PigRAD:
                 self.fs, 
                 self.gpu_devices, 
                 self.fp_base,
-                self.view_eda
+                self.view_eda,
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
@@ -3138,8 +3139,8 @@ class PigRAD:
                 #Plot your eda charts
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
-                    eda.eda_plot("histogram", feature)
-                    eda.eda_plot("jointplot", "EBV", feature)
+                    eda.eda_plot("histogram", feature, None, eda.target)
+                    eda.eda_plot("jointplot", "EBV", feature, eda.target)
                 #Plot the heatmap
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
