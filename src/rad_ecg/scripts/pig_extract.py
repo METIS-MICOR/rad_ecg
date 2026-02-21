@@ -1104,9 +1104,9 @@ class DataPrep(object):
 
         logger.info(f"Modeling task: {self.task}")
         logger.info(f'Dataset features:{self.feature_names}')
-        logger.info(f'Dataset target:\t{self.target.name}')
+        logger.info(f'Dataset target:{self.target.name}')
         logger.info(f'Dataset Shape:{self.data.shape}')
-        logger.info(f'Target shape:\t{self.target.shape}')
+        logger.info(f'Target shape:{self.target.shape}')
 
     #FUNCTION dataprep
     def data_prep(
@@ -1487,6 +1487,7 @@ class ModelTraining(object):
         logger.info(f"fit complete for {model_name}")
 
     #FUNCTION predict
+    @log_time
     def predict(self, model_name):
         """Fits the model in question
         Note:
@@ -3182,7 +3183,7 @@ class PigRAD:
                 
         # After all pigs are processed, concatenate into a single master array
         self.avg_data = np.concatenate(self.all_avg_data)
-        end_text = f"[bold green]File processing complete. Total records: {self.avg_data.shape[0]}[/]"
+        end_text = f"[bold green]File processing complete. Total sections: {self.avg_data.shape[0]}[/]"
         logger.info(end_text)
         console.print(end_text)    
 
@@ -3317,7 +3318,6 @@ class PigRAD:
             #     feats = modeltraining._models[tree].feature_importances_
             #     modeltraining.plot_feats(tree, ofinterest, feats)
             #     modeltraining.SHAP(tree, ofinterest)
-                #TODO - refactor grid_search
                 # modeltraining._grid_search(tree, 5)
             #Gridsearch SVM
             modeltraining._grid_search("rfc", 10)
