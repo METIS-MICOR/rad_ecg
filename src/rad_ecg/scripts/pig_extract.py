@@ -178,8 +178,7 @@ class EDA(object):
             self.data = self.data[self.data[col] != 0]
             
         elif isinstance(col, list):
-            # Keep rows where ALL of the specified columns do NOT equal 0
-            # (equivalent to dropping if ANY of them are 0)
+            # Keep rows where ALL of the specified columns do NOT equal 0. (equivalent to dropping if ANY of them are 0)
             self.data = self.data[(self.data[col] != 0).all(axis=1)]
             
         else:
@@ -1355,11 +1354,11 @@ class ModelTraining(object):
                     "random_state":42,
                 },
                 "init_params":{
-                    "C":1.0,						
+                    "C":0.9,						
                     "kernel":"rbf",		       #str
                     "degree":3,                #str
                     "gamma":"scale",
-                    "max_iter":1000,
+                    "max_iter":10000,
                     "decision_function_shape":"ovr",
                     "random_state":42,
                 },
@@ -3211,14 +3210,12 @@ class PigRAD:
             #kfold       : KFold Validation
             #stratkfold  : StratifiedKFold
             #groupkfold  : GroupKfold
+            #groupshuffle: GroupShuffleSplit
             #leavepout   : Leave p out 
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
             #stratshuffle: StratifiedShuffleSplit
             cross_val = "kfold"
-            #TODO - Groupkfold
-                #Not functioning due to a bad split.  Follow up with GroupShuffleSplit 
-                #as your next cross val
 
             #Classifiers
             #'svm':LinearSVC
