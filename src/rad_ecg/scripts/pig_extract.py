@@ -98,7 +98,10 @@ class EDA(object):
         self.print_nulls(False)
         
         #Drop nulls
-        self.drop_nulls(self.feature_names[4:])
+        self.drop_nulls(self.feature_names[5:])
+
+        #Drop zero vals
+        self.drop_zeros(self.feature_names[5:])
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
@@ -110,7 +113,11 @@ class EDA(object):
         #Drop the target column.
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
-        #BUG - Class imbalance.  
+
+        #Check nulls
+        self.print_nulls(False)
+
+        #BUG - Class imbalance.
         #We will have a class imbalance because some of the pigs don't represent
         #each stage of hem shock.  So either I can rebalance them with something
         #like SMOTE, or...  assign class weights to the models. 
@@ -153,6 +160,34 @@ class EDA(object):
             self.data.dropna(axis=0, subset=self.data, how='any', inplace=True)
         logger.info(f'Shape after drop {self.data.shape}')
     
+    #FUNCTION drop_zeros
+    def drop_zeros(self, col: str | list = None):
+        """Zero Dropping routine.
+        If a target column is provided, it drops rows where that column is 0.  
+        If a list is provided, it drops rows where ANY of those columns are 0.  
+        If no target provided, it drops rows where ANY column is 0. 
+
+        Args:
+            col (str | list, optional): Column or list of columns to check for zeros. Defaults to None.
+        """
+        
+        logger.info(f'Shape before drop {self.data.shape}')
+        
+        if isinstance(col, str):
+            # Keep rows where the specific column does NOT equal 0
+            self.data = self.data[self.data[col] != 0]
+            
+        elif isinstance(col, list):
+            # Keep rows where ALL of the specified columns do NOT equal 0
+            # (equivalent to dropping if ANY of them are 0)
+            self.data = self.data[(self.data[col] != 0).all(axis=1)]
+            
+        else:
+            # If col is None, check the entire DataFrame
+            self.data = self.data[(self.data != 0).all(axis=1)]
+            
+        logger.info(f'Shape after drop {self.data.shape}')
+
     #FUNCTION print_nulls
     def print_nulls(self, plotg=False):
         """Checks for nan's.  Color codes output to verify if over 30% of the
@@ -2562,7 +2597,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
+        self.view_eda      :bool  = False
         self.view_gui      :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
@@ -3305,7 +3340,7 @@ def load_choices(fp:str, batch_process:bool=False):
 @log_time
 def main():
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    batch_process:bool = False
+    batch_process:bool = True
     selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
     rad.run_pipeline()
