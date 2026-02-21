@@ -97,7 +97,7 @@ class EDA(object):
         self.print_nulls(False)
         
         #Drop nulls
-        self.drop_nulls("HR")
+        self.drop_nulls(self.feature_names[5:])
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
@@ -144,8 +144,10 @@ class EDA(object):
         """
         
         logger.info(f'Shape before drop {self.data.shape}')
-        if isinstance(col, str) | isinstance(col, list):
+        if isinstance(col, str):
             self.data.dropna(subset=[col], how="any", inplace=True)
+        elif isinstance(col, list):
+            self.data.dropna(subset=col, how="any", inplace=True)
         else:
             self.data.dropna(axis=0, subset=self.data, how='any', inplace=True)
         logger.info(f'Shape after drop {self.data.shape}')
