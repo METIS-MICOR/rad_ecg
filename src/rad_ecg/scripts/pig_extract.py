@@ -1365,7 +1365,7 @@ class ModelTraining(object):
                 "grid_srch_params":{
                     "C":np.arange(0, 1.1, 0.1),
                     "kernel":["linear", "poly", "rbf", "sigmoid", "precomputed"],
-                    "max_iter":np.arange(1000, 10000, 500)
+                    "n":np.arange(1000, 10000, 500)
                 }
             },
             "xgboost":{
@@ -2958,8 +2958,8 @@ class PigRAD:
         with Progress(
             TimeElapsedColumn(),
             SpinnerColumn(), 
-            TextColumn("[progress.description]{task.description}"),
             BarColumn(), 
+            TextColumn("[progress.description]{task.description}"),
             transient=True
         ) as progress:
             jobtask = progress.add_task("Processing Pigs...", total=len(self.loader.records))
@@ -3010,7 +3010,7 @@ class PigRAD:
                     full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
                     logger.info(f"{channels[lead]}")
                     
-                jobtask_proc = progress.add_task(f"Calculating features for {pig_id}...", total=pig_avg_data.shape[0])
+                jobtask_proc = progress.add_task(f"Calculating features", total=pig_avg_data.shape[0])
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
@@ -3244,14 +3244,14 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False) 
             forest = ['rfc', 'xgboost']
             #Looking at feature importances
-            for tree in forest: #Lol
-                feats = modeltraining._models[tree].feature_importances_
-                modeltraining.plot_feats(tree, ofinterest, feats)
-                modeltraining.SHAP(tree, ofinterest)
+            # for tree in forest: #Lol
+            #     feats = modeltraining._models[tree].feature_importances_
+            #     modeltraining.plot_feats(tree, ofinterest, feats)
+            #     modeltraining.SHAP(tree, ofinterest)
                 #TODO - refactor grid_search
                 # modeltraining._grid_search(tree, 5)
             #Gridsearch SVM
-            modeltraining._grid_search("SVM", 5)
+            modeltraining._grid_search("rfc", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
