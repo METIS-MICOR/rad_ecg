@@ -48,7 +48,7 @@ from sklearn.metrics import classification_report
 from shap import TreeExplainer
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import KFold, StratifiedKFold, GroupKFold, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
+from sklearn.model_selection import KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -1173,6 +1173,10 @@ class DataPrep(object):
             logger.info(f"{model_name}'s data has been scaled with {scaler.__class__()} ")
 
         #MEAS Test train split
+        if self.cross_val == "groupshuffle":
+            pass
+        else:
+            pass   
         X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
         self._traind[model_name]["X_train"] = X_train 
         self._traind[model_name]["y_train"] = y_train 
@@ -1711,10 +1715,9 @@ class ModelTraining(object):
                     "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     "leaveoneout" :LeaveOneOut(),
-                    "groupkfold"  :GroupKFold(n_splits=10, shuffle=True, random_state=42),
-                    # TODO - Look at GroupShuffle
-                        #may be data leakage through kfold
+                    # "groupkfold"  :GroupKFold(n_splits=10, shuffle=True, random_state=42),
                     # "leavepout"   :LeaveOneOut(p=2),  #Maybe try this one too 
+                    "groupshuffle":GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
                 }
@@ -2555,14 +2558,13 @@ class BP_Feat():
 class PigRAD:
     def __init__(self, npz_path):
         # load data / params
-        self.npz_path      :Path = npz_path
-        self.batch_run     :bool = isinstance(npz_path, list)
-        self.view_eda      :bool = False
-        self.view_gui      :bool = False
+        self.npz_path      :Path  = npz_path
+        self.view_eda      :bool  = False
+        self.view_gui      :bool  = False
         self.fs            :float = 1000.0 #Hz
-        self.windowsize    :int = 8        #size of section window 
-
-        # --- FOLDER PATHING LOGIC ---
+        self.windowsize    :int   = 8        #size of section window 
+        self.batch_run     :bool  = isinstance(npz_path, list)
+        # Multiple file pathing
         if self.batch_run:
             # Grab the parent directory of the first file in the batch list
             root_dir = Path(npz_path[0]).parent
@@ -2575,7 +2577,7 @@ class PigRAD:
             stem_name = Path(npz_path).stem
             self.fp_base = root_dir / stem_name
             self.fp_save = self.fp_base / f"{stem_name}_feat.npz"
-            
+        
         # Create the target directory immediately so it's ready for saving/logging
         self.fp_base.mkdir(parents=True, exist_ok=True)
         logger.info(f"Output folder set to: {self.fp_base}")
@@ -2798,9 +2800,10 @@ class PigRAD:
                 channels = record["channels"]
 
                 #Section signals
-                sections        :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
-                pig_avg_data    :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
-
+                sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
+                pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
+                logger.info(f"sections shape: {sections.shape} ")
+                
                 #Input section data into avg_data container
                 pig_avg_data["pig_id"] = pig_id
                 pig_avg_data["start"] = sections[:, 0]
@@ -2839,6 +2842,7 @@ class PigRAD:
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
+                    ind_beats:list[BP_Feat] = []
 
                     #Find R peaks from ECG lead
                     # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
@@ -2882,7 +2886,7 @@ class PigRAD:
                     # plt.show()
 
                     #NOTE - Changing HR extraction to SS1. ECG is too unreliable.
-                    if 3 <= s_peaks.size >= 100:
+                    if s_peaks.size < 3 or s_peaks.size > 100:
                         logger.info(f"sect {idx} peaks invalid for extract")
                         continue
                     else:                
@@ -3082,26 +3086,33 @@ class PigRAD:
                                 bpf.p1_p3 = p1_val / p3_val
                             
                         #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
-                        self.bp_data.append(bpf)
-                    
+                        ind_beats.append(bpf)
+
+                    if not ind_beats:
+                        logger.warning(f"Sect {idx} produced no valid beats after processing.")
+                        # Skip averaging to prevent the np.nanmean empty slice error
+                        continue 
+
                     pig_avg_data["EBV"][idx]         = np.round(np.nanmean(full_data["EBV"][start:end]), precision)
                     pig_avg_data["shock_class"][idx] = Counter(target[start:end]).most_common()[0][0].item()
-                    pig_avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in self.bp_data if rec.dni is not None]), precision)
-                    pig_avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in self.bp_data if rec.SBP is not None]), precision)
-                    pig_avg_data["DBP"][idx]         = np.round(np.nanmean([rec.DBP for rec in self.bp_data if rec.DBP is not None]), precision)
-                    pig_avg_data["true_MAP"][idx]    = np.round(np.nanmean([rec.true_MAP for rec in self.bp_data if rec.true_MAP is not None]), precision)
-                    pig_avg_data["ap_MAP"][idx]      = np.round(np.nanmean([rec.ap_MAP for rec in self.bp_data if rec.ap_MAP is not None]), precision)
-                    pig_avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in self.bp_data if rec.shock_gap is not None]), precision)
-                    pig_avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in self.bp_data if rec.sys_sl is not None]), precision)
-                    pig_avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in self.bp_data if rec.dia_sl is not None]), precision)
-                    pig_avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in self.bp_data if rec.ri is not None]), precision)
-                    pig_avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in self.bp_data if rec.pul_wid is not None]), precision)
-                    pig_avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in self.bp_data if rec.p1 is not None]), precision)
-                    pig_avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in self.bp_data if rec.p2 is not None]), precision)
-                    pig_avg_data["p3"][idx]          = np.round(np.nanmean([rec.p3 for rec in self.bp_data if rec.p3 is not None]), precision)
-                    pig_avg_data["p1_p2"][idx]       = np.round(np.nanmean([rec.p1_p2 for rec in self.bp_data if rec.p1_p2 is not None]), precision)
-                    pig_avg_data["p1_p3"][idx]       = np.round(np.nanmean([rec.p1_p3 for rec in self.bp_data if rec.p1_p3 is not None]), precision)
-                    pig_avg_data["aix"][idx]         = np.round(np.nanmean([rec.aix for rec in self.bp_data if rec.aix is not None]), precision)
+                    pig_avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in ind_beats if rec.dni is not None]), precision)
+                    pig_avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in ind_beats if rec.SBP is not None]), precision)
+                    pig_avg_data["DBP"][idx]         = np.round(np.nanmean([rec.DBP for rec in ind_beats if rec.DBP is not None]), precision)
+                    pig_avg_data["true_MAP"][idx]    = np.round(np.nanmean([rec.true_MAP for rec in ind_beats if rec.true_MAP is not None]), precision)
+                    pig_avg_data["ap_MAP"][idx]      = np.round(np.nanmean([rec.ap_MAP for rec in ind_beats if rec.ap_MAP is not None]), precision)
+                    pig_avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in ind_beats if rec.shock_gap is not None]), precision)
+                    pig_avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in ind_beats if rec.sys_sl is not None]), precision)
+                    pig_avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in ind_beats if rec.dia_sl is not None]), precision)
+                    pig_avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in ind_beats if rec.ri is not None]), precision)
+                    pig_avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in ind_beats if rec.pul_wid is not None]), precision)
+                    pig_avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in ind_beats if rec.p1 is not None]), precision)
+                    pig_avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in ind_beats if rec.p2 is not None]), precision)
+                    pig_avg_data["p3"][idx]          = np.round(np.nanmean([rec.p3 for rec in ind_beats if rec.p3 is not None]), precision)
+                    pig_avg_data["p1_p2"][idx]       = np.round(np.nanmean([rec.p1_p2 for rec in ind_beats if rec.p1_p2 is not None]), precision)
+                    pig_avg_data["p1_p3"][idx]       = np.round(np.nanmean([rec.p1_p3 for rec in ind_beats if rec.p1_p3 is not None]), precision)
+                    pig_avg_data["aix"][idx]         = np.round(np.nanmean([rec.aix for rec in ind_beats if rec.aix is not None]), precision)
+                    self.bp_data.extend(ind_beats)
+                    
                     #TODO - add spectral features
                         #refer to this paper, but it looks like we can get some added feature information from the first 3 harmonics of the STFT
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
@@ -3111,7 +3122,7 @@ class PigRAD:
 
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
-                #Move the larger progbar
+                #Update the progbars
                 progress.remove_task(jobtask_proc)
                 progress.advance(jobtask)
                 
@@ -3125,8 +3136,8 @@ class PigRAD:
         self.section_extract()
         console.print("[bold green]Features created...[/]")
         # #Save Results
-        # self.save_results()
-        # console.print("[bold green]Features saved[/]")
+        self.save_results()
+        console.print("[bold green]Features saved[/]")
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -3220,7 +3231,10 @@ class PigRAD:
             #shuffle     : ShuffleSplit
             #stratshuffle: StratifiedShuffleSplit
             cross_val = "kfold"
-            
+            #TODO - Groupkfold
+                #Not functioning due to a bad split.  Follow up with GroupShuffleSplit 
+                #as your next cross val
+
             #Classifiers
             #'svm':LinearSVC
             #'rfc':RandomForestClassifier
