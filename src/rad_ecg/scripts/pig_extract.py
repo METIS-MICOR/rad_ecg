@@ -4,6 +4,7 @@ import shap
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import multiprocessing
 from numba import cuda
 from typing import List
 from os.path import exists
@@ -36,6 +37,8 @@ from setup_globals import walk_directory
 from support import logger, console, log_time, NumpyArrayEncoder
 
 ########################### Sklearn imports ###############################
+
+from sklearn.base import BaseEstimator
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
@@ -55,6 +58,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
+import xgboost as xgb
 
 #CLASS EDA
 class EDA(object):
@@ -1986,62 +1990,127 @@ class ModelTraining(object):
                 
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
-
     #FUNCTION _grid_search
     @log_time
-    def _grid_search(self, model_name:str, folds:int):
+    def _grid_search(self, model_name: str, folds: int):
         from sklearn.model_selection import GridSearchCV
         console.print(f'{model_name} grid search initiated')
-        clf = self._models[model_name]
+        base_clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
+        
+        # 1. Determine GPU availability and worker count
+        num_gpus = len(self.gpu_devices)
+        if num_gpus > 0:
+            # 1 worker per GPU. You can multiply this (e.g., num_gpus * 2) 
+            # if your models are small and fit in VRAM concurrently.
+            n_workers = num_gpus 
+            # Wrap the classifier so each worker gets its own GPU
+            clf = MultiGPUWrapper(base_clf, self.gpu_devices)
+            # Prefix the param grid keys because of the wrapper
+            params = {f"estimator__{k}": v for k, v in params.items()}
+        else:
+            n_workers = -1 # Fall back to all CPUs if no GPUs
+            clf = base_clf
+
         grid = GridSearchCV(
             clf, 
-            n_jobs=-1, 
+            n_jobs=n_workers, 
             param_grid=params, 
-            cv = folds, 
+            cv=folds, 
             scoring=metric
         )
         
         # For super fun spinner action in your terminal.
         progress = Progress(
-                SpinnerColumn(
-                    spinner_name="shark",
-                    speed = 1.2, 
-                    finished_text="searching parameters",
-                ),
-                "time elapsed:",
-                TimeElapsedColumn(),
-
-            )
+            SpinnerColumn(
+                spinner_name="shark",
+                speed=1.2, 
+                finished_text="searching parameters",
+            ),
+            "time elapsed:",
+            TimeElapsedColumn(),
+        )
+        
         with progress:
             task = progress.add_task("Fitting Model", total=1)
             grid.fit(self.X_train, self.y_train)
             progress.update(task, advance=1)
 
-        # grid.fit(self.X_train, self.y_train)
         logger.info(f"{model_name} best params\n{grid.best_params_}")
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
+        
+        # 2. Refactored file saving block
         fp = "./data/datasets/JT/gridresults.txt"
-        t = time.localtime()
-        current_time = time.strftime("%m-%d-%Y %H:%M:%S", t)
-        #Check to see if the file can be opened.
-        if exists(fp):
-            #If it exists, append to it.
-            with open(fp, "a") as savef:
-                savef.write(f"\n\nGridsearch ran on {current_time}\n")
-                savef.write(f"Model {model_name} using {grid.cv} folds\n")
-                savef.write(f"score:\n{grid.best_score_}\n")
-                savef.write(f"parameters:\n{grid.best_params_}")
-        else:
-            #If it doesn't, make a new file
-            with open(fp, "w") as savef:
-                savef.write(f'Gridsearch ran on {current_time}\n')
-                savef.write(f"Model {model_name} using {grid.cv} folds\n")
-                savef.write(f"score:\n{grid.best_score_}\n")
-                savef.write(f"parameters:\n{grid.best_params_}")
+        current_time = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime())
+        
+        # "a" mode creates the file if it doesn't exist and appends if it does!
+        with open(fp, "a") as savef:
+            savef.write(f"\nGridsearch ran on {current_time}\n")
+            savef.write(f"Model {model_name} using {grid.cv} folds\n")
+            savef.write(f"score:\n{grid.best_score_}\n")
+            
+            # If we used the wrapper, strip 'estimator__' from the saved best params for readability
+            clean_params = {k.replace('estimator__', ''): v for k, v in grid.best_params_.items()}
+            savef.write(f"parameters:\n{clean_params}\n")
 
         return grid
+
+class MultiGPUWrapper(BaseEstimator):
+    """
+    Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
+    Smartly routes GPU parameters to supported models (XGBoost) and falls back 
+    to CPU for standard sklearn models.
+    """
+    def __init__(self, estimator, gpu_devices):
+        self.estimator = estimator
+        self.gpu_devices = gpu_devices
+
+    def fit(self, X, y, **kwargs):
+        # Determine which joblib worker process we are in
+        ident = multiprocessing.current_process()._identity
+        worker_id = ident[0] - 1 if ident else 0
+        
+        if self.gpu_devices:
+            gpu_idx = worker_id % len(self.gpu_devices)
+            gpu_id = self.gpu_devices[gpu_idx]
+            
+            # 1. Handle XGBoost directly
+            if isinstance(self.estimator, xgb.XGBClassifier):
+                # For XGBoost 2.0+, use 'device'. 
+                # For older versions, you might need tree_method='gpu_hist', gpu_id=gpu_id
+                self.estimator.set_params(device=f"cuda:{gpu_id}")
+                
+            # 2. Handle OneVsRestClassifier (Check what's inside it!)
+            elif isinstance(self.estimator, OneVsRestClassifier):
+                base_est = self.estimator.estimator
+                if isinstance(base_est, xgb.XGBClassifier):
+                    base_est.set_params(device=f"cuda:{gpu_id}")
+                    # Update the OneVsRest estimator with the new base estimator
+                    self.estimator.estimator = base_est
+
+            # 3. Handle Scikit-Learn CPU Models (RF, KNN)
+            elif isinstance(self.estimator, (RandomForestClassifier, KNeighborsClassifier)):
+                # Since GridSearchCV is already parallelizing via n_jobs, 
+                # we force the individual CPU models to use 1 core to prevent CPU thrashing.
+                if hasattr(self.estimator, 'n_jobs'):
+                    self.estimator.set_params(n_jobs=1)
+
+        self.estimator.fit(X, y, **kwargs)
+        return self
+
+    def predict(self, X):
+        return self.estimator.predict(X)
+        
+    def predict_proba(self, X):
+        # Good to have for scoring metrics like ROC AUC
+        return self.estimator.predict_proba(X)
+        
+    def score(self, X, y):
+        return self.estimator.score(X, y)
+        
+    def __getattr__(self, name):
+        return getattr(self.estimator, name)
 
 # --- Wavelet / Phase Calculation Logic  ---
 class CardiacPhaseTools:
