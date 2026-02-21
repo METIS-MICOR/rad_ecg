@@ -1354,8 +1354,8 @@ class ModelTraining(object):
                     "random_state":42,
                 },
                 "init_params":{
-                    "C":0.9,						
-                    "kernel":"rbf",		       #str
+                    "C":0.8,						
+                    "kernel":"poly",		       #str
                     "degree":3,                #str
                     "gamma":"scale",
                     "max_iter":10000,
@@ -2956,8 +2956,9 @@ class PigRAD:
         """        
         # Progress bar for section iteration
         with Progress(
-            TextColumn("[progress.description]{task.description}"),
+            TimeElapsedColumn(),
             SpinnerColumn(), 
+            TextColumn("[progress.description]{task.description}"),
             BarColumn(), 
             transient=True
         ) as progress:
@@ -3249,6 +3250,8 @@ class PigRAD:
                 modeltraining.SHAP(tree, ofinterest)
                 #TODO - refactor grid_search
                 # modeltraining._grid_search(tree, 5)
+            #Gridsearch SVM
+            modeltraining._grid_search("SVM", 5)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
