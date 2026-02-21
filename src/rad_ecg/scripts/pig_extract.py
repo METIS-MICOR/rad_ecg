@@ -2791,21 +2791,15 @@ class PigRAD:
                     bpf.dia_sl = linregress(y_dia, x_dia).slope.item()
                 except Exception as e:
                     bpf.dia_sl = None 
-
-                                
+                    return bpf
+        else:
+            return bpf        
         #Generate SS1 Features: P1, P2, P3 & AIx
         p1_val, p2_val, p3_val = None, None, None
 
         # Absolute index of the notch
         # Define the entire systolic complex (onset to notch)
         sub_syst = ss1wave[bpf.onset:notch_abs]
-        try:
-            # 1st derivative of complex to find shoulders
-            d1_sys_comp = self._derivative(sub_syst, 1)
-
-        except Exception as e:
-            logger.info(f"shape of sub_syst = {sub_syst.shape}")
-            logger.warning(f"{e}")
 
         # Find true peaks in the systolic complex (Type A vs Type C)
         sys_peaks, _ = find_peaks(sub_syst)
@@ -2818,25 +2812,33 @@ class PigRAD:
             p1_val = sub_syst[p1_idx].item()
             p2_val = sub_syst[p2_idx].item()
         else:
-            # Only one true peak found. We must find the shoulder.
-            main_peak_idx = np.argmax(sub_syst).item()
-            # Check for early shoulder (P1 is shoulder, P2 is main peak)
-            early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
-            # Check for late shoulder (P1 is main peak, P2 is shoulder)
-            late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
+            try:
+                # 1st derivative of complex to find shoulders
+                d1_sys_comp = self._derivative(sub_syst, 1)
+                    
+                # Only one true peak found. We must find the shoulder.
+                main_peak_idx = np.argmax(sub_syst).item()
+                # Check for early shoulder (P1 is shoulder, P2 is main peak)
+                early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
+                # Check for late shoulder (P1 is main peak, P2 is shoulder)
+                late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
 
-            if len(early_shoulders) > 0:
-                p1_idx = early_shoulders[-1].item() 
-                p1_val = sub_syst[p1_idx].item()
-                p2_val = sub_syst[main_peak_idx].item()
-            
-            elif len(late_shoulders) > 0:
-                p1_val = sub_syst[main_peak_idx].item()
-                p2_idx = main_peak_idx + late_shoulders[0].item()
-                p2_val = sub_syst[p2_idx].item()
-            else:
-                p1_val = sub_syst[main_peak_idx].item()
-                p2_val = p1_val
+                if len(early_shoulders) > 0:
+                    p1_idx = early_shoulders[-1].item() 
+                    p1_val = sub_syst[p1_idx].item()
+                    p2_val = sub_syst[main_peak_idx].item()
+                
+                elif len(late_shoulders) > 0:
+                    p1_val = sub_syst[main_peak_idx].item()
+                    p2_idx = main_peak_idx + late_shoulders[0].item()
+                    p2_val = sub_syst[p2_idx].item()
+                else:
+                    p1_val = sub_syst[main_peak_idx].item()
+                    p2_val = p1_val
+
+            except Exception as e:
+                logger.info(f"shape of sub_syst = {sub_syst.shape}")
+                logger.warning(f"{e}")
 
         # 2. Find P3 (Dicrotic Wave) using Kneed
         diastolic_run = ss1wave[notch_abs:bpf.dbp_id]
@@ -3333,7 +3335,7 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
             #graph your features
             if eda.view_eda:
-                sel_cols = eda.feature_names[4:]
+                sel_cols = eda.feature_names[5:]
                 #Sum basic stats
                 eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
@@ -3468,7 +3470,7 @@ class PigRAD:
                     
                     ind_mb_size = individual_path.stat().st_size / (1024 * 1024)
                     logger.info(f"Saved individual {pig_id} features to {individual_path.name} ({ind_mb_size:.2f} MB)")
-                    
+
 def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
 
