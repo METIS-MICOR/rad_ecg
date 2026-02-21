@@ -2559,10 +2559,10 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
+        self.view_eda      :bool  = True
         self.view_gui      :bool  = False
-        self.fs            :float = 1000.0 #Hz
-        self.windowsize    :int   = 8        #size of section window 
+        self.fs            :float = 1000.0   #Hz
+        self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -2587,6 +2587,7 @@ class PigRAD:
         
         # Master lists to hold data across all pigs
         self.all_avg_data :List = [] 
+        self.avg_data     :List = []
         self.bp_data      :List[BP_Feat] = []
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
 
@@ -2602,10 +2603,10 @@ class PigRAD:
             ('end'        , 'i4'),  #end index
             ('valid'      , 'i4'),  #valid Section
             ('shock_class', 'U4'),  #Shock Class
-            ('HR'         , 'i4'),  #Heart Rate
-            ('SBP'        , 'i4'),  #Systolic Pressure
-            ('DBP'        , 'i4'),  #Diastolic Pressure
-            ('EBV'        , 'i4'),  #Estimated Blood Volume
+            ('HR'         , 'f4'),  #Heart Rate
+            ('SBP'        , 'f4'),  #Systolic Pressure
+            ('DBP'        , 'f4'),  #Diastolic Pressure
+            ('EBV'        , 'f4'),  #Estimated Blood Volume
             ('true_MAP'   , 'f4'),  #Mean Arterial Pressure (AUC)
             ('ap_MAP'     , 'f4'),  #Approximate Mean Arterial pressure (Formula)
             ('shock_gap'  , 'f4'),  #Difference between true and approximate MAP
@@ -2622,56 +2623,6 @@ class PigRAD:
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
         ]
 
-    def pick_lead(self, col:str) -> str:
-        """Picks the lead you'd like to analyze
-
-        Args:
-            col (str): Lead you want to pick
-
-        Raises:
-            ValueError: Gotta pick an integer
-
-        Returns:
-            lead (str): the lead you picked!
-        """
-        tree = Tree(f":select channel:", guide_style="bold bright_blue")
-        for idx, channel in enumerate(self.channels):
-            tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
-        pprint(tree)
-        question = f"Please select the {col} channel\n"
-        file_choice = console.input(f"{question}")
-        if file_choice.isnumeric():
-            pprint(f"lead {col} loaded")
-            return int(file_choice)
-        else:
-            raise ValueError("Invalid selection")
-        
-    def save_results(self):
-        """Saves the extracted feature data, including individual files if it's a batch."""
-        
-        # 1. Save the concatenated master array (works for single or batch)
-        np.savez_compressed(self.fp_save, self.avg_data)
-        
-        # Log the master file size
-        mb_size = self.fp_save.stat().st_size / (1024 * 1024)
-        logger.warning(f"Saved total feature array to {self.fp_save.name} ({mb_size:.2f} MB)")
-
-        # 2. If it's a batch, loop through and save the individual pig arrays
-        if self.batch_run and hasattr(self, 'all_avg_data'):
-            for pig_data in self.all_avg_data:
-                # Ensure the array isn't empty before trying to save
-                if len(pig_data) > 0:
-                    # Grab the pig_id from the first row of this specific array
-                    pig_id = str(pig_data["pig_id"][0]) 
-                    
-                    # Define the path inside the batch folder
-                    individual_path = self.fp_base / f"{pig_id}_feat.npz"
-                    
-                    # Save it
-                    np.savez_compressed(individual_path, pig_data)
-                    
-                    ind_mb_size = individual_path.stat().st_size / (1024 * 1024)
-                    logger.info(f"Saved individual {pig_id} features to {individual_path.name} ({ind_mb_size:.2f} MB)")
     
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
@@ -2758,6 +2709,187 @@ class PigRAD:
         b, a = butter(order, cutoff, btype='high', analog=False)
         return filtfilt(b, a, data)
     
+    def _yabig_meanie(self, values: list, precision: int = 4) -> float:
+        """Safely calculates the mean, ignoring Nones/NaNs. Returns np.nan if empty."""
+        clean_vals = [v for v in values if v is not None and not np.isnan(v)]
+        if not clean_vals:
+            return np.nan
+        return np.round(np.nanmean(clean_vals), precision).item()
+    
+    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
+        """Extracts features for a single systolic cycle.
+
+        Args:
+            id (int): _description_
+            idx (int): _description_
+            peak (int): _description_
+            ss1wave (np.ndarray): _description_
+            carwave (np.ndarray): _description_
+            s_heights (dict): _description_
+            s_peaks (np.ndarray): _description_
+
+        Returns:
+            BP_Feat(dataclass): Beat object with generated features
+        """        
+        bpf = BP_Feat()
+        
+        # Safely assign indices
+        bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
+        bpf.sbp_id = peak.item()
+        bpf.dbp_id = s_heights["right_bases"][id].item()
+        bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
+        
+        # Validate indices to prevent reversed slicing (sbp > dbp)
+        if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
+            return None
+
+        # Pressures & Pulse Width
+        bpf.SBP = ss1wave[bpf.sbp_id].item()
+        bpf.DBP = ss1wave[bpf.dbp_id].item()
+        bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
+
+        # Slices
+        sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
+        sub_full = ss1wave[bpf.onset:bpf.dbp_id]
+        
+        # MAP
+        if sub_full.size > 0:
+            bpf.true_MAP = self._integrate(sub_full) / (sub_full.size / self.fs)
+            bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
+            bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
+
+        # Dicrotic Notch & DNI
+        if sub_notch.size > 3: # Need minimum length for savgol filter
+            try:
+                d2_notch = self._derivative(sub_notch, 2)
+                bpf.notch_id = np.argmax(d2_notch).item()
+                bpf.notch = sub_notch[bpf.notch_id].item()
+                if bpf.notch and (bpf.SBP - bpf.DBP) > 0.1:
+                    bpf.dni = (bpf.SBP - bpf.notch) / (bpf.SBP - bpf.DBP)
+            except Exception as e:
+                logger.debug(f"Notch calculation failed: {e}")
+
+        # Systolic Slope
+        sys_run = (bpf.sbp_id - bpf.onset) / self.fs
+        bpf.sys_sl = ((bpf.SBP - ss1wave[bpf.onset]) / sys_run).item() if sys_run > 0 else None
+
+        # Resistive Index (Carotid)
+        if id + 1 < len(s_peaks): # Ensure we don't go out of bounds
+            sub_car = carwave[bpf.onset:s_peaks[id+1]]
+            if sub_car.size > 0:
+                psv, edv = np.max(sub_car), sub_car[-1]
+                bpf.ri = self.calc_RI(psv, edv)
+
+        # Diastolic Slope
+        if getattr(bpf, 'notch', None):
+            notch_abs = bpf.sbp_id + bpf.notch_id
+            y_dia = ss1wave[notch_abs:bpf.dbp_id]
+            # Linregress requires at least 2 points
+            if y_dia.size > 2: 
+                try:
+                    x_dia = np.arange(y_dia.size) / self.fs
+                    bpf.dia_sl = linregress(y_dia, x_dia).slope.item()
+                except Exception as e:
+                    bpf.dia_sl = None 
+
+                                
+        #Generate SS1 Features: P1, P2, P3 & AIx
+        p1_val, p2_val, p3_val = None, None, None
+
+        # Absolute index of the notch
+        # Define the entire systolic complex (onset to notch)
+        sub_syst = ss1wave[bpf.onset:notch_abs]
+        try:
+            # 1st derivative of complex to find shoulders
+            d1_sys_comp = self._derivative(sub_syst, 1)
+
+        except Exception as e:
+            logger.info(f"shape of sub_syst = {sub_syst.shape}")
+            logger.warning(f"{e}")
+
+        # Find true peaks in the systolic complex (Type A vs Type C)
+        sys_peaks, _ = find_peaks(sub_syst)
+
+        if len(sys_peaks) >= 2:
+            # Multiple peaks: 
+            # First is P1, Highest subsequent is P2
+            p1_idx = sys_peaks[0]
+            p2_idx = sys_peaks[1:][np.argmax(sub_syst[sys_peaks[1:]])]
+            p1_val = sub_syst[p1_idx].item()
+            p2_val = sub_syst[p2_idx].item()
+        else:
+            # Only one true peak found. We must find the shoulder.
+            main_peak_idx = np.argmax(sub_syst).item()
+            # Check for early shoulder (P1 is shoulder, P2 is main peak)
+            early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
+            # Check for late shoulder (P1 is main peak, P2 is shoulder)
+            late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
+
+            if len(early_shoulders) > 0:
+                p1_idx = early_shoulders[-1].item() 
+                p1_val = sub_syst[p1_idx].item()
+                p2_val = sub_syst[main_peak_idx].item()
+            
+            elif len(late_shoulders) > 0:
+                p1_val = sub_syst[main_peak_idx].item()
+                p2_idx = main_peak_idx + late_shoulders[0].item()
+                p2_val = sub_syst[p2_idx].item()
+            else:
+                p1_val = sub_syst[main_peak_idx].item()
+                p2_val = p1_val
+
+        # 2. Find P3 (Dicrotic Wave) using Kneed
+        diastolic_run = ss1wave[notch_abs:bpf.dbp_id]
+        
+        # Require a minimum length so kneed doesn't throw an error on noise
+        if len(diastolic_run) > 5:  
+            x_dias = np.arange(len(diastolic_run))
+            # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
+            # Sensitivity parameter (default is 1.0)
+            kneedle = KneeLocator(
+                x=x_dias, 
+                y=diastolic_run, 
+                curve="concave", 
+                direction="decreasing",
+                S=1.0                  
+            )
+            
+            if kneedle.knee is not None:
+                p3_val = diastolic_run[kneedle.knee].item()
+            else:
+                # Fallback: If no subtle knee is found, it might be a true peak or completely flat. Fallback to finding the absolute max.
+                p3_val = np.max(diastolic_run).item()
+
+        elif len(diastolic_run) > 0:
+            p3_val = np.max(diastolic_run).item()
+        
+        else:
+            # if its flat flat.  p3 is just the notch val
+            p3_val = bpf.notch
+
+        # 3. Assign to dataclass & calculate ratios
+        bpf.p1 = p1_val
+        bpf.p2 = p2_val
+        bpf.p3 = p3_val
+
+        if p1_val is not None and p2_val is not None:
+            # Avoid division by zero for P1/P2 ratio
+            if p2_val != 0:
+                bpf.p1_p2 = p1_val / p2_val
+            
+            # Avoid division by zero for Augmentation Index
+            pulse_pressure_p1 = p1_val - bpf.DBP
+            # Require at least a tiny pulse pressure
+            if pulse_pressure_p1 > 0.1:  
+                bpf.aix = (p2_val - bpf.DBP) / pulse_pressure_p1
+            else:
+                bpf.aix = None
+        
+        if p1_val and p3_val:
+            bpf.p1_p3 = p1_val / p3_val
+        
+        return bpf
+ 
     def band_pass(self):
         """Function to run the bandpass over LAD and Carotid leads
         """        
@@ -2798,11 +2930,11 @@ class PigRAD:
                 logger.info(update_t)
                 full_data = record["data"]
                 channels = record["channels"]
-
+                logger.info(f"channels {channels}")
                 #Section signals
                 sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
                 pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
-                logger.info(f"sections shape: {sections.shape} ")
+                logger.info(f"sections shape: {sections.shape}")
                 
                 #Input section data into avg_data container
                 pig_avg_data["pig_id"] = pig_id
@@ -2837,12 +2969,13 @@ class PigRAD:
                 #bandpass the ecg, lad, and carotid signals
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
                     full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
-
+                    logger.info(f"{channels[lead]}")
+                    
                 jobtask_proc = progress.add_task(f"Calculating features for {pig_id}...", total=pig_avg_data.shape[0])
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
-                    ind_beats:list[BP_Feat] = []
+                    
 
                     #Find R peaks from ECG lead
                     # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
@@ -2897,222 +3030,35 @@ class PigRAD:
                             pig_avg_data["HR"][idx] = int(np.nanmean(HR))
                         else:
                             logger.warning(f"Empty slice encountered in sect {idx}")
-
-                    for id, peak in enumerate(s_peaks[:-1]):
-                        #Load a dataclass  of features to attach to pigrad bp_data
-                        bpf = BP_Feat()
-                        bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
-                        bpf.sbp_id = peak.item()                           #Systolic
-                        bpf.dbp_id = s_heights["right_bases"][id].item()   #Diastolic
-                        bpf.SBP = ss1wave[bpf.sbp_id].item()
-                        bpf.DBP = ss1wave[bpf.dbp_id].item()
-
-                        if id == 0:
-                            bpf.onset = s_heights["left_bases"][id].item()  
-                        else:
-                            #Left base of the peak (previous systolic)
-                            bpf.onset = s_heights["right_bases"][id - 1].item()
-
-                        #Get the width of the pulse (s)
-                        if bpf.dbp_id > bpf.onset:
-                            pulse_dur = (bpf.dbp_id - bpf.onset) / self.fs
-                            bpf.pul_wid = pulse_dur #* 1000 for ms
-
-                        #Debug plot
-                        # plt.plot(range(ss1wave.shape[0]), ss1wave)
-                        # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
-                        # plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
-                        # if id == 0:
-                        #     plt.scatter(onset, ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
-                        # else:
-                        #     plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
-                        # plt.show()
-                        # plt.close()
-
-                        #two waves selected for each slope of the wave. 
-                        # sub_sys_up = ss1wave[bpf.onset:bpf.sbp_id]
-                        sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
-                        sub_full = ss1wave[bpf.onset:bpf.dbp_id]
-                        #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
-                        try:
-                            # Get systolic deriv
-                            # d1_sys = self._derivative(sub_sys_up, 1)
-                            # Get 2nd diastolic derivatives
-                            # d1_notch = self._derivative(sub_notch, 1)
-                            d2_notch = self._derivative(sub_notch, 2)
-
-                            #Get Dichrotic notch index from max of 2nd deriv
-                            bpf.notch_id = np.argmax(d2_notch).item()
-                            bpf.notch = sub_notch[bpf.notch_id].item()
-                            if bpf.notch:
-                                bpf.dni = (bpf.SBP - bpf.notch ) / (bpf.SBP - bpf.DBP)
-
-                        except Exception as e:
-                            logger.warning(f"{e}")
-                        
-                        #Calc MAP (mmHgs)
-                        if sub_full.shape[0] > 0:
-                            bpf.true_MAP = self._integrate(sub_full) / (sub_full.shape[0] / self.fs)
-                            bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
-                            bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
-
-                        #Get systolic slope
-                        sys_rise = bpf.SBP - ss1wave[bpf.onset]
-                        sys_run = (bpf.sbp_id - bpf.onset) / self.fs
-                        if sys_run > 0:
-                            sys_slope = sys_rise / sys_run 
-                        else:
-                            sys_slope = None
-                        if sys_slope:
-                            bpf.sys_sl = sys_slope.item()
                     
-
-                        #updated this to calc off the carotid stream.  LAD 
-                        psv, edv = None, None
-                        sub_car = carwave[bpf.onset:s_peaks[id+1]]
-                        if sub_car.size == 0:
-                            bpf.ri = 0
-                        else:
-                            psv = np.max(sub_car)
-                            edv = sub_car[-1]
-                            if psv and edv:
-                                bpf.ri = self.calc_RI(psv, edv)
-
-                        if bpf.notch:
-                            #Get diastolic slope via exponential decay (regression)
-                            notch_abs = bpf.sbp_id + bpf.notch_id
-                            pe, pe_heights = find_peaks(
-                                ss1wave[notch_abs:bpf.dbp_id],
-                                height=np.mean(ss1wave[notch_abs:bpf.dbp_id])
-                            )
-                            if pe.size > 0:
-                                y_dia = ss1wave[notch_abs + pe[0].item():bpf.dbp_id]
-                                x_dia = np.arange(y_dia.shape[0]) / self.fs
-                                slope_dia = linregress(y_dia, x_dia)
-                                if slope_dia:
-                                    bpf.dia_sl = slope_dia.slope.item()
-                            else:
-                                pass
-                                #TODO - Need a backup for if it doesn't find a peak
-                            
-                            #Generate SS1 Features: P1, P2, P3 & AIx
-                            p1_val, p2_val, p3_val = None, None, None
-
-                            # Absolute index of the notch
-                            # Define the entire systolic complex (onset to notch)
-                            sub_syst = ss1wave[bpf.onset:notch_abs]
-                            try:
-                                # 1st derivative of complex to find shoulders
-                                d1_sys_comp = self._derivative(sub_syst, 1)
-
-                            except Exception as e:
-                                logger.info(f"shape of sub_syst = {sub_syst.shape}")
-                                logger.warning(f"{e}")
-                                continue
-
-                            # Find true peaks in the systolic complex (Type A vs Type C)
-                            sys_peaks, _ = find_peaks(sub_syst)
-
-                            if len(sys_peaks) >= 2:
-                                # Multiple peaks: First is P1, Highest subsequent is P2
-                                p1_idx = sys_peaks[0]
-                                p2_idx = sys_peaks[1:][np.argmax(sub_syst[sys_peaks[1:]])]
-                                p1_val = sub_syst[p1_idx].item()
-                                p2_val = sub_syst[p2_idx].item()
-                            else:
-                                # Only one true peak found. We must find the shoulder.
-                                main_peak_idx = np.argmax(sub_syst).item()
-                                # Check for early shoulder (P1 is shoulder, P2 is main peak)
-                                early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
-                                # Check for late shoulder (P1 is main peak, P2 is shoulder)
-                                late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
-
-                                if len(early_shoulders) > 0:
-                                    p1_idx = early_shoulders[-1].item() 
-                                    p1_val = sub_syst[p1_idx].item()
-                                    p2_val = sub_syst[main_peak_idx].item()
-                                elif len(late_shoulders) > 0:
-                                    p1_val = sub_syst[main_peak_idx].item()
-                                    p2_idx = main_peak_idx + late_shoulders[0].item()
-                                    p2_val = sub_syst[p2_idx].item()
-                                else:
-                                    p1_val = sub_syst[main_peak_idx].item()
-                                    p2_val = None
-
-                            # 2. Find P3 (Dicrotic Wave) using Kneed
-                            diastolic_run = ss1wave[notch_abs : bpf.dbp_id]
-                            
-                            # Require a minimum length so kneed doesn't throw an error on noise
-                            if len(diastolic_run) > 5:  
-                                x_dias = np.arange(len(diastolic_run))
-                                
-                                # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
-                                # Sensitivity parameter (default is 1.0)
-                                kneedle = KneeLocator(
-                                    x=x_dias, 
-                                    y=diastolic_run, 
-                                    curve="concave", 
-                                    direction="decreasing",
-                                    S=1.0                  
-                                )
-                                
-                                if kneedle.knee is not None:
-                                    p3_val = diastolic_run[kneedle.knee].item()
-                                else:
-                                    # Fallback: If no subtle knee is found, it might be a true peak or completely flat. Fallback to finding the absolute max.
-                                    p3_val = np.max(diastolic_run).item()
-                            else:
-                                p3_val = None
-
-                            # 3. Assign to dataclass & calculate ratios
-                            bpf.p1 = p1_val
-                            bpf.p2 = p2_val
-                            bpf.p3 = p3_val
-
-                            if p1_val and p2_val:
-                                # Avoid division by zero for P1/P2 ratio
-                                if p2_val != 0:
-                                    bpf.p1_p2 = p1_val / p2_val
-                                
-                                # Avoid division by zero for Augmentation Index
-                                pulse_pressure_p1 = p1_val - bpf.DBP
-                                # Require at least a tiny pulse pressure
-                                if pulse_pressure_p1 > 0.1:  
-                                    bpf.aix = (p2_val - bpf.DBP) / pulse_pressure_p1
-                                else:
-                                    bpf.aix = None
-                            
-                            if p1_val and p3_val:
-                                bpf.p1_p3 = p1_val / p3_val
-                            
-                        #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
-                        ind_beats.append(bpf)
+                    ind_beats:list[BP_Feat] = []
+                    for id, peak in enumerate(s_peaks[:-1]):
+                        beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, s_heights, s_peaks)
+                        if beat_feat is not None:
+                            ind_beats.append(beat_feat)
 
                     if not ind_beats:
                         logger.warning(f"Sect {idx} produced no valid beats after processing.")
                         # Skip averaging to prevent the np.nanmean empty slice error
-                        continue 
-
-                    pig_avg_data["EBV"][idx]         = np.round(np.nanmean(full_data["EBV"][start:end]), precision)
+                        continue
+                    pig_avg_data["EBV"][idx]         = self._yabig_meanie(full_data["EBV"][start:end])
                     pig_avg_data["shock_class"][idx] = Counter(target[start:end]).most_common()[0][0].item()
-                    pig_avg_data["dni"][idx]         = np.round(np.nanmean([rec.dni for rec in ind_beats if rec.dni is not None]), precision)
-                    pig_avg_data["SBP"][idx]         = np.round(np.nanmean([rec.SBP for rec in ind_beats if rec.SBP is not None]), precision)
-                    pig_avg_data["DBP"][idx]         = np.round(np.nanmean([rec.DBP for rec in ind_beats if rec.DBP is not None]), precision)
-                    pig_avg_data["true_MAP"][idx]    = np.round(np.nanmean([rec.true_MAP for rec in ind_beats if rec.true_MAP is not None]), precision)
-                    pig_avg_data["ap_MAP"][idx]      = np.round(np.nanmean([rec.ap_MAP for rec in ind_beats if rec.ap_MAP is not None]), precision)
-                    pig_avg_data["shock_gap"][idx]   = np.round(np.nanmean([rec.shock_gap for rec in ind_beats if rec.shock_gap is not None]), precision)
-                    pig_avg_data["sys_sl"][idx]      = np.round(np.nanmean([rec.sys_sl for rec in ind_beats if rec.sys_sl is not None]), precision)
-                    pig_avg_data["dia_sl"][idx]      = np.round(np.nanmean([rec.dia_sl for rec in ind_beats if rec.dia_sl is not None]), precision)
-                    pig_avg_data["ri"][idx]          = np.round(np.nanmean([rec.ri for rec in ind_beats if rec.ri is not None]), precision)
-                    pig_avg_data["pul_wid"][idx]     = np.round(np.nanmean([rec.pul_wid for rec in ind_beats if rec.pul_wid is not None]), precision)
-                    pig_avg_data["p1"][idx]          = np.round(np.nanmean([rec.p1 for rec in ind_beats if rec.p1 is not None]), precision)
-                    pig_avg_data["p2"][idx]          = np.round(np.nanmean([rec.p2 for rec in ind_beats if rec.p2 is not None]), precision)
-                    pig_avg_data["p3"][idx]          = np.round(np.nanmean([rec.p3 for rec in ind_beats if rec.p3 is not None]), precision)
-                    pig_avg_data["p1_p2"][idx]       = np.round(np.nanmean([rec.p1_p2 for rec in ind_beats if rec.p1_p2 is not None]), precision)
-                    pig_avg_data["p1_p3"][idx]       = np.round(np.nanmean([rec.p1_p3 for rec in ind_beats if rec.p1_p3 is not None]), precision)
-                    pig_avg_data["aix"][idx]         = np.round(np.nanmean([rec.aix for rec in ind_beats if rec.aix is not None]), precision)
-                    self.bp_data.extend(ind_beats)
-                    
+                    pig_avg_data["dni"][idx]         = self._yabig_meanie([r.dni for r in ind_beats])
+                    pig_avg_data["SBP"][idx]         = self._yabig_meanie([r.SBP for r in ind_beats])
+                    pig_avg_data["DBP"][idx]         = self._yabig_meanie([r.DBP for r in ind_beats])
+                    pig_avg_data["true_MAP"][idx]    = self._yabig_meanie([r.true_MAP for r in ind_beats])
+                    pig_avg_data["ap_MAP"][idx]      = self._yabig_meanie([r.ap_MAP for r in ind_beats])
+                    pig_avg_data["shock_gap"][idx]   = self._yabig_meanie([r.shock_gap for r in ind_beats])
+                    pig_avg_data["sys_sl"][idx]      = self._yabig_meanie([r.sys_sl for r in ind_beats])
+                    pig_avg_data["dia_sl"][idx]      = self._yabig_meanie([r.dia_sl for r in ind_beats])
+                    pig_avg_data["ri"][idx]          = self._yabig_meanie([r.ri for r in ind_beats])
+                    pig_avg_data["pul_wid"][idx]     = self._yabig_meanie([r.pul_wid for r in ind_beats])
+                    pig_avg_data["p1"][idx]          = self._yabig_meanie([r.p1 for r in ind_beats])
+                    pig_avg_data["p2"][idx]          = self._yabig_meanie([r.p2 for r in ind_beats])
+                    pig_avg_data["p3"][idx]          = self._yabig_meanie([r.p3 for r in ind_beats])
+                    pig_avg_data["p1_p2"][idx]       = self._yabig_meanie([r.p1_p2 for r in ind_beats])
+                    pig_avg_data["p1_p3"][idx]       = self._yabig_meanie([r.p1_p3 for r in ind_beats])
+                    pig_avg_data["aix"][idx]         = self._yabig_meanie([r.aix for r in ind_beats])
                     #TODO - add spectral features
                         #refer to this paper, but it looks like we can get some added feature information from the first 3 harmonics of the STFT
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
@@ -3128,16 +3074,220 @@ class PigRAD:
                 
         # After all pigs are processed, concatenate into a single master array
         self.avg_data = np.concatenate(self.all_avg_data)
-        end_text = f"[bold green]Batch processing complete. Total records: {self.avg_data.shape[0]}[/]"
+        end_text = f"[bold green]File processing complete. Total records: {self.avg_data.shape[0]}[/]"
         logger.info(end_text)
         console.print(end_text)    
 
+
+                        # #Load a dataclass  of features to attach to pigrad bp_data
+                        # bpf = BP_Feat()
+                        # bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
+                        # bpf.sbp_id = peak.item()                           #Systolic
+                        # bpf.dbp_id = s_heights["right_bases"][id].item()   #Diastolic
+                        # bpf.SBP = ss1wave[bpf.sbp_id].item()
+                        # bpf.DBP = ss1wave[bpf.dbp_id].item()
+
+                        # if id == 0:
+                        #     bpf.onset = s_heights["left_bases"][id].item()  
+                        # else:
+                        #     #Left base of the peak (previous systolic)
+                        #     bpf.onset = s_heights["right_bases"][id - 1].item()
+
+                        # #Get the width of the pulse (s)
+                        # if bpf.dbp_id > bpf.onset:
+                        #     pulse_dur = (bpf.dbp_id - bpf.onset) / self.fs
+                        #     bpf.pul_wid = pulse_dur #* 1000 for ms
+
+                        # #Debug plot
+                        # # plt.plot(range(ss1wave.shape[0]), ss1wave)
+                        # # plt.scatter(syst, s_heights["peak_heights"][id].item(), color="red")
+                        # # plt.scatter(s_heights["right_bases"][id].item(), ss1wave.iloc[s_heights["right_bases"][id].item()], color="green")
+                        # # if id == 0:
+                        # #     plt.scatter(onset, ss1wave.iloc[s_heights["left_bases"][id].item()], color="yellow")
+                        # # else:
+                        # #     plt.scatter(onset, ss1wave.iloc[s_heights["right_bases"][id - 1].item()], color="yellow")
+                        # # plt.show()
+                        # # plt.close()
+
+                        # #two waves selected for each slope of the wave. 
+                        # # sub_sys_up = ss1wave[bpf.onset:bpf.sbp_id]
+                        # sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
+                        # sub_full = ss1wave[bpf.onset:bpf.dbp_id]
+                        # #Calc derivatives (returns smoothed, 1st and second deriv with sav_gol filter)
+                        # if sub_notch.shape[0] > 0:
+                        #     try:
+                        #         # Get systolic deriv
+                        #         # d1_sys = self._derivative(sub_sys_up, 1)
+                        #         # Get 2nd diastolic derivatives
+                        #         # d1_notch = self._derivative(sub_notch, 1)
+                        #         d2_notch = self._derivative(sub_notch, 2)
+
+                        #         #Get Dichrotic notch index from max of 2nd deriv
+                        #         bpf.notch_id = np.argmax(d2_notch).item()
+                        #         bpf.notch = sub_notch[bpf.notch_id].item()
+                        #         if bpf.notch and (bpf.SBP - bpf.DBP) > 0.1:
+                        #             bpf.dni = (bpf.SBP - bpf.notch ) / (bpf.SBP - bpf.DBP)
+
+                        #     except Exception as e:
+                        #         logger.warning(f"{e}")
+                        
+                        # #Calc MAP (mmHgs)
+                        # if sub_full.shape[0] > 0:
+                        #     bpf.true_MAP = self._integrate(sub_full) / (sub_full.shape[0] / self.fs)
+                        #     bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
+                        #     bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
+
+                        # #Get systolic slope
+                        # sys_rise = bpf.SBP - ss1wave[bpf.onset] 
+                        # sys_run = (bpf.sbp_id - bpf.onset) / self.fs
+                        # if sys_run > 0:
+                        #     sys_slope = sys_rise / sys_run 
+                        # else:
+                        #     sys_slope = None
+                        # if sys_slope:
+                        #     bpf.sys_sl = sys_slope.item()
+
+                        # #updated this to calc off the carotid stream.  LAD 
+                        # psv, edv = None, None
+                        # sub_car = carwave[bpf.onset:s_peaks[id+1]]
+                        # if sub_car.size == 0:
+                        #     bpf.ri = None
+                        # else:
+                        #     psv = np.max(sub_car)
+                        #     edv = sub_car[-1]
+                        #     if psv and edv:
+                        #         bpf.ri = self.calc_RI(psv, edv)
+
+                        # if bpf.notch:
+                        #     #Get diastolic slope via exponential decay (regression)
+                        #     notch_abs = bpf.sbp_id + bpf.notch_id
+                            
+                        #     pe, pe_heights = find_peaks(
+                        #         ss1wave[notch_abs:bpf.dbp_id],
+                        #         height=np.mean(ss1wave[notch_abs:bpf.dbp_id])
+                        #     )
+
+                        #     if pe.size > 0:
+                        #         y_dia = ss1wave[notch_abs + pe[0].item():bpf.dbp_id]
+                            
+                        #     elif y_dia.size > 0:
+                        #         y_dia = ss1wave[notch_abs:bpf.dbp_id]
+
+                        #     try:
+                        #         x_dia = np.arange(y_dia.shape[0]) / self.fs
+                        #         slope_dia = linregress(y_dia, x_dia)
+                        #     except Exception as e:
+                        #         logger.warning(f"{e}")
+
+                        #     if slope_dia:
+                        #         bpf.dia_sl = slope_dia.slope.item()
+                        #     else:
+                        #         bpf.dia_sl = 0.0
+                                
+                        #     #Generate SS1 Features: P1, P2, P3 & AIx
+                        #     p1_val, p2_val, p3_val = None, None, None
+
+                        #     # Absolute index of the notch
+                        #     # Define the entire systolic complex (onset to notch)
+                        #     sub_syst = ss1wave[bpf.onset:notch_abs]
+                        #     try:
+                        #         # 1st derivative of complex to find shoulders
+                        #         d1_sys_comp = self._derivative(sub_syst, 1)
+
+                        #     except Exception as e:
+                        #         logger.info(f"shape of sub_syst = {sub_syst.shape}")
+                        #         logger.warning(f"{e}")
+                        #         continue
+
+                        #     # Find true peaks in the systolic complex (Type A vs Type C)
+                        #     sys_peaks, _ = find_peaks(sub_syst)
+
+                        #     if len(sys_peaks) >= 2:
+                        #         # Multiple peaks: 
+                        #         # First is P1, Highest subsequent is P2
+                        #         p1_idx = sys_peaks[0]
+                        #         p2_idx = sys_peaks[1:][np.argmax(sub_syst[sys_peaks[1:]])]
+                        #         p1_val = sub_syst[p1_idx].item()
+                        #         p2_val = sub_syst[p2_idx].item()
+                        #     else:
+                        #         # Only one true peak found. We must find the shoulder.
+                        #         main_peak_idx = np.argmax(sub_syst).item()
+                        #         # Check for early shoulder (P1 is shoulder, P2 is main peak)
+                        #         early_shoulders, _ = find_peaks(-d1_sys_comp[:main_peak_idx])
+                        #         # Check for late shoulder (P1 is main peak, P2 is shoulder)
+                        #         late_shoulders, _ = find_peaks(d1_sys_comp[main_peak_idx:])
+
+                        #         if len(early_shoulders) > 0:
+                        #             p1_idx = early_shoulders[-1].item() 
+                        #             p1_val = sub_syst[p1_idx].item()
+                        #             p2_val = sub_syst[main_peak_idx].item()
+                                
+                        #         elif len(late_shoulders) > 0:
+                        #             p1_val = sub_syst[main_peak_idx].item()
+                        #             p2_idx = main_peak_idx + late_shoulders[0].item()
+                        #             p2_val = sub_syst[p2_idx].item()
+                        #         else:
+                        #             p1_val = sub_syst[main_peak_idx].item()
+                        #             p2_val = p1_val
+
+                        #     # 2. Find P3 (Dicrotic Wave) using Kneed
+                        #     diastolic_run = ss1wave[notch_abs : bpf.dbp_id]
+                            
+                        #     # Require a minimum length so kneed doesn't throw an error on noise
+                        #     if len(diastolic_run) > 5:  
+                        #         x_dias = np.arange(len(diastolic_run))
+                        #         # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
+                        #         # Sensitivity parameter (default is 1.0)
+                        #         kneedle = KneeLocator(
+                        #             x=x_dias, 
+                        #             y=diastolic_run, 
+                        #             curve="concave", 
+                        #             direction="decreasing",
+                        #             S=1.0                  
+                        #         )
+                                
+                        #         if kneedle.knee is not None:
+                        #             p3_val = diastolic_run[kneedle.knee].item()
+                        #         else:
+                        #             # Fallback: If no subtle knee is found, it might be a true peak or completely flat. Fallback to finding the absolute max.
+                        #             p3_val = np.max(diastolic_run).item()
+
+                        #     elif len(diastolic_run) > 0:
+                        #         p3_val = np.max(diastolic_run).item()
+                            
+                        #     else:
+                        #         # if its flat flat.  p3 is just the notch val
+                        #         p3_val = bpf.notch
+
+                        #     # 3. Assign to dataclass & calculate ratios
+                        #     bpf.p1 = p1_val
+                        #     bpf.p2 = p2_val
+                        #     bpf.p3 = p3_val
+
+                        #     if p1_val is not None and p2_val is not None:
+                        #         # Avoid division by zero for P1/P2 ratio
+                        #         if p2_val != 0:
+                        #             bpf.p1_p2 = p1_val / p2_val
+                                
+                        #         # Avoid division by zero for Augmentation Index
+                        #         pulse_pressure_p1 = p1_val - bpf.DBP
+                        #         # Require at least a tiny pulse pressure
+                        #         if pulse_pressure_p1 > 0.1:  
+                        #             bpf.aix = (p2_val - bpf.DBP) / pulse_pressure_p1
+                        #         else:
+                        #             bpf.aix = None
+                            
+                        #     if p1_val and p3_val:
+                        #         bpf.p1_p3 = p1_val / p3_val
+                            
+                        # #Depending on how long these recordings are, we might want to comment out the individual peak data addition to the object
+                        # ind_beats.append(bpf)
     def create_features(self):
         self.section_extract()
         console.print("[bold green]Features created...[/]")
         # #Save Results
-        self.save_results()
-        console.print("[bold green]Features saved[/]")
+        # self.save_results()
+        # console.print("[bold green]Features saved[/]")
 
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
@@ -3268,6 +3418,57 @@ class PigRAD:
                 #TODO - refactor grid_search
                 # modeltraining._grid_search(tree, 5)
 
+    def pick_lead(self, col:str) -> str:
+        """Picks the lead you'd like to analyze
+
+        Args:
+            col (str): Lead you want to pick
+
+        Raises:
+            ValueError: Gotta pick an integer
+
+        Returns:
+            lead (str): the lead you picked!
+        """
+        tree = Tree(f":select channel:", guide_style="bold bright_blue")
+        for idx, channel in enumerate(self.channels):
+            tree.add(Text(f'{idx}:', 'blue') + Text(f'{channel} ', 'red'))
+        pprint(tree)
+        question = f"Please select the {col} channel\n"
+        file_choice = console.input(f"{question}")
+        if file_choice.isnumeric():
+            pprint(f"lead {col} loaded")
+            return int(file_choice)
+        else:
+            raise ValueError("Invalid selection")
+        
+    def save_results(self):
+        """Saves the extracted feature data, including individual files if it's a batch."""
+        
+        # 1. Save the concatenated master array (works for single or batch)
+        np.savez_compressed(self.fp_save, self.avg_data)
+        
+        # Log the master file size
+        mb_size = self.fp_save.stat().st_size / (1024 * 1024)
+        logger.warning(f"Saved total feature array to {self.fp_save.name} ({mb_size:.2f} MB)")
+
+        # 2. If it's a batch, loop through and save the individual pig arrays
+        if self.batch_run and hasattr(self, 'all_avg_data'):
+            for pig_data in self.all_avg_data:
+                # Ensure the array isn't empty before trying to save
+                if len(pig_data) > 0:
+                    # Grab the pig_id from the first row of this specific array
+                    pig_id = str(pig_data["pig_id"][0]) 
+                    
+                    # Define the path inside the batch folder
+                    individual_path = self.fp_base / f"{pig_id}_feat.npz"
+                    
+                    # Save it
+                    np.savez_compressed(individual_path, pig_data)
+                    
+                    ind_mb_size = individual_path.stat().st_size / (1024 * 1024)
+                    logger.info(f"Saved individual {pig_id} features to {individual_path.name} ({ind_mb_size:.2f} MB)")
+                    
 def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
 
