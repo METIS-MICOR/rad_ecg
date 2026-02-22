@@ -2134,8 +2134,19 @@ class CardiacFreqTools:
         self.fs = fs
         self.c = bandwidth_parameter
 
-    def get_wavelet(self, wavelet_type: str, center_freq: float):
-        """Generates the requested wavelet kernel."""
+    def get_wavelet(self, wavelet_type:str, center_freq:float):
+        """Generates the requested wavelet kernel
+
+        Args:
+            wavelet_type (str): Type of desired wavelet
+            center_freq (float): _description_
+
+        Raises:
+            ValueError: _description_
+
+        Returns:
+            _type_: _description_
+        """        
         w_desired = 2 * np.pi * center_freq
         s = self.c * self.fs / w_desired
         M = int(2 * 4 * s) + 1
@@ -2157,14 +2168,14 @@ class CardiacFreqTools:
             
         return wavelet
 
-    def compute_section_phase_metric(self, signal: np.array, peaks: list, target_freq: float = 2.0, wavelet: str = 'morlet'):
+    def compute_section_phase_metric(self, signal:np.array, peaks:list, target_freq:float = 2.0, wavelet:str = 'morlet'):
         """
         Calculates the average phase angle for each beat and phase variance for the section.
         """
         if len(peaks) < 2:
             return [], np.nan
             
-        # 1. Apply CWT to the entire section at once (Massive speedup)
+        # 1. Apply CWT to the entire section at once (faster)
         kernel = self.get_wavelet(wavelet, target_freq)
         cwt_complex = convolve(signal, kernel, mode='same')
         full_phases = np.angle(cwt_complex)
@@ -2234,10 +2245,10 @@ class CardiacFreqTools:
         if not all_psd:
             return np.full(4, np.nan), np.full(4, np.nan)
             
-        # Average the PSDs across all R-R intervals in this section
+        # average the PSDs across all intervals in this section
         mean_psd = np.mean(all_psd, axis=0)
         
-        # Find peaks using scipy
+        # scipy find peaks 
         freq_res = freq_list[1] - freq_list[0]
         min_dist = max(1, int(0.5 / freq_res))
         peaks_idx, _ = find_peaks(
@@ -3196,6 +3207,7 @@ class PigRAD:
                         logger.warning(f"Sect {idx} produced no valid beats after processing.")
                         # Skip averaging to prevent the np.nanmean empty slice error
                         continue
+                    # --- Morphomics / Hemodynamic calculations ---
                     pig_avg_data["EBV"][idx]         = self._yabig_meanie(full_data["EBV"][start:end])
                     pig_avg_data["shock_class"][idx] = Counter(target[start:end]).most_common()[0][0].item()
                     pig_avg_data["dni"][idx]         = self._yabig_meanie([r.dni for r in ind_beats])
@@ -3226,9 +3238,6 @@ class PigRAD:
                     pig_avg_data["psd1"][idx]        = top_psd[1]
                     pig_avg_data["psd2"][idx]        = top_psd[2]
                     pig_avg_data["psd3"][idx]        = top_psd[3]                        
-                    
-                    #TODO - add back phase angle / variance as a feature
-                        #Could be very interesting to see how the model interprets these. 
 
                     #Move the progbar
                     progress.advance(jobtask_proc)
@@ -3372,13 +3381,12 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False) 
             forest = ['rfc', 'xgboost']
             #Looking at feature importances
-            # for tree in forest: #Lol
-            #     feats = modeltraining._models[tree].feature_importances_
-            #     modeltraining.plot_feats(tree, ofinterest, feats)
-            #     modeltraining.SHAP(tree, ofinterest)
-                # modeltraining._grid_search(tree, 5)
-            #Gridsearch SVM
-            modeltraining._grid_search("xgboost", 10)
+            for tree in forest: #Lol
+                feats = modeltraining._models[tree].feature_importances_
+                modeltraining.plot_feats(tree, ofinterest, feats)
+                modeltraining.SHAP(tree, ofinterest)
+            #Gridsearch
+            # modeltraining._grid_search("xgboost", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
