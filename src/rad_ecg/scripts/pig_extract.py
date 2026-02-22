@@ -39,7 +39,7 @@ from support import logger, console, log_time, NumpyArrayEncoder
 ########################### Sklearn imports ###############################
 
 from sklearn.base import BaseEstimator
-from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler
+from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
@@ -112,11 +112,11 @@ class EDA(object):
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
-            for col in ["EBV"]:
+            for col in ["EBV", "psd0", "psd1", "psd2", "psd3"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed target {col}")
-        
+
         #Drop the target column.
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
@@ -1246,7 +1246,9 @@ class DataPrep(object):
             scaler_dict = {
                 "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
                 "s_scale":StandardScaler(), 
-                "m_scale":MinMaxScaler(feature_range=(0, 1))
+                "m_scale":MinMaxScaler(feature_range=(0, 1)),
+                "p_scale": PowerTransformer(method='yeo-johnson', standardize=True),
+                "q_scale": QuantileTransformer(output_distribution='normal', random_state=42)
             }
             scaler = scaler_dict.get(scalernm)
             if not scaler:
@@ -1594,7 +1596,22 @@ class ModelTraining(object):
 
         Args:
             model_name (str): Name of model
-        """		
+        """
+        def load_cross_val(cv_name:str):
+                cv_validators = {
+                    "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
+                    "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                    # "leaveoneout" :LeaveOneOut(),
+                    # "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
+                    "leaveonegroupout": LeaveOneGroupOut(),
+                    "groupshuffle":GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
+                    "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
+                    "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
+                }
+                return cv_validators[cv_name]
+            #BUG - load cross val
+            #TODO - doesn't have access below.  reformat classs
+
 
         #FUNCTION custom_confusion_matrix
         def custom_confusion_matrix(y_true, y_pred, display_labels=None, model_name="Model", positive_class_first=False):
@@ -1741,8 +1758,101 @@ class ModelTraining(object):
             plt.show()
             plt.close()
 
-        def cv_roc_auc_curves():
-            pass
+        #FUNCTION cv_roc_auc_curves
+        def cv_roc_auc_curves(model_name:str):
+            logger.info(f"Generating CV ROC AUC curves for {model_name}...")
+            
+            # Re-initialize model and CV splitter
+            freshmodel = ModelTraining.load_model(self, model_name)
+            CV_func = load_cross_val(self.cross_val) 
+            
+            # Set up the common X-axis (False Positive Rate) for interpolation
+            mean_fpr = np.linspace(0, 1, 100)
+            
+            # Setup dictionaries to hold True Positive Rates and AUCs across folds
+            n_classes = len(self.target_names)
+            tprs = {i: [] for i in range(n_classes)}
+            aucs = {i: [] for i in range(n_classes)}
+            
+            # Unpack data
+            X_data = self.X_train
+            y_data = self.y_train
+            groups_data = self.groups_train
+            
+            # Iterate through the CV folds
+            for fold, (train_ix, test_ix) in enumerate(CV_func.split(X_data, y_data, groups=groups_data)):
+                # Fit the model on the training fold
+                freshmodel.fit(X_data[train_ix], y_data[train_ix])
+                # Predict probabilities on the testing fold
+                probas_ = freshmodel.predict_proba(X_data[test_ix])
+                
+                # Compute ROC for each class (One-vs-Rest)
+                for cls in range(n_classes):
+                    # Binarize the target for the current class
+                    y_test_bin = (y_data[test_ix] == cls).astype(int) 
+                    
+                    # --- FIX APPLIED HERE ---
+                    # Check if there are actually any positive samples for this class in this fold
+                    if np.sum(y_test_bin) == 0:
+                        logger.warning(f"Fold {fold}: Class '{self.target_names[cls]}' missing from test set. Skipping ROC for this fold.")
+                        continue # Skip to the next class
+                    
+                    # Calculate ROC metrics
+                    fpr, tpr, _ = roc_curve(y_test_bin, probas_[:, cls])
+                    
+                    # Interpolate the TPR to our common mean_fpr scale
+                    interp_tpr = np.interp(mean_fpr, fpr, tpr)
+                    interp_tpr[0] = 0.0 # Force curve to start at 0
+                    
+                    tprs[cls].append(interp_tpr)
+                    aucs[cls].append(auc(fpr, tpr))
+                    
+            # Set up the plot
+            fig, ax = plt.subplots(figsize=(10, 8))
+            color_cmap = plt.cm.get_cmap('Paired', n_classes) 
+            
+            # Plot Mean ROC and standard deviation for each class
+            for cls in range(n_classes):
+                # Ensure we actually have data to plot for this class
+                if len(tprs[cls]) == 0:
+                    logger.warning(f"Class '{self.target_names[cls]}' had no test samples across any folds. Cannot plot.")
+                    continue
+                
+                # Calculate mean TPR and AUC
+                mean_tpr = np.mean(tprs[cls], axis=0)
+                mean_tpr[-1] = 1.0 # Force curve to end at 1
+                mean_auc = auc(mean_fpr, mean_tpr)
+                std_auc = np.std(aucs[cls])
+                
+                # Plot the solid mean line
+                ax.plot(
+                    mean_fpr, mean_tpr, 
+                    color=color_cmap(cls), 
+                    lw=2, 
+                    label=f"Mean ROC {self.target_names[cls]} (AUC = {mean_auc:.2f} \u00B1 {std_auc:.2f})"
+                )
+                
+                # Plot the shaded standard deviation band
+                std_tpr = np.std(tprs[cls], axis=0)
+                tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+                tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+                ax.fill_between(
+                    mean_fpr, tprs_lower, tprs_upper, 
+                    color=color_cmap(cls), alpha=0.1
+                )
+
+            # Add chance line and formatting
+            ax.plot([0, 1], [0, 1], linestyle="--", lw=2, color="black", label="Chance (AUC = 0.5)")
+            ax.set_xlim([-0.05, 1.05])
+            ax.set_ylim([-0.05, 1.05])
+            ax.set_xlabel("False Positive Rate", fontsize=12)
+            ax.set_ylabel("True Positive Rate", fontsize=12)
+            ax.set_title(f"Cross-Validated ROC-AUC (OvR) - {model_name.upper()}", fontsize=14)
+            ax.legend(loc="lower right")
+            
+            plt.tight_layout()
+            plt.show()
+            plt.close()
 
         #FUNCTION classification summary
         def classification_summary(model_name:str, y_pred:np.array, cv_class:str=False):
@@ -1750,6 +1860,7 @@ class ModelTraining(object):
             labels = self.target_names
             no_proba = ["svm", ""]
             #TODO - Need logic here for multiclass summary
+
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
             custom_confusion_matrix(self.y_test, y_pred, display_labels=labels, model_name=model_name)
@@ -1762,9 +1873,9 @@ class ModelTraining(object):
                 if model_name not in no_proba:
                     roc_auc_curves(self, model_name)
             else:
-                # cv_roc_auc_curves() #Not finished
-                logger.warning(f"ROC Curves not yet functional for CV")
-            
+                if model_name not in no_proba:
+                    cv_roc_auc_curves(model_name)
+
         #FUNCTION No Crossval
         def no_cv_scoring(y_pred:np.array, cat_bool:bool, table)->float:
             #I'm not sure why i'm keeping no cross validation as an option, but here we are. 
@@ -1823,19 +1934,7 @@ class ModelTraining(object):
             Returns:
                 float: _description_
             """
-            def load_cross_val(cv_name:str):
-                cv_validators = {
-                    "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
-                    "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-                    # "leaveoneout" :LeaveOneOut(),
-                    # "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
-                    "leaveonegroupout": LeaveOneGroupOut(),
-                    "groupshuffle":GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-                    "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
-                    "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
-                }
-                return cv_validators[cv_name]
-            
+
             def generate_cv_predictions(freshmodel, CV_func, X_data:np.array, y_data:np.array, groups_data:np.array):#-> Tuple[list, list]
                 actual_t = np.array([])
                 predicted_t = np.array([])
@@ -3240,10 +3339,16 @@ class PigRAD:
                         target_f = 2.0 
                         
                         beat_phases_mor, var_mor = freq_tool.compute_section_phase_metric(
-                            ss1wave, s_peaks[:-1], target_freq=target_f, wavelet='morlet'
+                            ss1wave, 
+                            s_peaks[:-1], 
+                            target_freq=target_f, 
+                            wavelet='morlet'
                         )
                         beat_phases_cgau, var_cgau = freq_tool.compute_section_phase_metric(
-                            ss1wave, s_peaks[:-1], target_freq=target_f, wavelet='cgau1'
+                            ss1wave, 
+                            s_peaks[:-1], 
+                            target_freq=target_f, 
+                            wavelet='cgau1'
                         )
                         
                         # Store section-level phase variance
@@ -3369,7 +3474,7 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
             #graph your features
             if eda.view_eda:
-                sel_cols = eda.feature_names[4:]
+                sel_cols = eda.feature_names[4:-6]
                 #Sum basic stats
                 eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
@@ -3406,7 +3511,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "m_scale"
+            scaler = "q_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
