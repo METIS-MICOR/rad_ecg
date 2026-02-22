@@ -106,6 +106,10 @@ class EDA(object):
 
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
+        
+        #TODO - Outliers
+            #seeing a few outliers lately.  Might need something to help clear those out to make the
+            #eda plots more informative. 
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
@@ -812,6 +816,7 @@ class FeatureEngineering(EDA):
             self.gpu_devices = eda.gpu_devices
             self.task = eda.task
             self.rev_target_dict = eda.rev_target_dict
+            self.fp_base = eda.fp_base
 
         else:
             super().__init__(self)
@@ -1095,6 +1100,7 @@ class DataPrep(object):
             self.task = engin.task
             self.gpu_devices = engin.gpu_devices
             self.rev_target_dict = engin.rev_target_dict
+            self.fp_base = engin.fp_base
 
         else:
             EDA.__init__(self) 
@@ -1259,6 +1265,7 @@ class ModelTraining(object):
         self.gpu_devices = dataprep.gpu_devices
         self.task = dataprep.task
         self.cross_val = dataprep.cross_val
+        self.fp_base = dataprep.fp_base
         self.CV_func = None
         #MEAS Model params
         self._model_params = {
@@ -2007,7 +2014,7 @@ class ModelTraining(object):
             # if your models are small and fit in VRAM concurrently.
             n_workers = num_gpus 
             # Wrap the classifier so each worker gets its own GPU
-            clf = MultiGPUWrapper(base_clf, self.gpu_devices)
+            clf = MultiGPU(base_clf, self.gpu_devices)
             # Prefix the param grid keys because of the wrapper
             params = {f"estimator__{k}": v for k, v in params.items()}
         else:
@@ -2042,7 +2049,7 @@ class ModelTraining(object):
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
         
         # 2. Refactored file saving block
-        fp = "./data/datasets/JT/gridresults.txt"
+        fp = self.fp_base / "gridresults.txt"
         current_time = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime())
         
         # "a" mode creates the file if it doesn't exist and appends if it does!
@@ -2057,7 +2064,7 @@ class ModelTraining(object):
 
         return grid
 
-class MultiGPUWrapper(BaseEstimator):
+class MultiGPU(BaseEstimator):
     """
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
     Smartly routes GPU parameters to supported models (XGBoost) and falls back 
@@ -3320,7 +3327,7 @@ class PigRAD:
             #     modeltraining.SHAP(tree, ofinterest)
                 # modeltraining._grid_search(tree, 5)
             #Gridsearch SVM
-            modeltraining._grid_search("rfc", 10)
+            modeltraining._grid_search("xgboost", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
