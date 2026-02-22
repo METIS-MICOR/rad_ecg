@@ -2900,6 +2900,7 @@ class PigRAD:
             ('valid'      , 'i4'),  #valid Section
             ('shock_class', 'U4'),  #Shock Class
             ('HR'         , 'f4'),  #Heart Rate
+            ############# morphomics ################################
             ('SBP'        , 'f4'),  #Systolic Pressure
             ('DBP'        , 'f4'),  #Diastolic Pressure
             ('EBV'        , 'f4'),  #Estimated Blood Volume
@@ -2917,6 +2918,7 @@ class PigRAD:
             ('p1_p2'      , 'f4'),  #Ratio of P1 to P2
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
+            ######### frequency componenets ##################
             ('f0'         , 'f4'),  #Top Frequency (Fundamental)
             ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
             ('f2'         , 'f4'),  #Harmonic 2 (3rd biggest peak)
