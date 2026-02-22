@@ -51,7 +51,7 @@ from sklearn.metrics import classification_report
 from shap import TreeExplainer
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneOut, ShuffleSplit, StratifiedShuffleSplit
+from sklearn.model_selection import KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -1130,7 +1130,7 @@ class DataPrep(object):
         
         if engin:
             self.data = engin.data[features]
-            self.groups = np.unique(engin.data["pig_id"])
+            self.groups = engin.data["pig_id"].to_numpy() # np.unique(engin.data["pig_id"])
             self.feature_names = features
             self.target = engin.target
             self.target_names = engin.target_names
@@ -1257,15 +1257,33 @@ class DataPrep(object):
             logger.info(f"{model_name}'s data has been scaled with {scaler.__class__()} ")
 
         #MEAS Test train split
-        if self.cross_val == "groupshuffle":
-            pass
+        if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
+            # MEAS Test train split Group-aware outer split
+                # We need to use GroupShuffleSplit so an entire pig goes to testing, preventing leakage
+            gss = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
+            
+            # Get the indices for train and test based on groups
+            train_idx, test_idx = next(gss.split(
+                self._traind[model_name]["X"], 
+                self._traind[model_name]["y"], 
+                groups=self.groups)
+            )
+
+            # Apply the split using iloc to maintain alignment
+            self._traind[model_name]["X_train"] = self._traind[model_name]["X"].iloc[train_idx]
+            self._traind[model_name]["X_test"] = self._traind[model_name]["X"].iloc[test_idx]
+            self._traind[model_name]["y_train"] = self._traind[model_name]["y"].iloc[train_idx]
+            self._traind[model_name]["y_test"] = self._traind[model_name]["y"].iloc[test_idx]
+            
+            # Save the training groups so CV knows which pig is which during the inner loop
+            self._traind[model_name]["groups_train"] = self.groups[train_idx]
         else:
-            pass   
-        X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
-        self._traind[model_name]["X_train"] = X_train 
-        self._traind[model_name]["y_train"] = y_train 
-        self._traind[model_name]["X_test"] = X_test
-        self._traind[model_name]["y_test"] = y_test
+            #If its not group validation normal test split
+            X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
+            self._traind[model_name]["X_train"] = X_train 
+            self._traind[model_name]["y_train"] = y_train 
+            self._traind[model_name]["X_test"] = X_test
+            self._traind[model_name]["y_test"] = y_test
 
 #CLASS Model Training
 class ModelTraining(object):
@@ -1466,6 +1484,8 @@ class ModelTraining(object):
         self.y_test = self._traind[model_name]["y_test"]
         self.X = self._traind[model_name]["X"]
         self.y = self._traind[model_name]["y"]
+        if self.cross_val == "groupshuffle":
+            self.groups_train = self._traind[model_name].get("groups_train", None)
 
     #FUNCTION Load Model
     def load_model(self, model_name:str):
@@ -1807,20 +1827,20 @@ class ModelTraining(object):
                 cv_validators = {
                     "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-                    "leaveoneout" :LeaveOneOut(),
-                    # "groupkfold"  :GroupKFold(n_splits=10, shuffle=True, random_state=42),
-                    # "leavepout"   :LeaveOneOut(p=2),  #Maybe try this one too 
-                    "groupshuffle":GroupShuffleSplit(n_splits=1, test_size=0.25, random_state=42),
+                    # "leaveoneout" :LeaveOneOut(),
+                    # "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
+                    "leaveonegroupout": LeaveOneGroupOut(),
+                    "groupshuffle":GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
                 }
                 return cv_validators[cv_name]
             
-            def generate_cv_predictions(freshmodel, CV_func, X_data:np.array, y_data:np.array):#-> Tuple[list, list]
+            def generate_cv_predictions(freshmodel, CV_func, X_data:np.array, y_data:np.array, groups_data:np.array):#-> Tuple[list, list]
                 actual_t = np.array([])
                 predicted_t = np.array([])
-
-                for train_ix, test_ix in CV_func.split(X = X_data, y = y_data):
+                #BUG - Had to hardcode groups into the split.  REFACTOR eventually
+                for train_ix, test_ix in CV_func.split(X = X_data, y = y_data, groups=groups_data):
                     train_X, train_y, test_X, test_y = X_data[train_ix], y_data[train_ix], X_data[test_ix], y_data[test_ix]
                     freshmodel.fit(train_X, train_y)
                     predicted_labels = freshmodel.predict(test_X)
@@ -1836,12 +1856,17 @@ class ModelTraining(object):
             CV_func = load_cross_val(self.cross_val)
 
             #Validate
-            if self.cross_val == "groupkfold":
-                groups = self.groups
-                scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), groups=groups, cv=CV_func)["test_score"]
+            group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
+            if self.cross_val in group_splitters:
+                scores = cross_validate(
+                    freshmodel, self.X_train, self.y_train.to_numpy(), 
+                    groups=self.groups_train, cv=CV_func
+                )["test_score"]
             else:
-                scores = cross_validate(freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func)["test_score"]
-
+                scores = cross_validate(
+                    freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func
+                )["test_score"]
+            
             #reload model untrained model for cross_validation predictions
             freshmodel = ModelTraining.load_model(self, model_name)
 
@@ -1849,8 +1874,11 @@ class ModelTraining(object):
             CV_func = load_cross_val(self.cross_val)
 
             #Generate new predictions based on cross validated data.
-            y_pred, y_target = generate_cv_predictions(freshmodel, CV_func, self.X_train, self.y_train.to_numpy())
-            
+            y_pred, y_target = generate_cv_predictions(
+                freshmodel, CV_func, self.X_train, self.y_train.to_numpy(), self.groups_train
+            )
+            #BUG - Had to hardcode groups into the cv preds.  REFACTOR eventually
+
             #Store them in the modeltraining object
             self._predictions[model_name] = y_pred
             self.y_test = y_target
@@ -2728,7 +2756,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
+        self.view_eda      :bool  = False
         self.view_gui      :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
@@ -2802,7 +2830,6 @@ class PigRAD:
             ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1)
         ]
 
-    
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
 
