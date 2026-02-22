@@ -2888,7 +2888,7 @@ class PigRAD:
                 if bpf.notch and (bpf.SBP - bpf.DBP) > 0.1:
                     bpf.dni = (bpf.SBP - bpf.notch) / (bpf.SBP - bpf.DBP)
             except Exception as e:
-                logger.debug(f"Notch calculation failed: {e}")
+                logger.warning(f"DNI/notch calculation failed: {e}")
 
         # Systolic Slope
         sys_run = (bpf.sbp_id - bpf.onset) / self.fs
@@ -2911,9 +2911,12 @@ class PigRAD:
                     x_dia = np.arange(y_dia.size) / self.fs
                     bpf.dia_sl = linregress(y_dia, x_dia).slope.item()
                 except Exception as e:
+                    logger.warning(f"Diastolic Slope calculation failed: {e}")
                     bpf.dia_sl = None 
                     return bpf
         else:
+            #If it can't find the notch, it can't do the rest of the calculations
+
             return bpf        
         #Generate SS1 Features: P1, P2, P3 & AIx
         p1_val, p2_val, p3_val = None, None, None
@@ -3185,6 +3188,10 @@ class PigRAD:
                     #TODO - add spectral features
                         #refer to this paper, but it looks like we can get some added feature information from the first 3 harmonics of the STFT
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
+                    
+                    #TODO - add back phase angle / variance as a feature
+                        #Could be very interesting to see how the model interprets these. 
+
 
                     #Move the progbar
                     progress.advance(jobtask_proc)
