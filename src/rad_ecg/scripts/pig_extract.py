@@ -2127,146 +2127,144 @@ class MultiGPU(BaseEstimator):
     def __getattr__(self, name):
         return getattr(self.estimator, name)
 
-# --- Wavelet / Phase Calculation Logic  ---
-class CardiacPhaseTools:
-    """Helper class for Phase Variance calculations."""
+# --- Wavelet / STFT / Phase Calculation Logic  ---
+class CardiacFreqTools:
+    """Helper class for calculationing wavelets / STFT / Phase Conditions."""
     def __init__(self, fs=1000, bandwidth_parameter=8.0):
         self.fs = fs
         self.c = bandwidth_parameter
 
-    def complex_morlet_cwt(self, data, center_freq):
-        """Performs CWT and returns envelope and phase.
-
-        Args:
-            data (np.array): view of the signal
-            center_freq (int): Main Frequency to focus on
-
-        Returns:
-            envelope, phase: _description_
-        """
-
+    def get_wavelet(self, wavelet_type: str, center_freq: float):
+        """Generates the requested wavelet kernel."""
         w_desired = 2 * np.pi * center_freq
         s = self.c * self.fs / w_desired
         M = int(2 * 4 * s) + 1
         t = np.arange(-M//2 + 1, M//2 + 1)
         norm = 1 / np.sqrt(s)
-        wavelet = norm * np.exp(1j * self.c * t / s) * np.exp(-0.5 * (t / s)**2)
-        cwt_complex = convolve(data, wavelet, mode='same')
-        return np.abs(cwt_complex), np.angle(cwt_complex)
+        
+        # Base complex exponential and gaussian window
+        x = t / s
+        gauss = np.exp(-0.5 * x**2)
+        complex_exp = np.exp(1j * self.c * x)
+        
+        if wavelet_type == 'morlet':
+            wavelet = norm * complex_exp * gauss
+        elif wavelet_type == 'cgau1':
+            # 1st derivative of the complex Gaussian
+            wavelet = norm * (-x + 1j * self.c) * complex_exp * gauss
+        else:
+            raise ValueError(f"Wavelet {wavelet_type} not supported.")
+            
+        return wavelet
 
-    def compute_continuous_phase_metric(self, signal, window_beats=10) -> np.array:
-        """Generates a continuous time-series metric representing phase stability.
-        1. Finds Peaks. (scipy)
-        2. Segments Signal.
-        3. Calculates Phase Variance across a rolling window of beats.
-
-        Args:
-            signal (np.array): Signal you want to look at
-            window_beats (int, optional): default number of beats. Defaults to 10.
-
-        Returns:
-            metric_curve (np.array): Chunked array of the phase variance over time
+    def compute_section_phase_metric(self, signal: np.array, peaks: list, target_freq: float = 2.0, wavelet: str = 'morlet'):
         """
-
-        # 1. Find Peaks
-        #TODO - peak params
-            # This could be improved upon - ie parameter adjustments
-
-        peaks, _ = find_peaks(signal, distance=int(self.fs * 0.4), height=np.mean(signal))
-        if len(peaks) < window_beats:
-            return np.zeros_like(signal)
-
-        metric_curve = np.zeros_like(signal, dtype=float)
+        Calculates the average phase angle for each beat and phase variance for the section.
+        """
+        if len(peaks) < 2:
+            return [], np.nan
+            
+        # 1. Apply CWT to the entire section at once (Massive speedup)
+        kernel = self.get_wavelet(wavelet, target_freq)
+        cwt_complex = convolve(signal, kernel, mode='same')
+        full_phases = np.angle(cwt_complex)
         
-        # We will use a rolling window of beats to calculate stability
-        # Beat window size (fixed for alignment)
-        beat_win = int(0.6 * self.fs) # 600ms
+        beat_phases = []
         pre_peak = int(0.2 * self.fs)
+        beat_win = int(0.6 * self.fs)
         
-        # Center frequency for analysis (High freq usually shows jitter best)
-        target_freq = 20 #30 
-        
-        # Pre-allocate beat segments
-        beats = []
-        valid_peaks = []
-        
+        # 2. Extract phase for each individual beat
         for p in peaks:
             start = p - pre_peak
             end = start + beat_win
+            
             if start >= 0 and end < len(signal):
-                beats.append(signal[start:end])
-                valid_peaks.append(p)
+                beat_phase_array = full_phases[start:end]
+                
+                # Circular mean of phase for this specific beat
+                mean_beat_phase = np.angle(np.mean(np.exp(1j * beat_phase_array)))
+                beat_phases.append(mean_beat_phase)
+                
+        if not beat_phases:
+            return [], np.nan
+            
+        # 3. Calculate Circular Phase Variance for the entire section
+        # R is the resultant vector length (0 to 1). Variance is 1 - R.
+        R = np.abs(np.mean(np.exp(1j * np.array(beat_phases))))
+        section_variance = 1 - R 
         
-        beats = np.array(beats)
-        n_beats = len(beats)
-        
-        if n_beats < window_beats:
-            return metric_curve
+        return beat_phases, section_variance
 
-        # Iterate through beats with rolling window
-        half_w = window_beats // 2
+    def STFT_extract(self, signal: np.array, peaks:np.array):
+        """
+        Calculates FFT for each R-R interval, averages the PSD across the section, 
+        and extracts the top frequency and its first 3 harmonics.
         
-        # Progress bar since this can be slow
-        with Progress(
-            SpinnerColumn(), 
-            BarColumn(), 
-            TextColumn("[progress.description]{task.description}"),
-            transient=True
-        ) as progress:
-            task = progress.add_task("Calculating Phase Variance...", total=n_beats)
-            for i in range(n_beats):
-                # Define rolling window indices
-                start_b = max(0, i - half_w)
-                end_b = min(n_beats, i + half_w)
-                batch = beats[start_b:end_b]
+        Args:
+            signal (np.array): Waveform section
+            peaks (np.array): Array of peak indices to chunk by
+            
+        Returns:
+            tuple: (frequencies_array, psd_amplitudes_array) padded to length 4.
+        """
+        # Need at least two peaks to make an interval
+        if len(peaks) < 2:
+            return np.full(4, np.nan), np.full(4, np.nan)
+            
+        # To average FFTs of varying lengths, we must zero-pad them to a consistent size.
+        # 2 seconds of padding (2 * fs) gives 0.5Hz resolution and fits pig R-R intervals well.
+        nfft = int(self.fs * 2.0) 
+        freq_list = rfftfreq(nfft, d=1/self.fs)
+        all_psd = []
+        
+        # Loop through each R-R interval just like your provided STFT code
+        for i in range(len(peaks) - 1):
+            p0 = peaks[i]
+            p1 = peaks[i+1]
+            samp = signal[p0:p1]
+            
+            if len(samp) == 0:
+                continue
                 
-                if len(batch) < 3: 
-                    continue
-                
-                # --- Phase Variance Calculation ---
-                # 1. CWT on batch
-                phases = []
-                envelopes = []
-                for b in batch:
-                    env, phi = self.complex_morlet_cwt(b, target_freq)
-                    phases.append(phi)
-                    envelopes.append(env)
-                
-                phases = np.array(phases)
-                
-                # 2. Mean Phase
-                mean_phase = np.mean(phases, axis=0)
-                
-                # 3. Variance of deviations
-                phase_dev = phases - mean_phase
-                
-                # Wrap phase differences to [-pi, pi] for correct variance
-                phase_dev = (phase_dev + np.pi) % (2 * np.pi) - np.pi
-                
-                # Variance across the beat (time axis)
-                phase_var_curve = np.var(phase_dev, axis=0)
-                
-                # 4. Collapse to scalar (Mean Variance during QRS complex)
-                # We focus on the center 100ms where QRS is
-                center_idx = len(phase_var_curve) // 2
-                qrs_region = phase_var_curve[center_idx - 50 : center_idx + 50]
-                scalar_score = np.mean(qrs_region)
-                
-                # Fill the metric curve for the duration of this R-R interval
-                # (From current peak to next peak)
-                current_p = valid_peaks[i]
-                next_p = valid_peaks[i+1] if i < n_beats - 1 else len(signal)
-                
-                metric_curve[current_p : next_p] = scalar_score
-                progress.advance(task)
-
-        return metric_curve
-    def STFT(self):
-        pass
-    #TODO - Add STFT components. 
-        #Port over code from peak_detect_v3 to try and generate the first 3 harmonics of frequency and PSD (Power spectral density) as averaged model inputs for your avg data
-    #Or use wasserstein distance of the distribution of frequencies to test for a distributional shift. 
-        #Ask Ryan if there would be a better distribution test. (Heavily right tailed)
+            # Perform FFT with zero-padding to nfft so the frequency bins align
+            fft_samp = np.abs(rfft(samp, n=nfft))
+            psd = fft_samp ** 2  # Square the amplitude to get Power Spectral Density
+            all_psd.append(psd)
+            
+        if not all_psd:
+            return np.full(4, np.nan), np.full(4, np.nan)
+            
+        # Average the PSDs across all R-R intervals in this section
+        mean_psd = np.mean(all_psd, axis=0)
+        
+        # Find peaks using scipy
+        freq_res = freq_list[1] - freq_list[0]
+        min_dist = max(1, int(0.5 / freq_res))
+        peaks_idx, _ = find_peaks(
+            mean_psd, 
+            distance=min_dist, 
+            prominence=np.percentile(mean_psd, 50)
+        )
+        
+        # Handle edge cases where signal is flat/dead
+        if len(peaks_idx) == 0:
+            return np.full(4, np.nan), np.full(4, np.nan)
+            
+        # 4. Sort peaks by PSD amplitude in descending order
+        sorted_peak_indices = peaks_idx[np.argsort(mean_psd[peaks_idx])][::-1]
+        
+        # 5. Extract top 4 peaks (Fundamental + 3 "harmonics")
+        top_indices = sorted_peak_indices[:4]
+        top_f = freq_list[top_indices]
+        top_psd = mean_psd[top_indices]
+        
+        # 6. Pad with NaNs if fewer than 4 distinct peaks were found
+        if len(top_f) < 4:
+            pad_size = 4 - len(top_f)
+            top_f = np.pad(top_f, (0, pad_size), constant_values=np.nan)
+            top_psd = np.pad(top_psd, (0, pad_size), constant_values=np.nan)
+            
+        return top_f, top_psd
 
 # --- Data Loader ---   
 class SignalDataLoader:
@@ -2675,6 +2673,8 @@ class BP_Feat():
     p1_p2    :float = None #Ratio of P1 to P2
     p1_p3    :float = None #Ratio of P1 to P3,
     aix      :float = None #Augmentation Index (AIx)
+    ph_mor   :float = None # Mean Phase Angle (Morlet)
+    ph_cgau  :float = None # Mean Phase Angle (Cgau1)
 
 class PigRAD:
     def __init__(self, npz_path):
@@ -2719,7 +2719,7 @@ class PigRAD:
         self.ss1_lead     :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
         
         self.avg_dtypes = [
-            ('pig_id'     , 'U50'), # ADDED: String ID for the pig/file
+            ('pig_id'     , 'U50'), #ID for the pig
             ('start'      , 'i4'),  #start index
             ('end'        , 'i4'),  #end index
             ('valid'      , 'i4'),  #valid Section
@@ -2742,6 +2742,16 @@ class PigRAD:
             ('p1_p2'      , 'f4'),  #Ratio of P1 to P2
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
+            ('f0'         , 'f4'),  #Top Frequency (Fundamental)
+            ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
+            ('f2'         , 'f4'),  #Harmonic 2 (3rd biggest peak)
+            ('f3'         , 'f4'),  #Harmonic 3 (4th biggest peak)
+            ('psd0'       , 'f4'),  #Amplitude of Top Freq
+            ('psd1'       , 'f4'),  #Amplitude of Harmonic 1
+            ('psd2'       , 'f4'),  #Amplitude of Harmonic 2
+            ('psd3'       , 'f4'),  #Amplitude of Harmonic 3
+            ('var_mor'    , 'f4'),  #Phase Variance (Morlet)
+            ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1)
         ]
 
     
@@ -3049,6 +3059,7 @@ class PigRAD:
             TextColumn("[progress.description]{task.description}"),
             transient=True
         ) as progress:
+            freq_tool = CardiacFreqTools(fs=self.fs)
             jobtask = progress.add_task("Processing Pigs...", total=len(self.loader.records))
             for pig_id, record in self.loader.records.items():
                 update_t = f"Processing Pig ID: {pig_id}"
@@ -3096,7 +3107,7 @@ class PigRAD:
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
                     full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
                     logger.info(f"{channels[lead]}")
-                    
+                
                 jobtask_proc = progress.add_task(f"Calculating features", total=pig_avg_data.shape[0])
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
@@ -3148,8 +3159,23 @@ class PigRAD:
                     if s_peaks.size < 3 or s_peaks.size > 100:
                         logger.info(f"sect {idx} peaks invalid for extract")
                         continue
-                    else:                
-                        #Calc HR
+                    else:
+                        # ---  Phase Metric Extraction ---
+                        # Choose a target freq (e.g., 2Hz matches typical cardiac rhythm)
+                        target_f = 2.0 
+                        
+                        beat_phases_mor, var_mor = freq_tool.compute_section_phase_metric(
+                            ss1wave, s_peaks[:-1], target_freq=target_f, wavelet='morlet'
+                        )
+                        beat_phases_cgau, var_cgau = freq_tool.compute_section_phase_metric(
+                            ss1wave, s_peaks[:-1], target_freq=target_f, wavelet='cgau1'
+                        )
+                        
+                        # Store section-level phase variance
+                        pig_avg_data["var_mor"][idx] = var_mor
+                        pig_avg_data["var_cgau"][idx] = var_cgau
+
+                        # ---  HR Calculation ---
                         RR_diffs = np.diff(s_peaks)
                         HR = np.round((60 / (RR_diffs / self.fs)), 2)
                         if HR.size > 0:
@@ -3158,9 +3184,12 @@ class PigRAD:
                             logger.warning(f"Empty slice encountered in sect {idx}")
                     
                     ind_beats:list[BP_Feat] = []
-                    for id, peak in enumerate(s_peaks[:-1]):
+                    for id, (peak, ph_m, ph_c) in enumerate(zip(s_peaks[:-1], beat_phases_mor, beat_phases_cgau)):
                         beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, s_heights, s_peaks)
                         if beat_feat is not None:
+                            # Assign the individual beat phases here
+                            beat_feat.ph_mor = ph_m
+                            beat_feat.ph_cgau = ph_c
                             ind_beats.append(beat_feat)
 
                     if not ind_beats:
@@ -3185,13 +3214,21 @@ class PigRAD:
                     pig_avg_data["p1_p2"][idx]       = self._yabig_meanie([r.p1_p2 for r in ind_beats])
                     pig_avg_data["p1_p3"][idx]       = self._yabig_meanie([r.p1_p3 for r in ind_beats])
                     pig_avg_data["aix"][idx]         = self._yabig_meanie([r.aix for r in ind_beats])
-                    #TODO - add spectral features
-                        #refer to this paper, but it looks like we can get some added feature information from the first 3 harmonics of the STFT
+                    # --- STFT CALCULATIONS ---
+                        #ref link.   Is that our Johnny Morrison?
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
+                    top_f, top_psd                   = freq_tool.STFT_extract(ss1wave, s_peaks)
+                    pig_avg_data["f0"][idx]          = top_f[0]
+                    pig_avg_data["f1"][idx]          = top_f[1]
+                    pig_avg_data["f2"][idx]          = top_f[2]
+                    pig_avg_data["f3"][idx]          = top_f[3]
+                    pig_avg_data["psd0"][idx]        = top_psd[0]
+                    pig_avg_data["psd1"][idx]        = top_psd[1]
+                    pig_avg_data["psd2"][idx]        = top_psd[2]
+                    pig_avg_data["psd3"][idx]        = top_psd[3]                        
                     
                     #TODO - add back phase angle / variance as a feature
                         #Could be very interesting to see how the model interprets these. 
-
 
                     #Move the progbar
                     progress.advance(jobtask_proc)
