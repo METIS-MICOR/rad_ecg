@@ -1405,6 +1405,13 @@ class ModelTraining(object):
                 },
                 "grid_srch_params":{
                     "learning_rate":np.arange(0, 1.1, 0.1),
+                    "min_child_weight": np.arange(0, 10),
+                    "gamma": np.arange(0, 5, 0.5),
+                    "subsample": np.arange(0.6, 1.0, 0.2),
+                    "colsample_bytree": np.arange(0.6, 1.0, 0.2),
+                    "max_depth": np.arange(0, 10, 1),
+                    "n_estimators": np.arange(0, 500, 50),      # number of trees
+                    # "learning_rate": np.arange(0, 1.1, 0.1)
                 }
             }
         }
@@ -2048,7 +2055,7 @@ class ModelTraining(object):
         logger.info(f"{model_name} best params\n{grid.best_params_}")
         logger.info(f"{model_name} best {metric}: {grid.best_score_:.2%}")
         
-        # 2. Refactored file saving block
+        # file saving block
         fp = self.fp_base / "gridresults.txt"
         current_time = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime())
         
