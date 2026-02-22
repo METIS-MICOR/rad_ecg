@@ -224,8 +224,7 @@ class EDA(object):
                 upper_bound = Q3 + (4 * IQR)
                 
                 # Create a mask for rows to keep: within bounds OR missing (NaN)
-                # We keep NaNs here so they don't accidentally get dropped if your pipeline 
-                # handles imputation later.
+                # We keep NaNs here so they don't accidentally get dropped 
                 mask = ((self.data[c] >= lower_bound) & (self.data[c] <= upper_bound)) | self.data[c].isna()
                 
                 # Apply mask
@@ -2729,7 +2728,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
+        self.view_eda      :bool  = True
         self.view_gui      :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
