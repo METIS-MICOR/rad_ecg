@@ -1204,7 +1204,7 @@ class DataPrep(object):
             self._traind[model_name]["X"] = self.data[self.feature_names]
             if self.task == "classification":
                 switch_dict = {y:x for x, y in self.rev_target_dict.items()}
-                self._traind[model_name]["y"] = self.target.map(switch_dict)
+                self._traind[model_name]["y"] = self.target.map(switch_dict).to_numpy()
             else:
                 self._traind[model_name]["y"] = self.target
 
@@ -1258,8 +1258,8 @@ class DataPrep(object):
 
         #MEAS Test train split
         if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
-            # MEAS Test train split Group-aware outer split
-                # We need to use GroupShuffleSplit so an entire pig goes to testing, preventing leakage
+            # Test train split Group-aware outer split
+            # We need to use GroupShuffleSplit so an entire pig goes to testing, preventing leakage
             gss = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
             
             # Get the indices for train and test based on groups
@@ -1270,10 +1270,10 @@ class DataPrep(object):
             )
 
             # Apply the split using iloc to maintain alignment
-            self._traind[model_name]["X_train"] = self._traind[model_name]["X"].iloc[train_idx]
-            self._traind[model_name]["X_test"] = self._traind[model_name]["X"].iloc[test_idx]
-            self._traind[model_name]["y_train"] = self._traind[model_name]["y"].iloc[train_idx]
-            self._traind[model_name]["y_test"] = self._traind[model_name]["y"].iloc[test_idx]
+            self._traind[model_name]["X_train"] = self._traind[model_name]["X"][train_idx]
+            self._traind[model_name]["X_test"] = self._traind[model_name]["X"][test_idx]
+            self._traind[model_name]["y_train"] = self._traind[model_name]["y"][train_idx]
+            self._traind[model_name]["y_test"] = self._traind[model_name]["y"][test_idx]
             
             # Save the training groups so CV knows which pig is which during the inner loop
             self._traind[model_name]["groups_train"] = self.groups[train_idx]
@@ -1315,7 +1315,7 @@ class ModelTraining(object):
         self.category_value = dataprep.category_value
         self.feature_names = dataprep.feature_names
         self.split = dataprep.split
-        self.groups = dataprep.groups
+        self.groups_train = dataprep.groups
         self.target_names = dataprep.target_names
         self.gpu_devices = dataprep.gpu_devices
         self.task = dataprep.task
@@ -1484,7 +1484,7 @@ class ModelTraining(object):
         self.y_test = self._traind[model_name]["y_test"]
         self.X = self._traind[model_name]["X"]
         self.y = self._traind[model_name]["y"]
-        if self.cross_val == "groupshuffle":
+        if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
             self.groups_train = self._traind[model_name].get("groups_train", None)
 
     #FUNCTION Load Model
@@ -1859,12 +1859,12 @@ class ModelTraining(object):
             group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
             if self.cross_val in group_splitters:
                 scores = cross_validate(
-                    freshmodel, self.X_train, self.y_train.to_numpy(), 
+                    freshmodel, self.X_train, self.y_train, 
                     groups=self.groups_train, cv=CV_func
                 )["test_score"]
             else:
                 scores = cross_validate(
-                    freshmodel, self.X_train, self.y_train.to_numpy(), cv=CV_func
+                    freshmodel, self.X_train, self.y_train, cv=CV_func
                 )["test_score"]
             
             #reload model untrained model for cross_validation predictions
@@ -1875,7 +1875,7 @@ class ModelTraining(object):
 
             #Generate new predictions based on cross validated data.
             y_pred, y_target = generate_cv_predictions(
-                freshmodel, CV_func, self.X_train, self.y_train.to_numpy(), self.groups_train
+                freshmodel, CV_func, self.X_train, self.y_train, self.groups_train
             )
             #BUG - Had to hardcode groups into the cv preds.  REFACTOR eventually
 
@@ -3417,7 +3417,7 @@ class PigRAD:
             #leaveoneout : Leave one out
             #shuffle     : ShuffleSplit
             #stratshuffle: StratifiedShuffleSplit
-            cross_val = "kfold"
+            cross_val = "leaveonegroupout"
 
             #Classifiers
             #'svm':LinearSVC
