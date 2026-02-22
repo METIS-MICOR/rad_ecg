@@ -107,9 +107,8 @@ class EDA(object):
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
         
-        #TODO - Outliers
-            #seeing a few outliers lately.  Might need something to help clear those out to make the
-            #eda plots more informative. 
+        #Drop outliers (4 IQR)
+        self.drop_outliers(self.feature_names[5:])
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
@@ -194,6 +193,45 @@ class EDA(object):
             self.data = self.data[(self.data != 0).all(axis=1)]
             
         logger.info(f'Shape after drop {self.data.shape}')
+
+    #FUNCTION drop_outliers
+    def drop_outliers(self, col: str | list = None):
+        """
+        Outlier Dropping routine based on 4x IQR.
+        Identifies the Interquartile Range (IQR) and removes rows where values 
+        fall outside of (Q1 - 4*IQR) or (Q3 + 4*IQR).
+        
+        Args:
+            col (str | list, optional): Column or list of columns to check for outliers.
+        """
+        if col is None:
+            return
+
+        logger.info(f'Shape before dropping outliers: {self.data.shape}')
+        
+        # Standardize input to a list
+        cols_to_check = [col] if isinstance(col, str) else col
+        
+        for c in cols_to_check:
+            if c in self.data.columns:
+                # Calculate Q1 (25th percentile) and Q3 (75th percentile)
+                Q1 = self.data[c].quantile(0.25)
+                Q3 = self.data[c].quantile(0.75)
+                
+                # Calculate IQR and bounds
+                IQR = Q3 - Q1
+                lower_bound = Q1 - (4 * IQR)
+                upper_bound = Q3 + (4 * IQR)
+                
+                # Create a mask for rows to keep: within bounds OR missing (NaN)
+                # We keep NaNs here so they don't accidentally get dropped if your pipeline 
+                # handles imputation later.
+                mask = ((self.data[c] >= lower_bound) & (self.data[c] <= upper_bound)) | self.data[c].isna()
+                
+                # Apply mask
+                self.data = self.data[mask]
+                
+        logger.info(f'Shape after dropping outliers: {self.data.shape}')
 
     #FUNCTION print_nulls
     def print_nulls(self, plotg=False):
@@ -2389,7 +2427,7 @@ class RegimeViewer:
 
         # Calculate Phase Variance Stream
         console.print("[cyan]Pre-computing Phase Variance Stream...[/]")
-        self.ptools = CardiacPhaseTools(fs=self.fs)
+        self.ptools = CardiacFreqTools(fs=self.fs)
         self.phase_var_stream = self.ptools.compute_continuous_phase_metric(self.signal)
         
         # 2. State Settings
@@ -3305,7 +3343,7 @@ class PigRAD:
             console.print("[green]prepping EDA...[/]")
             #graph your features
             if eda.view_eda:
-                sel_cols = eda.feature_names[5:]
+                sel_cols = eda.feature_names[4:]
                 #Sum basic stats
                 eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
