@@ -3236,7 +3236,8 @@ class PigRAD:
         bpf.SBP = ss1wave[bpf.sbp_id].item()
         bpf.DBP = ss1wave[bpf.dbp_id].item()
         bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
-
+        #TODO - Update pulse width to dicrotic notch height
+        
         # Slices
         sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
         sub_full = ss1wave[bpf.onset:bpf.dbp_id]
@@ -3246,7 +3247,7 @@ class PigRAD:
             bpf.true_MAP = self._integrate(sub_full) / (sub_full.size / self.fs)
             bpf.ap_MAP = bpf.DBP + (1/3) * (bpf.SBP - bpf.DBP)
             bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
-
+        
         # Dicrotic Notch & DNI
         if sub_notch.size > 3: # Need minimum length for savgol filter
             try:
