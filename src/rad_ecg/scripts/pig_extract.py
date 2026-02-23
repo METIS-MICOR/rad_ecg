@@ -77,6 +77,7 @@ class EDA(object):
         self.fs:float = fs
         self.fp_base:Path = fp
         self.view_eda = view_eda
+        self.view_models = view_models
         self.gpu_devices:list = gpu_devices
         self.task:str = "classification"
         self.target:pd.Series = None
