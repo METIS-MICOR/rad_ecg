@@ -36,19 +36,19 @@ from utils import segment_ECG
 from setup_globals import walk_directory
 from support import logger, console, log_time, NumpyArrayEncoder
 
-########################### Sklearn imports ###############################
-
+########################### Sklearn metric / scaling imports ###############################
+from shap import TreeExplainer
 from sklearn.base import BaseEstimator
-from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
-from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
 from sklearn.metrics import log_loss as LOG_LOSS
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
-from sklearn.metrics import roc_auc_score, roc_curve, auc
+from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import classification_report
-from shap import TreeExplainer
+from sklearn.model_selection import cross_validate, train_test_split
+from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
+from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
 
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
@@ -110,9 +110,9 @@ class EDA(object):
         #Drop outliers (4 IQR)
         self.drop_outliers(self.feature_names[5:])
 
-        #Drop col used to make target if we're modeling. 
+        #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
-            for col in ["EBV"]:
+            for col in ["EBV", "psd0", "psd1", "psd2", "psd3"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed target {col}")
@@ -1319,7 +1319,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -1363,7 +1363,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -1398,7 +1398,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -1429,7 +1429,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
@@ -1910,7 +1910,11 @@ class ModelTraining(object):
                 # "rsquared": RSQUARED(self.y_test, y_pred),
                 #classification
                 "accuracy": ACC_SC(self.y_test, y_pred),
-                "logloss" : LOG_LOSS(self.y_test, y_pred)
+                "logloss" : LOG_LOSS(self.y_test, y_pred),
+                "balanced_accuracy": balanced_accuracy_score(self.y_test, y_pred),
+                "f1_weighted": f1_score(self.y_test, y_pred, average='weighted'),
+                "f1_macro": f1_score(self.y_test, y_pred, average='macro'),
+                "mcc": matthews_corrcoef(self.y_test, y_pred)
                 #clustering
             }
             if self.task == "regression":
@@ -3613,10 +3617,10 @@ class PigRAD:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
             engin.engineer("aix", True, False, "BoxC")
-            engin.engineer("psd0", True, False, "BoxC")
-            engin.engineer("psd1", True, False, "BoxC")
-            engin.engineer("psd2", True, False, "BoxC")
-            engin.engineer("psd3", True, False, "BoxC")
+            # engin.engineer("psd0", True, False, "BoxC")
+            # engin.engineer("psd1", True, False, "BoxC")
+            # engin.engineer("psd2", True, False, "BoxC")
+            # engin.engineer("psd3", True, False, "BoxC")
             
             #reassign interest cols after transform
             ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
