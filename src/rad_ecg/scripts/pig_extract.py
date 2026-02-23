@@ -51,7 +51,7 @@ from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
+from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.neighbors import KNeighborsClassifier
@@ -59,6 +59,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 import xgboost as xgb
+
+########################### For GPU acceleration on XGBoost #########################
+try:
+    import cupy as cp
+    CUPY_AVAILABLE = True
+except ImportError:
+    CUPY_AVAILABLE = False
 
 #CLASS EDA
 class EDA(object):
@@ -1601,7 +1608,7 @@ class ModelTraining(object):
                     "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
                     "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                     # "leaveoneout" :LeaveOneOut(),
-                    # "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
+                    "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
                     "leaveonegroupout": LeaveOneGroupOut(),
                     "groupshuffle":GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
                     "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
@@ -2289,7 +2296,7 @@ class ModelTraining(object):
 #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name: str, folds: int):
-        from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut, GroupKFold, GroupShuffleSplit
+        from sklearn.model_selection import GridSearchCV
         console.print(f'{model_name} grid search initiated')
         base_clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
@@ -2391,11 +2398,13 @@ class MultiGPU(BaseEstimator):
     """
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
     Smartly routes GPU parameters to supported models (XGBoost) and falls back 
-    to CPU for standard sklearn models.
+    to CPU for standard sklearn models. Now features CuPy interception for 
+    zero-copy XGBoost data transfers!
     """
     def __init__(self, estimator, gpu_devices):
         self.estimator = estimator
         self.gpu_devices = gpu_devices
+        self.gpu_id = None # Track which GPU this worker is using
 
     def fit(self, X, y, **kwargs):
         # Determine which joblib worker process we are in
@@ -2404,37 +2413,55 @@ class MultiGPU(BaseEstimator):
         
         if self.gpu_devices:
             gpu_idx = worker_id % len(self.gpu_devices)
-            gpu_id = self.gpu_devices[gpu_idx]
+            self.gpu_id = self.gpu_devices[gpu_idx]
             
             # 1. Handle XGBoost directly
             if isinstance(self.estimator, xgb.XGBClassifier):
-                # For XGBoost 2.0+, use 'device'. 
-                # For older versions, you might need tree_method='gpu_hist', gpu_id=gpu_id
-                self.estimator.set_params(device=f"cuda:{gpu_id}")
+                self.estimator.set_params(device=f"cuda:{self.gpu_id}")
                 
-            # 2. Handle OneVsRestClassifier (Check what's inside it!)
+                # Move data to this specific GPU
+                if CUPY_AVAILABLE:
+                    with cp.cuda.Device(self.gpu_id):
+                        X_gpu = cp.asarray(X)
+                        y_gpu = cp.asarray(y)
+                        self.estimator.fit(X_gpu, y_gpu, **kwargs)
+                        return self
+                
+            # 2. Handle OneVsRestClassifier (For SVMs)
             elif isinstance(self.estimator, OneVsRestClassifier):
                 base_est = self.estimator.estimator
                 if isinstance(base_est, xgb.XGBClassifier):
-                    base_est.set_params(device=f"cuda:{gpu_id}")
-                    # Update the OneVsRest estimator with the new base estimator
+                    base_est.set_params(device=f"cuda:{self.gpu_id}")
                     self.estimator.estimator = base_est
+                    # Note: don't pass CuPy arrays to OneVsRestClassifier because will crash on GPU arrays.
 
             # 3. Handle Scikit-Learn CPU Models (RF, KNN)
             elif isinstance(self.estimator, (RandomForestClassifier, KNeighborsClassifier)):
-                # Since GridSearchCV is already parallelizing via n_jobs, 
-                # we force the individual CPU models to use 1 core to prevent CPU thrashing.
                 if hasattr(self.estimator, 'n_jobs'):
                     self.estimator.set_params(n_jobs=1)
 
+        # Fallback for CPU models or if CuPy isn't installed
         self.estimator.fit(X, y, **kwargs)
         return self
 
     def predict(self, X):
+        # Move prediction data to GPU, then pull results back to CPU
+        if CUPY_AVAILABLE and self.gpu_id is not None and isinstance(self.estimator, xgb.XGBClassifier):
+            with cp.cuda.Device(self.gpu_id):
+                X_gpu = cp.asarray(X)
+                preds = self.estimator.predict(X_gpu)
+                return cp.asnumpy(preds) # Send back to CPU for sklearn's scorer
+                
         return self.estimator.predict(X)
         
     def predict_proba(self, X):
-        # Good to have for scoring metrics like ROC AUC
+        # INTERCEPT: Move prediction data to GPU, then pull results back to CPU
+        if CUPY_AVAILABLE and self.gpu_id is not None and isinstance(self.estimator, xgb.XGBClassifier):
+            with cp.cuda.Device(self.gpu_id):
+                X_gpu = cp.asarray(X)
+                preds = self.estimator.predict_proba(X_gpu)
+                return cp.asnumpy(preds) # Send back to CPU for sklearn's scorer
+                
         return self.estimator.predict_proba(X)
         
     def score(self, X, y):
@@ -2442,7 +2469,7 @@ class MultiGPU(BaseEstimator):
         
     def __getattr__(self, name):
         return getattr(self.estimator, name)
-
+    
 # --- Wavelet / STFT / Phase Calculation Logic  ---
 class CardiacFreqTools:
     """Helper class for calculationing wavelets / STFT / Phase Conditions."""
