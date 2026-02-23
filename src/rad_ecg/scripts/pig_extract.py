@@ -112,7 +112,7 @@ class EDA(object):
 
         #Drop col used to make target if we're modeling. 
         if not self.view_eda:
-            for col in ["EBV", "psd0", "psd1", "psd2", "psd3"]:
+            for col in ["EBV"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed target {col}")
@@ -501,12 +501,11 @@ class EDA(object):
         heatmap.set_title('Correlation Heatmap', fontdict={'fontsize':16}, pad=12)
         if self.fp_base:
             fig.savefig(PurePath(self.fp_base, Path("heatmap.png")), dpi=300, bbox_inches='tight')
-        if self.view_eda:
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            timer_error.start()
-            plt.show()
+        timer_error = fig.canvas.new_timer(interval = 3000)
+        timer_error.single_shot = True
+        timer_cid = timer_error.add_callback(plt.close, fig)
+        timer_error.start()
+        plt.show()
         plt.close()
 
     #FUNCTION eda_plot
@@ -634,13 +633,12 @@ class EDA(object):
             plt.ylabel(f'{feat_2}')
             if self.fp_base:
                 fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300)
-            if self.view_eda:
-                timer_error = fig.canvas.new_timer(interval = 3000)
-                timer_error.single_shot = True
-                timer_cid = timer_error.add_callback(plt.close, fig)
-                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-                timer_error.start()
-                plt.show()
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
+            plt.show()
             plt.close()
 
         #If its a histogram
@@ -688,13 +686,12 @@ class EDA(object):
             ax_box.set_xlabel('')
             if self.fp_base:
                 fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
-            if self.view_eda:
-                timer_error = fig.canvas.new_timer(interval = 3000)
-                timer_error.single_shot = True
-                timer_cid = timer_error.add_callback(plt.close, fig)
-                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-                timer_error.start()
-                plt.show()
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
+            plt.show()
             plt.close()
 
         #If its a pairplot
@@ -762,13 +759,12 @@ class EDA(object):
                     logger.info(f'plotting pairplot for\n{cols}')
                 if self.fp_base:
                     pg.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300, bbox_inches='tight')
-                if self.view_eda:
-                    timer_error = fig.canvas.new_timer(interval = 3000)
-                    timer_error.single_shot = True
-                    timer_cid = timer_error.add_callback(plt.close, fig)
-                    spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-                    timer_error.start()
-                    plt.show()
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
                 plt.close()
 
             # ax_hist.set_xlabel(f'Distribution of {feat_1}')
@@ -833,13 +829,12 @@ class EDA(object):
             if self.fp_base:
                 jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
 
-            if self.view_eda:
-                timer_error = jplot.figure.canvas.new_timer(interval = 3000)
-                timer_error.single_shot = True
-                timer_cid = timer_error.add_callback(plt.close, jplot.figure)
-                spacejam = jplot.figure.canvas.mpl_connect('key_press_event', onSpacebar)
-                timer_error.start()
-                plt.show()
+            timer_error = jplot.figure.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, jplot.figure)
+            spacejam = jplot.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
+            plt.show()
             plt.close()
 
 #CLASS Feature Engineering
@@ -1609,9 +1604,6 @@ class ModelTraining(object):
                     "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
                 }
                 return cv_validators[cv_name]
-            #BUG - load cross val
-            #TODO - doesn't have access below.  reformat classs
-
 
         #FUNCTION custom_confusion_matrix
         def custom_confusion_matrix(y_true, y_pred, display_labels=None, model_name="Model", positive_class_first=False):
@@ -1719,6 +1711,17 @@ class ModelTraining(object):
 
         #FUNCTION ROC_AUC
         def roc_auc_curves(self, model:str):
+            def onSpacebar(event):
+                """When plotting, hit the spacebar if keep the chart from closing. 
+
+                Args:
+                    event (_type_): accepts the key event.  In this case its looking for the spacebar.
+                """	
+                if event.key == " ": 
+                    timer_error.stop()
+                    timer_error.remove_callback(timer_cid)
+                    logger.warning(f'Timer stopped')
+
             #Get the size of the target responses. (how many are there)
             num_groups = np.unique(self._traind[model]["y"]).size
             #Get the colormap
@@ -1755,6 +1758,11 @@ class ModelTraining(object):
             plt.plot([0, 1], [0, 1], "k--", label="ROC curve for chance level (AUC = 0.5)")
             plt.title(f'{model.upper()} ROC Curve')
             plt.legend(loc="lower right")
+            timer_error = fig.figure.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig.figure)
+            spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
             plt.close()
 
@@ -1780,6 +1788,7 @@ class ModelTraining(object):
             groups_data = self.groups_train
             
             # Iterate through the CV folds
+            #BUG had to hardcode the group here 
             for fold, (train_ix, test_ix) in enumerate(CV_func.split(X_data, y_data, groups=groups_data)):
                 # Fit the model on the training fold
                 freshmodel.fit(X_data[train_ix], y_data[train_ix])
@@ -1791,7 +1800,6 @@ class ModelTraining(object):
                     # Binarize the target for the current class
                     y_test_bin = (y_data[test_ix] == cls).astype(int) 
                     
-                    # --- FIX APPLIED HERE ---
                     # Check if there are actually any positive samples for this class in this fold
                     if np.sum(y_test_bin) == 0:
                         logger.warning(f"Fold {fold}: Class '{self.target_names[cls]}' missing from test set. Skipping ROC for this fold.")
@@ -1955,8 +1963,7 @@ class ModelTraining(object):
             CV_func = load_cross_val(self.cross_val)
 
             #Validate
-            group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
-            if self.cross_val in group_splitters:
+            if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
                 scores = cross_validate(
                     freshmodel, self.X_train, self.y_train, 
                     groups=self.groups_train, cv=CV_func
@@ -2084,6 +2091,17 @@ class ModelTraining(object):
 
     #FUNCTION importance plot
     def plot_feats(self, model:str, features:list, imps:list):
+        def onSpacebar(event):
+            """When plotting, hit the spacebar if keep the chart from closing. 
+
+            Args:
+                event (_type_): accepts the key event.  In this case its looking for the spacebar.
+            """	
+            if event.key == " ": 
+                timer_error.stop()
+                timer_error.remove_callback(timer_cid)
+                logger.warning(f'Timer stopped')
+        
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize = (10, 8))
         feat_imp = sorted(zip(features, imps), key=lambda x: -x[1])[:20]
         dfeats = pd.DataFrame(data = feat_imp, columns=["Name", "Imp"])
@@ -2096,10 +2114,28 @@ class ModelTraining(object):
         plt.title(f"{model} Top 20 feature importance", fontsize=14)
         plt.xlabel("Feature Importance")
         plt.ylabel("Feature Name")
+        if self.fp_base:
+            fig.savefig(PurePath(self.fp_base, Path(f"{model}_feat.png")), dpi=300)
+        timer_error = fig.canvas.new_timer(interval = 3000)
+        timer_error.single_shot = True
+        timer_cid = timer_error.add_callback(plt.close, fig)
+        spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+        timer_error.start()
         plt.show()
 
     #FUNCTION importance plot
     def SHAP(self, model:str, features:list):
+        def onSpacebar(event):
+            """When plotting, hit the spacebar if keep the chart from closing. 
+
+            Args:
+                event (_type_): accepts the key event.  In this case its looking for the spacebar.
+            """	
+            if event.key == " ": 
+                timer_error.stop()
+                timer_error.remove_callback(timer_cid)
+                logger.warning(f'Timer stopped')
+
         #Variable definition
         plots_to_show = ["bar",] #"waterfall", "violin"
         X_train = self._traind[model]["X_train"]
@@ -2121,6 +2157,13 @@ class ModelTraining(object):
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="bar", show=False)
             splot.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
             splot.figure.subplots_adjust(top=0.95)
+            if self.fp_base:
+                splot.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
 
         if "violin" in plots_to_show:
@@ -2128,27 +2171,56 @@ class ModelTraining(object):
             # Summary plot still uses raw values for violin type
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="violin", color="coolwarm", show=False)
             fig.figure.suptitle(f"{model} Violin of Feature Importance", size=12)
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_violin.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
 
         if "beeswarm" in plots_to_show:
-            plt.figure()
+            fig = plt.figure()
             shap.plots.beeswarm(explanation, show=False)
             plt.title(f"{model} SHAP Beeswarm Summary", size=12)
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_beeswarm.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
 
         if "heatmap" in plots_to_show:
-            plt.figure()
+            fig = plt.figure()
             shap.plots.heatmap(explanation, show=False)
             plt.title(f"{model} SHAP Heatmap", size=12)
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_heatmap.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
 
         if "scatter" in plots_to_show:
-            plt.figure()
+            fig = plt.figure()
             # Defaults to showing the first feature's dependence, colored by the strongest interacting feature
             top_feature = features[0] if features else 0
             shap.plots.scatter(explanation[:, top_feature], color=explanation, show=False)
             plt.title(f"{model} SHAP Scatter/Dependence", size=12)
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_scatter.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
+
 
         if "waterfall" in plots_to_show:
             try:
@@ -2165,7 +2237,15 @@ class ModelTraining(object):
                     shap.plots.waterfall(explanation[0], show=False)
                     fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0)", size=12)
                     
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_waterfall.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
                 plt.show()
+
                 
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
@@ -2339,7 +2419,7 @@ class CardiacFreqTools:
         if len(peaks) < 2:
             return [], np.nan
             
-        # 1. Apply CWT to the entire section at once (faster)
+        #Apply CWT to the entire section at once (faster)
         kernel = self.get_wavelet(wavelet, target_freq)
         cwt_complex = convolve(signal, kernel, mode='same')
         full_phases = np.angle(cwt_complex)
@@ -2348,7 +2428,7 @@ class CardiacFreqTools:
         pre_peak = int(0.2 * self.fs)
         beat_win = int(0.6 * self.fs)
         
-        # 2. Extract phase for each individual beat
+        # Extract phase for each individual beat
         for p in peaks:
             start = p - pre_peak
             end = start + beat_win
@@ -2363,7 +2443,7 @@ class CardiacFreqTools:
         if not beat_phases:
             return [], np.nan
             
-        # 3. Calculate Circular Phase Variance for the entire section
+        # Calculate Circular Phase Variance for the entire section
         # R is the resultant vector length (0 to 1). Variance is 1 - R.
         R = np.abs(np.mean(np.exp(1j * np.array(beat_phases))))
         section_variance = 1 - R 
@@ -2425,15 +2505,15 @@ class CardiacFreqTools:
         if len(peaks_idx) == 0:
             return np.full(4, np.nan), np.full(4, np.nan)
             
-        # 4. Sort peaks by PSD amplitude in descending order
+        #Sort peaks by PSD amplitude in descending order
         sorted_peak_indices = peaks_idx[np.argsort(mean_psd[peaks_idx])][::-1]
         
-        # 5. Extract top 4 peaks (Fundamental + 3 "harmonics")
+        #Extract top 4 peaks (Fundamental + 3 "harmonics")
         top_indices = sorted_peak_indices[:4]
         top_f = freq_list[top_indices]
         top_psd = mean_psd[top_indices]
         
-        # 6. Pad with NaNs if fewer than 4 distinct peaks were found
+        #Pad with NaNs if fewer than 4 distinct peaks were found
         if len(top_f) < 4:
             pad_size = 4 - len(top_f)
             top_f = np.pad(top_f, (0, pad_size), constant_values=np.nan)
@@ -2696,7 +2776,7 @@ class RegimeViewer:
         e = s + self.window_size
         x_data = np.arange(s, e)
 
-        # 1. Update signal
+        # Update signal
         view_sig = self.signal[s:e]
         self.line_sig.set_data(x_data, view_sig)
         
@@ -2707,7 +2787,7 @@ class RegimeViewer:
             self.ax_sig.set_xlim(s, e)
             self.ax_sig.set_ylim(mn - 0.2, mx + 0.2)
 
-        # 2. Update CAC (Corrected Arc Curve)
+        # Update CAC (Corrected Arc Curve)
         view_cac = self.cac[s : min(e, len(self.cac))]
         # Pad if short
         if len(view_cac) < (e-s):
@@ -2720,13 +2800,13 @@ class RegimeViewer:
             
         self.ax_cac.fill_between(x_data, view_cac, color='dodgerblue', alpha=0.1)
         
-        # 3. Update Phase Variance
+        # Update Phase Variance
         view_phase = self.phase_var_stream[s:e]
         self.line_phase.set_data(x_data, view_phase)
         if len(view_phase) > 0:
              self.ax_phase.set_ylim(0, max(np.max(view_phase)*1.1, 0.1))
 
-        # 4. Regime Lines (Vertical Markers)
+        # Regime Lines (Vertical Markers)
         # Clear previous vertical lines
         for line in self.ax_sig.lines[1:]: 
             line.remove() # Keep index 0 (signal)
@@ -3288,7 +3368,19 @@ class PigRAD:
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
-                    
+                    menwithhats = cycle([
+                        "We can dance if we want to",
+                        "We can leave your friends behind",
+                        "Cause your friends don't dance and if they don't dance",
+                        "Well, they're no friends of mine",
+                        "Say, we can go where we want to",
+                        "A place where they will never find",
+                        "And we can act like we come from out of this world",
+                        "Leave the real one far behind",
+                        "And say, we can dance, we can dance",
+                        "Everything's out of control",
+                        "We can dance, we can dance"]
+                    )
 
                     #Find R peaks from ECG lead
                     # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
@@ -3411,7 +3503,9 @@ class PigRAD:
                     pig_avg_data["psd3"][idx]        = top_psd[3]                        
 
                     #Move the progbar
+                    
                     progress.advance(jobtask_proc)
+                    progress.update(task_id=jobtask_proc, description=next(menwithhats))
 
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
@@ -3501,11 +3595,15 @@ class PigRAD:
             #BoxC: Box Cox - Good for only pos val
             #YeoJ: Yeo-Johnson - Good for pos and neg val
             # Ex:
-            # for feature in engin.feature_names[4:]:
+            # for feature in  ["psd0", "psd1", "psd2", "psd3"]:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
             # engin.engineer("aix", True, False, "BoxC")
-            
+            engin.engineer("psd0", True, False, "BoxC")
+            engin.engineer("psd1", True, False, "BoxC")
+            engin.engineer("psd2", True, False, "BoxC")
+            engin.engineer("psd3", True, False, "BoxC")
+
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -3513,7 +3611,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "q_scale"
+            scaler = "p_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
@@ -3586,14 +3684,14 @@ class PigRAD:
     def save_results(self):
         """Saves the extracted feature data, including individual files if it's a batch."""
         
-        # 1. Save the concatenated master array (works for single or batch)
+        # Save the concatenated master array (works for single or batch)
         np.savez_compressed(self.fp_save, self.avg_data)
         
         # Log the master file size
         mb_size = self.fp_save.stat().st_size / (1024 * 1024)
         logger.warning(f"Saved total feature array to {self.fp_save.name} ({mb_size:.2f} MB)")
 
-        # 2. If it's a batch, loop through and save the individual pig arrays
+        # if a batch, loop through and save the individual pig arrays
         if self.batch_run and hasattr(self, 'all_avg_data'):
             for pig_data in self.all_avg_data:
                 # Ensure the array isn't empty before trying to save
