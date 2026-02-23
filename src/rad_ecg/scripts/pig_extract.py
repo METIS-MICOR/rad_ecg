@@ -70,6 +70,7 @@ class EDA(object):
             gpu_devices:list,
             fp:str,
             view_eda:bool,
+            view_models:bool
         ):
         self.data:pd.DataFrame = pd.DataFrame(avg_data)
         self.feature_names:list = list(col_names)
@@ -848,6 +849,7 @@ class FeatureEngineering(EDA):
             self.task = eda.task
             self.rev_target_dict = eda.rev_target_dict
             self.fp_base = eda.fp_base
+            self.view_models = eda.view_models
 
         else:
             super().__init__(self)
@@ -1132,6 +1134,7 @@ class DataPrep(object):
             self.gpu_devices = engin.gpu_devices
             self.rev_target_dict = engin.rev_target_dict
             self.fp_base = engin.fp_base
+            self.view_models = engin.view_models
 
         else:
             EDA.__init__(self) 
@@ -1317,6 +1320,8 @@ class ModelTraining(object):
         self.cross_val = dataprep.cross_val
         self.fp_base = dataprep.fp_base
         self.CV_func = None
+        self.view_models = dataprep.view_models
+
         #MEAS Model params
         self._model_params = {
             "rfc":{
@@ -1679,15 +1684,16 @@ class ModelTraining(object):
             plt.yticks(rotation=0, fontsize=12)
             
             plt.tight_layout()
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_CM.png")), dpi=300)
-            timer_error = fig.figure.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig.figure)
-            spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
-            plt.close()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_CM.png")), dpi=300)
+                timer_error = fig.figure.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig.figure)
+                spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
+                plt.close()
 
         #FUNCTION classification_report
         def make_cls_report(y_true, y_pred, display_labels=None):
@@ -1870,15 +1876,16 @@ class ModelTraining(object):
             ax.legend(loc="lower right")
             
             plt.tight_layout()
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_AUCROC.png")), dpi=300)
-            timer_error = fig.figure.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig.figure)
-            spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
-            plt.close()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_AUCROC.png")), dpi=300)
+                timer_error = fig.figure.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig.figure)
+                spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
+                plt.close()
 
         #FUNCTION classification summary
         def classification_summary(model_name:str, y_pred:np.array, cv_class:str=False):
@@ -2136,14 +2143,15 @@ class ModelTraining(object):
         plt.title(f"{model} Top 20 feature importance", fontsize=14)
         plt.xlabel("Feature Importance")
         plt.ylabel("Feature Name")
-        if self.fp_base:
-            fig.savefig(PurePath(self.fp_base, Path(f"{model}_feat.png")), dpi=300)
-        timer_error = fig.canvas.new_timer(interval = 3000)
-        timer_error.single_shot = True
-        timer_cid = timer_error.add_callback(plt.close, fig)
-        spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-        timer_error.start()
-        plt.show()
+        if self.view_models:
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_feat.png")), dpi=300)
+            timer_error = fig.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig)
+            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
+            plt.show()
 
     #FUNCTION importance plot
     def SHAP(self, model:str, features:list):
@@ -2179,54 +2187,58 @@ class ModelTraining(object):
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="bar", show=False)
             fig.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
             fig.figure.subplots_adjust(top=0.95)
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
 
         if "violin" in plots_to_show:
             fig = plt.figure()
             # Summary plot still uses raw values for violin type
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="violin", color="coolwarm", show=False)
             fig.figure.suptitle(f"{model} Violin of Feature Importance", size=12)
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_violin.png")), dpi=300)
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_violin.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
 
         if "beeswarm" in plots_to_show:
             fig = plt.figure()
             shap.plots.beeswarm(explanation, show=False)
             plt.title(f"{model} SHAP Beeswarm Summary", size=12)
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_beeswarm.png")), dpi=300)
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_beeswarm.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
 
         if "heatmap" in plots_to_show:
             fig = plt.figure()
             shap.plots.heatmap(explanation, show=False)
             plt.title(f"{model} SHAP Heatmap", size=12)
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_heatmap.png")), dpi=300)
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_heatmap.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
 
         if "scatter" in plots_to_show:
             fig = plt.figure()
@@ -2234,14 +2246,15 @@ class ModelTraining(object):
             top_feature = features[0] if features else 0
             shap.plots.scatter(explanation[:, top_feature], color=explanation, show=False)
             plt.title(f"{model} SHAP Scatter/Dependence", size=12)
-            if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_scatter.png")), dpi=300)
-            timer_error = fig.canvas.new_timer(interval = 3000)
-            timer_error.single_shot = True
-            timer_cid = timer_error.add_callback(plt.close, fig)
-            spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-            timer_error.start()
-            plt.show()
+            if self.view_models:
+                if self.fp_base:
+                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_scatter.png")), dpi=300)
+                timer_error = fig.canvas.new_timer(interval = 3000)
+                timer_error.single_shot = True
+                timer_cid = timer_error.add_callback(plt.close, fig)
+                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                timer_error.start()
+                plt.show()
 
 
         if "waterfall" in plots_to_show:
@@ -2258,23 +2271,24 @@ class ModelTraining(object):
                     # Standard 2D explanation (Binary classification or Regression)
                     shap.plots.waterfall(explanation[0], show=False)
                     fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0)", size=12)
-                    
-                if self.fp_base:
-                    fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_waterfall.png")), dpi=300)
-                timer_error = fig.canvas.new_timer(interval = 3000)
-                timer_error.single_shot = True
-                timer_cid = timer_error.add_callback(plt.close, fig)
-                spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
-                timer_error.start()
-                plt.show()
+                if self.view_models:                    
+                    if self.fp_base:
+                        fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_waterfall.png")), dpi=300)
+                    timer_error = fig.canvas.new_timer(interval = 3000)
+                    timer_error.single_shot = True
+                    timer_cid = timer_error.add_callback(plt.close, fig)
+                    spacejam = fig.canvas.mpl_connect('key_press_event', onSpacebar)
+                    timer_error.start()
+                    plt.show()
 
                 
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
     #FUNCTION _grid_search
+#FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name: str, folds: int):
-        from sklearn.model_selection import GridSearchCV
+        from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut, GroupKFold, GroupShuffleSplit
         console.print(f'{model_name} grid search initiated')
         base_clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
@@ -2294,11 +2308,22 @@ class ModelTraining(object):
             n_workers = -1 # Fall back to all CPUs if no GPUs
             clf = base_clf
 
+        # --- Determine the correct CV Strategy ---
+        group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
+        if self.cross_val == "leaveonegroupout":
+            cv_strategy = LeaveOneGroupOut()
+        elif self.cross_val == "groupkfold":
+            cv_strategy = GroupKFold(n_splits=folds)
+        elif self.cross_val == "groupshuffle":
+            cv_strategy = GroupShuffleSplit(n_splits=folds, test_size=0.25, random_state=42)
+        else:
+            cv_strategy = folds # Fall back to standard integer for KFold/StratifiedKFold
+
         grid = GridSearchCV(
             clf, 
             n_jobs=n_workers, 
             param_grid=params, 
-            cv=folds, 
+            cv=cv_strategy, 
             scoring=metric
         )
         
@@ -2315,7 +2340,11 @@ class ModelTraining(object):
         
         with progress:
             task = progress.add_task("Fitting Model", total=1)
-            grid.fit(self.X_train, self.y_train)
+            if self.cross_val in group_splitters:
+                grid.fit(self.X_train, self.y_train, groups=self.groups_train)
+            else:
+                grid.fit(self.X_train, self.y_train)
+                
             progress.update(task, advance=1)
 
         logger.info(f"{model_name} best params\n{grid.best_params_}")
@@ -2961,7 +2990,7 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_gui      :bool  = False
+        self.view_models   :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -3583,6 +3612,7 @@ class PigRAD:
                 self.gpu_devices, 
                 self.fp_base,
                 self.view_eda,
+                self.view_models,
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
