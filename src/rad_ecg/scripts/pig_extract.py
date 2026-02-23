@@ -1676,6 +1676,8 @@ class ModelTraining(object):
             plt.yticks(rotation=0, fontsize=12)
             
             plt.tight_layout()
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_CM.png")), dpi=300)
             timer_error = fig.figure.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig.figure)
@@ -1865,6 +1867,8 @@ class ModelTraining(object):
             ax.legend(loc="lower right")
             
             plt.tight_layout()
+            if self.fp_base:
+                fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_AUCROC.png")), dpi=300)
             timer_error = fig.figure.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig.figure)
