@@ -1763,6 +1763,17 @@ class ModelTraining(object):
 
         #FUNCTION cv_roc_auc_curves
         def cv_roc_auc_curves(model_name:str):
+            def onSpacebar(event):
+                """When plotting, hit the spacebar if keep the chart from closing. 
+
+                Args:
+                    event (_type_): accepts the key event.  In this case its looking for the spacebar.
+                """	
+                if event.key == " ": 
+                    timer_error.stop()
+                    timer_error.remove_callback(timer_cid)
+                    logger.warning(f'Timer stopped')
+
             logger.info(f"Generating CV ROC AUC curves for {model_name}...")
             
             # Re-initialize model and CV splitter
@@ -1854,6 +1865,11 @@ class ModelTraining(object):
             ax.legend(loc="lower right")
             
             plt.tight_layout()
+            timer_error = fig.figure.canvas.new_timer(interval = 3000)
+            timer_error.single_shot = True
+            timer_cid = timer_error.add_callback(plt.close, fig.figure)
+            spacejam = fig.figure.canvas.mpl_connect('key_press_event', onSpacebar)
+            timer_error.start()
             plt.show()
             plt.close()
 
