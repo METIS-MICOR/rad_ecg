@@ -107,7 +107,7 @@ class EDA(object):
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
         
-        #Drop outliers (4 IQR)
+        #Drop outliers (6 IQR)
         self.drop_outliers(self.feature_names[5:])
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
@@ -115,7 +115,12 @@ class EDA(object):
             for col in ["EBV", "psd0", "psd1", "psd2", "psd3"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
-                logger.info(f"removed target {col}")
+                logger.info(f"removed col {col}")
+        else:
+            for col in ["psd0", "psd1", "psd2", "psd3"]:
+                self.data.pop(col)
+                self.feature_names.pop(self.feature_names.index(col))
+                logger.info(f"removed col {col}")
 
         #Drop the target column.
         self.target = self.data.pop("shock_class")
@@ -192,9 +197,9 @@ class EDA(object):
     #FUNCTION drop_outliers
     def drop_outliers(self, col: str | list = None):
         """
-        Outlier Dropping routine based on 4x IQR.
+        Outlier Dropping routine based on 6x IQR.
         Identifies the Interquartile Range (IQR) and removes rows where values 
-        fall outside of (Q1 - 4*IQR) or (Q3 + 4*IQR).
+        fall outside of (Q1 - 6*IQR) or (Q3 + 6*IQR).
         
         Args:
             col (str | list, optional): Column or list of columns to check for outliers.
@@ -215,8 +220,8 @@ class EDA(object):
                 
                 # Calculate IQR and bounds
                 IQR = Q3 - Q1
-                lower_bound = Q1 - (4 * IQR)
-                upper_bound = Q3 + (4 * IQR)
+                lower_bound = Q1 - (6 * IQR)
+                upper_bound = Q3 + (6 * IQR)
                 
                 # Create a mask for rows to keep: within bounds OR missing (NaN)
                 # We keep NaNs here so they don't accidentally get dropped 
@@ -3579,11 +3584,11 @@ class PigRAD:
             )
             eda.clean_data()
             console.print("[green]prepping EDA...[/]")
+            sel_cols = eda.feature_names[4:]
+            #Sum basic stats
+            eda.sum_stats(sel_cols, "Numeric Features")
             #graph your features
             if eda.view_eda:
-                sel_cols = eda.feature_names[4:-6]
-                #Sum basic stats
-                eda.sum_stats(sel_cols, "Numeric Features")
                 #Plot your eda charts
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
