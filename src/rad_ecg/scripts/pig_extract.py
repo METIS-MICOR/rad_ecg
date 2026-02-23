@@ -126,7 +126,6 @@ class EDA(object):
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
         logger.info(f"assigned target {self.target.name}")
-        
         #Check nulls
         self.print_nulls(False)
 
@@ -1323,7 +1322,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"f1_weighted",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -1367,7 +1366,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"f1_weighted",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -1402,7 +1401,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"f1_weighted",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -1433,7 +1432,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"f1_weighted",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
@@ -2400,6 +2399,9 @@ class CardiacFreqTools:
     def __init__(self, fs=1000, bandwidth_parameter=8.0):
         self.fs = fs
         self.c = bandwidth_parameter
+    #TODO - UPdate CardiacFreqTools with more stumpy 
+        #Try extracting regime change in LAD.  Looking for inverted signals in
+        #the wave form and possibly we can extract those. 
 
     def get_wavelet(self, wavelet_type:str, center_freq:float):
         """Generates the requested wavelet kernel
@@ -2958,7 +2960,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
+        self.view_eda      :bool  = False
         self.view_gui      :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
@@ -3614,7 +3616,7 @@ class PigRAD:
             # for feature in  ["psd0", "psd1", "psd2", "psd3"]:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
-            engin.engineer("aix", True, False, "BoxC")
+            # engin.engineer("aix", True, False, "BoxC")
             # engin.engineer("psd0", True, False, "BoxC")
             # engin.engineer("psd1", True, False, "BoxC")
             # engin.engineer("psd2", True, False, "BoxC")
@@ -3674,7 +3676,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
             #Gridsearch
-            # modeltraining._grid_search("xgboost", 10)
+            modeltraining._grid_search("xgboost", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
