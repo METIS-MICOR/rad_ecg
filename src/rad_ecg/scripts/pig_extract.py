@@ -135,6 +135,7 @@ class EDA(object):
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
         logger.info(f"assigned target {self.target.name}")
+        
         #Check nulls
         self.print_nulls(False)
 
@@ -3038,7 +3039,7 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_models   :bool  = False
+        self.view_models   :bool  = True
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -3475,6 +3476,7 @@ class PigRAD:
                 ]
 
                 target = np.select(conditions, levels, default="UNKNOWN")
+                logger.info(f"target counts\n {np.unique(target, return_counts=True)}")
 
                 #bandpass the ecg, lad, and carotid signals
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
