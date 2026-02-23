@@ -120,15 +120,10 @@ class EDA(object):
         #Drop the target column.
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
-
+        logger.info(f"assigned target {self.target.name}")
+        
         #Check nulls
         self.print_nulls(False)
-
-        #BUG - Class imbalance.
-        #We will have a class imbalance because some of the pigs don't represent
-        #each stage of hem shock.  So either I can rebalance them with something
-        #like SMOTE, or...  assign class weights to the models. 
-        
 
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
@@ -1817,7 +1812,7 @@ class ModelTraining(object):
                     
             # Set up the plot
             fig, ax = plt.subplots(figsize=(10, 8))
-            color_cmap = plt.cm.get_cmap('Paired', n_classes) 
+            color_cmap = plt.get_cmap('Paired', n_classes) 
             
             # Plot Mean ROC and standard deviation for each class
             for cls in range(n_classes):
@@ -2153,12 +2148,12 @@ class ModelTraining(object):
         shap_values_raw = tree_explainer.shap_values(X_train, self._predictions[model])
 
         if "bar" in plots_to_show:
-            splot = plt.figure()
+            fig = plt.figure()
             shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="bar", show=False)
-            splot.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
-            splot.figure.subplots_adjust(top=0.95)
+            fig.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
+            fig.figure.subplots_adjust(top=0.95)
             if self.fp_base:
-                splot.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
+                fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig)
@@ -3317,6 +3312,20 @@ class PigRAD:
         ) as progress:
             freq_tool = CardiacFreqTools(fs=self.fs)
             jobtask = progress.add_task("Processing Pigs...", total=len(self.loader.records))
+            menwithhats = cycle([
+                "Calculating features",
+                "We can dance if we want to",
+                "We can leave your friends behind",
+                "Cause your friends don't dance and if they don't dance",
+                "Well, they're no friends of mine",
+                "Say, we can go where we want to",
+                "A place where they will never find",
+                "And we can act like we come from out of this world",
+                "Leave the real one far behind",
+                "And say, we can dance, we can dance",
+                "Everything's out of control",
+                "We can dance, we can dance"]
+            )
             for pig_id, record in self.loader.records.items():
                 update_t = f"Processing Pig ID: {pig_id}"
                 progress.update(task_id=jobtask, description=update_t)
@@ -3363,24 +3372,11 @@ class PigRAD:
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
                     full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
                     logger.info(f"{channels[lead]}")
-                
-                jobtask_proc = progress.add_task(f"Calculating features", total=pig_avg_data.shape[0])
+
+                jobtask_proc = progress.add_task(f"{next(menwithhats)}", total=pig_avg_data.shape[0])
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
-                    menwithhats = cycle([
-                        "We can dance if we want to",
-                        "We can leave your friends behind",
-                        "Cause your friends don't dance and if they don't dance",
-                        "Well, they're no friends of mine",
-                        "Say, we can go where we want to",
-                        "A place where they will never find",
-                        "And we can act like we come from out of this world",
-                        "Leave the real one far behind",
-                        "And say, we can dance, we can dance",
-                        "Everything's out of control",
-                        "We can dance, we can dance"]
-                    )
 
                     #Find R peaks from ECG lead
                     # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
@@ -3503,9 +3499,7 @@ class PigRAD:
                     pig_avg_data["psd3"][idx]        = top_psd[3]                        
 
                     #Move the progbar
-                    
                     progress.advance(jobtask_proc)
-                    progress.update(task_id=jobtask_proc, description=next(menwithhats))
 
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
@@ -3598,11 +3592,14 @@ class PigRAD:
             # for feature in  ["psd0", "psd1", "psd2", "psd3"]:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
-            # engin.engineer("aix", True, False, "BoxC")
+            engin.engineer("aix", True, False, "BoxC")
             engin.engineer("psd0", True, False, "BoxC")
             engin.engineer("psd1", True, False, "BoxC")
             engin.engineer("psd2", True, False, "BoxC")
             engin.engineer("psd3", True, False, "BoxC")
+            
+            #reassign interest cols after transform
+            ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
 
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
