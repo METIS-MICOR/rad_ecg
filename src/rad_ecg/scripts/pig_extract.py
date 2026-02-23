@@ -2295,7 +2295,7 @@ class ModelTraining(object):
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
         
-        # 1. Determine GPU availability and worker count
+        # Determine GPU availability and worker count
         num_gpus = len(self.gpu_devices)
         if num_gpus > 0:
             # 1 worker per GPU. You can multiply this (e.g., num_gpus * 2) 
@@ -2308,7 +2308,13 @@ class ModelTraining(object):
         else:
             n_workers = -1 # Fall back to all CPUs if no GPUs
             clf = base_clf
-
+        # Define all the metrics you want to track during the search
+        scoring_dict = {
+            'accuracy': 'accuracy',
+            'balanced_accuracy': 'balanced_accuracy',
+            'f1_weighted': 'f1_weighted',
+            'mcc': 'matthews_corrcoef'
+        }
         # --- Determine the correct CV Strategy ---
         group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
         if self.cross_val == "leaveonegroupout":
@@ -2325,7 +2331,8 @@ class ModelTraining(object):
             n_jobs=n_workers, 
             param_grid=params, 
             cv=cv_strategy, 
-            scoring=metric
+            scoring=scoring_dict,
+            refit=metric
         )
         
         # For super fun spinner action in your terminal.
@@ -2355,15 +2362,28 @@ class ModelTraining(object):
         fp = self.fp_base / "gridresults.txt"
         current_time = time.strftime("%m-%d-%Y %H:%M:%S", time.localtime())
         
-        # "a" mode creates the file if it doesn't exist and appends if it does!
         with open(fp, "a") as savef:
-            savef.write(f"\nGridsearch ran on {current_time}\n")
-            savef.write(f"Model {model_name} using {grid.cv} folds\n")
-            savef.write(f"score:\n{grid.best_score_}\n")
+            savef.write(f"\n{'='*40}\n")
+            savef.write(f"Gridsearch ran on {current_time}\n")
+            savef.write(f"Model {model_name} using {self.cross_val} ({grid.cv} folds)\n")
+            savef.write(f"Optimized for: {metric}\n")
             
-            # If we used the wrapper, strip 'estimator__' from the saved best params for readability
+            # Write the best primary score
+            savef.write(f"\nBest {metric} Score: {grid.best_score_:.2%}\n")
+            
+            # --- Log the other metrics for the best model ---
+            # grid.best_index_ tells us which hyperparameter combination won
+            best_idx = grid.best_index_
+            savef.write("Corresponding metrics for this model:\n")
+            for metric_name in scoring_dict.keys():
+                if metric_name != metric:
+                    # Look up the mean test score for this specific metric and parameter index
+                    other_score = grid.cv_results_[f'mean_test_{metric_name}'][best_idx]
+                    savef.write(f"  - {metric_name}: {other_score:.2%}\n")
+            
+            # Strip 'estimator__' from the saved best params for readability
             clean_params = {k.replace('estimator__', ''): v for k, v in grid.best_params_.items()}
-            savef.write(f"parameters:\n{clean_params}\n")
+            savef.write(f"\nParameters:\n{clean_params}\n")
 
         return grid
 
