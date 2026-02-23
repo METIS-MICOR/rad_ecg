@@ -1299,7 +1299,6 @@ class ModelTraining(object):
         Args:
             dataprep (object): dataprep class of how you want the data set up for modeling. 
         """
-        
         self._models = dataprep._models
         self._predictions = dataprep._predictions
         self._performance = dataprep._performance
@@ -1348,7 +1347,7 @@ class ModelTraining(object):
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
-                    "n_jobs":None,                        #int | None
+                    "n_jobs":None,                      #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
                     "warm_start":False                  #bool | False
                 },
@@ -1999,10 +1998,10 @@ class ModelTraining(object):
             CV_func = load_cross_val(self.cross_val)
 
             #Generate new predictions based on cross validated data.
+            #BUG - Had to hardcode groups into the cv preds.  REFACTOR eventually
             y_pred, y_target = generate_cv_predictions(
                 freshmodel, CV_func, self.X_train, self.y_train, self.groups_train
             )
-            #BUG - Had to hardcode groups into the cv preds.  REFACTOR eventually
 
             #Store them in the modeltraining object
             self._predictions[model_name] = y_pred
@@ -2954,7 +2953,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
+        self.view_eda      :bool  = True
         self.view_gui      :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
@@ -3201,8 +3200,8 @@ class PigRAD:
                     return bpf
         else:
             #If it can't find the notch, it can't do the rest of the calculations
-
             return bpf        
+
         #Generate SS1 Features: P1, P2, P3 & AIx
         p1_val, p2_val, p3_val = None, None, None
 
@@ -3249,7 +3248,7 @@ class PigRAD:
                 logger.info(f"shape of sub_syst = {sub_syst.shape}")
                 logger.warning(f"{e}")
 
-        # 2. Find P3 (Dicrotic Wave) using Kneed
+        # Find P3 (Dicrotic Wave) using Kneed
         diastolic_run = ss1wave[notch_abs:bpf.dbp_id]
         
         # Require a minimum length so kneed doesn't throw an error on noise
@@ -3278,7 +3277,7 @@ class PigRAD:
             # if its flat flat.  p3 is just the notch val
             p3_val = bpf.notch
 
-        # 3. Assign to dataclass & calculate ratios
+        # Assign to dataclass & calculate ratios
         bpf.p1 = p1_val
         bpf.p2 = p2_val
         bpf.p3 = p3_val
@@ -3404,12 +3403,6 @@ class PigRAD:
 
                     #Find R peaks from ECG lead
                     # ecgwave = self.full_data[self.channels[self.ecg_lead]][start:end]
-                    # #BUG - Erratic ECG
-                    #     # The ecg's in these recordings are rough.  Need a fast and clean way to process beats. 
-                    #     # Need something.  Running blind now
-                    #         #IDEA - could put STFT here for clean signal check 
-                    #         #IDEA - What about phase variance?  Wavelets are quick!
-
                     # e_peaks, e_heights = find_peaks(
                     #     x = ecgwave,
                     #     prominence = np.percentile(ecgwave, 95),  #99 -> stock
