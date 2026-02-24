@@ -349,9 +349,17 @@ class PigRAD:
         # Safely assign indices. Encode section_peak as dual index
         bpf.id = str(idx) + "_" + str(id)                  
         bpf.sbp_id = peak.item()
-        bpf.dbp_id = s_heights["right_bases"][id].item()
-        # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
+        #BUG - Find peaks bases
+            # Find peaks was failing in the later stages of hem shock when the
+            # dicrotic notch gets below the diastolic valley Being that the
+            # actual peak is finding correctly, We can just use the onset for
+            # the diastolic of the the next peak :tada:
+            # bpf.dbp_id = s_heights["right_bases"][id].item()
+            # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
+        next_peak = s_peaks[id + 1].item()
+        bpf.dbp_id = self._find_sbp_info(ss1wave, next_peak)
         bpf.onset = self._find_sbp_info(ss1wave, bpf.sbp_id)
+
         # Validate indices to prevent reversed slicing (sbp > dbp)
         if bpf.onset != None:
             if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
@@ -1187,7 +1195,6 @@ class CoronaryPhaseViewer:
         )
         
         # Side controls & Metric Readout 
-        # Ratios reduced (0.6) to shrink button height and make room for text/metrics
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
             7, 1, subplot_spec=self.gs_main[1], 
             height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
@@ -1417,7 +1424,8 @@ class CoronaryPhaseViewer:
         text += "--- Hemodynamics ---\n"
         text += f"SBP:      {getattr(bpf, 'SBP', 0):.1f}\n"
         text += f"DBP:      {getattr(bpf, 'DBP', 0):.1f}\n"
-        text += f"true_MAP: {getattr(bpf, 'true_MAP', 0):.1f}\n\n"
+        text += f"true_MAP: {getattr(bpf, 'true_MAP', 0):.1f}\n"
+        text += f"Pul_Wid:  {getattr(bpf, 'pul_wid', 0):,}\n\n"
         
         text += "--- Coronary Flow ---\n"
         text += f"Mean LAD: {getattr(bpf, 'lad_mean', 0):.2f}\n"
