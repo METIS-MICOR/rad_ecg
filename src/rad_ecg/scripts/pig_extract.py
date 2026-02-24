@@ -1,4 +1,3 @@
-import os
 import time
 import shap
 import numpy as np
@@ -7,7 +6,6 @@ import seaborn as sns
 import multiprocessing
 from numba import cuda
 from typing import List
-from os.path import exists
 from kneed import KneeLocator
 from collections import Counter
 from itertools import cycle, chain
@@ -1191,6 +1189,26 @@ class CoronaryPhaseViewer:
         ]
         self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
+        # Center Beat Territory Indicator
+        # X is data coordinates, Y is axes fraction (0 to 1). Draw slightly above 1.
+        trans = self.ax_ss1.get_xaxis_transform()
+        
+        # Vertical marker lines and a connecting dashed line
+        self.center_mark_start, = self.ax_ss1.plot([], [], color='darkorange', lw=2, clip_on=False, transform=trans)
+        self.center_mark_end, = self.ax_ss1.plot([], [], color='darkorange', lw=2, clip_on=False, transform=trans)
+        self.center_mark_horiz, = self.ax_ss1.plot([], [], color='darkorange', lw=1, linestyle='--', clip_on=False, transform=trans)
+        
+        # Text box in the middle
+        self.center_text = self.ax_ss1.text(
+            0, 1.05, "Center Beat", 
+            transform=trans, 
+            ha='center', va='center', 
+            color='darkorange', fontweight='bold', fontsize=9,
+            bbox=dict(facecolor='white', edgecolor='none', alpha=0.8), # White background to pop over lines
+            clip_on=False
+        )
+        self.center_text.set_visible(False)
+
         # --- Row 2: LAD Flow ---
         self.ax_lad = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ss1)
         self.line_lad, = self.ax_lad.plot([], [], color='crimson', lw=1.5, label="LAD Flow")
@@ -1302,6 +1320,30 @@ class CoronaryPhaseViewer:
 
         #update navbar cursor
         self.nav_cursor.set_xdata([s + (self.window_size//2)])
+
+        #update center beat viz indicator
+        if center_beat:
+            # Set X to onset/dbp, Y to float between 1.02 and 1.08 of the axes height
+            self.center_mark_start.set_data([center_beat.onset, center_beat.onset], [1.02, 1.08])
+            self.center_mark_end.set_data([center_beat.dbp_id, center_beat.dbp_id], [1.02, 1.08])
+            self.center_mark_horiz.set_data([center_beat.onset, center_beat.dbp_id], [1.05, 1.05])
+            
+            # Center the text
+            mid_pt = (center_beat.onset + center_beat.dbp_id) / 2
+            self.center_text.set_position((mid_pt, 1.05))
+            
+            # Make visible
+            self.center_mark_start.set_visible(True)
+            self.center_mark_end.set_visible(True)
+            self.center_mark_horiz.set_visible(True)
+            self.center_text.set_visible(True)
+        else:
+            # Hide if no complete beat is in the center
+            self.center_mark_start.set_visible(False)
+            self.center_mark_end.set_visible(False)
+            self.center_mark_horiz.set_visible(False)
+            self.center_text.set_visible(False)
+        
         #update metric readout
         self.update_metrics_text(center_beat)
         self.fig.canvas.draw_idle()
@@ -1395,7 +1437,7 @@ class CoronaryPhaseViewer:
 
     def export_gif(self, event=None):
         """Exports the next 5 seconds of the timeline to a GIF file."""
-        print("Preparing GIF export... Please wait.")
+        console.print("[bold green]Preparing GIF export... Please wait.[/]")
         
         # Pause playback if it's currently running
         was_playing = self.is_playing
@@ -4026,7 +4068,7 @@ def load_choices(fp:str, batch_process:bool=False):
 @log_time
 def main():
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    batch_process:bool = False
+    batch_process:bool = True
     selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
     rad.run_pipeline()
