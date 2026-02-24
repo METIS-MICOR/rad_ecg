@@ -1157,6 +1157,8 @@ class DataPrep(object):
         logger.info(f'Dataset target:{self.target.name}')
         logger.info(f'Dataset Shape:{self.data.shape}')
         logger.info(f'Target shape:{self.target.shape}')
+        if self.cross_val:
+            logger.info(f'Cross Validation:{self.cross_val}')
 
     #FUNCTION dataprep
     def data_prep(
@@ -1254,8 +1256,8 @@ class DataPrep(object):
                 "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
                 "s_scale":StandardScaler(), 
                 "m_scale":MinMaxScaler(feature_range=(0, 1)),
-                "p_scale": PowerTransformer(method='yeo-johnson', standardize=True),
-                "q_scale": QuantileTransformer(output_distribution='normal', random_state=42)
+                "p_scale":PowerTransformer(method='yeo-johnson', standardize=True),
+                "q_scale":QuantileTransformer(output_distribution='normal', random_state=42)
             }
             scaler = scaler_dict.get(scalernm)
             if not scaler:
@@ -2395,7 +2397,7 @@ class ModelTraining(object):
             savef.write(f"\nParameters:\n{clean_params}\n")
 
         return grid
-
+#CLASS Multi GPU routing
 class MultiGPU(BaseEstimator):
     """
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
@@ -2472,7 +2474,7 @@ class MultiGPU(BaseEstimator):
     def __getattr__(self, name):
         return getattr(self.estimator, name)
     
-# --- Wavelet / STFT / Phase Calculation Logic  ---
+#CLASS Wavelet / STFT / Phase Calculation Logic
 class CardiacFreqTools:
     """Helper class for calculationing wavelets / STFT / Phase Conditions."""
     def __init__(self, fs=1000, bandwidth_parameter=8.0):
@@ -2625,7 +2627,7 @@ class CardiacFreqTools:
             
         return top_f, top_psd
 
-# --- Data Loader ---   
+#CLASS Data Loader
 class SignalDataLoader:
     """Handles loading and structuring of the data. Will do single file and batch loading."""
     def __init__(self, file_path):
@@ -2703,7 +2705,7 @@ class SignalDataLoader:
                     full_data[ch] = self.container[ch]
         return full_data
 
-# --- Advanced Viewer ---
+#CLASS Advanced Viewer
 class CoronaryPhaseViewer:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
@@ -2831,8 +2833,8 @@ class CoronaryPhaseViewer:
             Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole (Notch to End)'),
             Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='SS1 Systolic Onset'),
             Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='SS1 Systolic Peak'),
-            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Dicrotic Notch'),
             Line2D([0], [0], color='purple', marker='v', linestyle='None', markersize=8, label='SS1 Diastolic Peak'),
+            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Dicrotic Notch'),
         ]
         self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
@@ -3075,6 +3077,7 @@ class CoronaryPhaseViewer:
         if was_playing:
             self.toggle_play()
 
+#CLASS BP_Feat
 @dataclass
 class BP_Feat():
     id          :str   = None #record index
@@ -3112,6 +3115,7 @@ class BP_Feat():
     lad_acc_sl  :float = None #Diastolic Acceleration Slope
     flow_div    :float = None #Carotid to LAD Flow Ratio 
 
+#CLASS PigRad
 class PigRAD:
     def __init__(self, npz_path):
         # load data / params
@@ -3650,7 +3654,7 @@ class PigRAD:
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
                         prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.30,
-                        height = np.percentile(ss1wave, 60),
+                        height = np.percentile(ss1wave, 50),
                         distance = int(self.fs*(0.4)),
                         wlen = int(self.fs*1.5)      
                     )
@@ -3853,7 +3857,9 @@ class PigRAD:
                 #Plot the heatmap
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
-            
+            if not self.view_models:
+                exit()
+
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
@@ -3886,7 +3892,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "p_scale"
+            scaler = "q_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
@@ -4019,7 +4025,7 @@ def load_choices(fp:str, batch_process:bool=False):
 @log_time
 def main():
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
-    batch_process:bool = True
+    batch_process:bool = False
     selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
     rad.run_pipeline()
