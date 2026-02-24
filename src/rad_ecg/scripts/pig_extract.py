@@ -2765,7 +2765,7 @@ class CoronaryPhaseViewer:
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
         self.gs_main.figure.suptitle(f"{self.pig_id}")
         
-        # Main plot area: SS1, LAD, Navigator
+        # Main plot area: SS1, LAD, navbar
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
             3, 1, 
             subplot_spec=self.gs_main[0], 
@@ -2852,7 +2852,7 @@ class CoronaryPhaseViewer:
         ]
         self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
-        # --- Row 3: Navigator ---
+        # --- Row 3: navbar ---
         self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
         ds = max(1, len(self.ss1) // 5000) # Downsample for performance
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
@@ -2945,12 +2945,10 @@ class CoronaryPhaseViewer:
                         sc6 = self.ax_lad.scatter(dia_idx_abs, self.lad[dia_idx_abs], color='blue', zorder=5, marker='^')
                         self.scatters.extend([sc1, sc2, sc3, sc4, sc5, sc6])
 
-        # Update Navigator Cursor
+        #update navbar cursor
         self.nav_cursor.set_xdata([s + (self.window_size//2)])
-        
-        # Update Metric Readout
+        #update metric readout
         self.update_metrics_text(center_beat)
-
         self.fig.canvas.draw_idle()
 
     def update_metrics_text(self, bpf):
