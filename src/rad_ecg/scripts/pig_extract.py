@@ -44,7 +44,7 @@ from sklearn.metrics import log_loss as LOG_LOSS
 from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_curve, auc
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
@@ -305,8 +305,10 @@ class PigRAD:
         segment = ss1wave[start_idx:sys_peak_idx]
         
         # Calculate the first derivative (dp/dt) of this segment
-        dpdt = np.gradient(segment)
-        
+        if segment.size > 2:
+            dpdt = np.gradient(segment)
+        else:
+            return None
         # Find the steepest part of the upstroke (maximum positive slope)
         max_slope_local_idx = np.argmax(dpdt)
         max_slope_val = dpdt[max_slope_local_idx]
@@ -351,9 +353,12 @@ class PigRAD:
         # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
         bpf.onset = self._find_sbp_info(ss1wave, bpf.sbp_id)
         # Validate indices to prevent reversed slicing (sbp > dbp)
-        if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
+        if bpf.onset != None:
+            if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
+                return None
+        else:
             return None
-
+        
         # Pressures & Pulse Width
         bpf.SBP = ss1wave[bpf.sbp_id].item()
         bpf.DBP = ss1wave[bpf.dbp_id].item()
@@ -377,8 +382,8 @@ class PigRAD:
             bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
         
         # Dicrotic Notch & DNI
-        # Enforce an 80ms refractory period after the peak
-        refractory_samples = int(self.fs * 0.08) 
+        # Enforce an 50ms refractory period after the peak
+        refractory_samples = int(self.fs * 0.05) 
         
         # Mask out the diastolic foot (highly concave-up valley at the end)
         # mask the last 25% of the descending limb, or a minimum of 50ms
@@ -400,7 +405,7 @@ class PigRAD:
                 
                 if bpf.notch and (bpf.SBP - bpf.DBP) > 0.1:
                     bpf.dni = (bpf.SBP - bpf.notch) / (bpf.SBP - bpf.DBP)
-                    
+
             except Exception as e:
                 logger.warning(f"DNI/notch calculation failed: {e}")
 
@@ -936,7 +941,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "q_scale"
+            scaler = "p_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold       : KFold Validation
@@ -1728,7 +1733,7 @@ class EDA(object):
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
         
-        #Drop outliers (6 IQR)
+        #Drop outliers (6 IQR range)
         self.drop_outliers(self.feature_names[5:])
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
@@ -2948,7 +2953,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -2992,7 +2997,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3027,7 +3032,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -3058,7 +3063,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
@@ -3246,7 +3251,6 @@ class ModelTraining(object):
                     timer_error.remove_callback(timer_cid)
                     logger.warning(f'Timer stopped')
 
-            from sklearn.metrics import confusion_matrix
             # Generate base confusion matrix
             cm = confusion_matrix(y_true, y_pred)
             n_classes = cm.shape[0]
