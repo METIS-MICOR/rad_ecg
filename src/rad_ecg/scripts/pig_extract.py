@@ -109,8 +109,8 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
-        self.view_pig      :bool  = False
+        self.view_eda      :bool  = False
+        self.view_pig      :bool  = True
         self.view_models   :bool  = False
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 10      #size of section window 
@@ -573,6 +573,8 @@ class PigRAD:
                 
                 if getattr(bpf, 'true_MAP', None):
                     bpf.cvr = bpf.true_MAP / bpf.lad_mean
+                else:
+                    bpf.cvr = None
 
                 lad_max, lad_min = np.max(sub_lad).item(), np.min(sub_lad).item()
                 bpf.lad_pi = (lad_max - lad_min) / bpf.lad_mean
@@ -1441,25 +1443,26 @@ class CoronaryPhaseViewer:
         if bpf is None:
             self.metric_text.set_text("No complete beat\nin center view.")
             return
-
+        def fmt(val, prec=2):
+            return f"{val:.{prec}f}" if val is not None else "N/A"
+        
         text = "[CENTER BEAT]\n\n"
         text += "--- Hemodynamics ---\n"
-        text += f"SBP:      {getattr(bpf, 'SBP', 0):.1f}\n"
-        text += f"DBP:      {getattr(bpf, 'DBP', 0):.1f}\n"
-        text += f"true_MAP: {getattr(bpf, 'true_MAP', 0):.1f}\n"
-        text += f"Pul_Wid:  {getattr(bpf, 'pul_wid', 0):,}\n\n"
-        
+        text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 1)}\n"
+        text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 1)}\n"
+        text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n\n"
+        text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 1)}\n\n"
         text += "--- Coronary Flow ---\n"
-        text += f"Mean LAD: {getattr(bpf, 'lad_mean', 0):.2f}\n"
-        text += f"Sys Peak: {getattr(bpf, 'lad_sys_pk', 0):.2f}\n"
-        text += f"Dia Peak: {getattr(bpf, 'lad_dia_pk', 0):.2f}\n"
-        text += f"DS Ratio: {getattr(bpf, 'lad_ds_rat', 0):.2f}\n"
-        text += f"Dia AUC:  {getattr(bpf, 'lad_dia_auc', 0):.2f}\n\n"
+        text += f"Mean LAD: {fmt(getattr(bpf, 'lad_mean', None), 2)}\n"
+        text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
+        text += f"Dia Peak: {fmt(getattr(bpf, 'lad_dia_pk', None), 2)}\n"
+        text += f"DS Ratio: {fmt(getattr(bpf, 'lad_ds_rat', None), 2)}\n"
+        text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n\n"
         
         text += "--- Resistance ---\n"
-        text += f"CVR:      {getattr(bpf, 'cvr', 0):.2f}\n"
-        text += f"DCR:      {getattr(bpf, 'dcr', 0):.2f}\n"
-        text += f"Flow Div: {getattr(bpf, 'flow_div', 0):.2f}\n"
+        text += f"CVR:      {fmt(getattr(bpf, 'cvr', None), 2)}\n"
+        text += f"DCR:      {fmt(getattr(bpf, 'dcr', None), 2)}\n"
+        text += f"Flow Div: {fmt(getattr(bpf, 'flow_div', None), 2)}\n"
         self.metric_text.set_text(text)
 
     def _apply_scale(self, ax, view_data):
@@ -1855,7 +1858,7 @@ class EDA(object):
         """
         Outlier Dropping routine based on 6x IQR.
         Identifies the Interquartile Range (IQR) and removes rows where values 
-        fall outside of (Q1 - 6*IQR) or (Q3 + 6*IQR).
+        fall outside of (Q1 - 8*IQR) or (Q3 + 8*IQR).
         
         Args:
             col (str | list, optional): Column or list of columns to check for outliers.
@@ -1876,8 +1879,8 @@ class EDA(object):
                 
                 # Calculate IQR and bounds
                 IQR = Q3 - Q1
-                lower_bound = Q1 - (6 * IQR)
-                upper_bound = Q3 + (6 * IQR)
+                lower_bound = Q1 - (8 * IQR)
+                upper_bound = Q3 + (8 * IQR)
                 
                 # Create a mask for rows to keep: within bounds OR missing (NaN)
                 # We keep NaNs here so they don't accidentally get dropped 
