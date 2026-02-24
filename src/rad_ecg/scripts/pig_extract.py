@@ -113,7 +113,7 @@ class PigRAD:
         self.view_pig      :bool  = True
         self.view_models   :bool  = False
         self.fs            :float = 1000.0   #Hz
-        self.windowsize    :int   = 10       #size of section window 
+        self.windowsize    :int   = 12       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -643,9 +643,9 @@ class PigRAD:
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
                         prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.30,
-                        height = np.percentile(ss1wave, 50),
+                        height = np.percentile(ss1wave, 60),
                         distance = int(self.fs*(0.4)),
-                        wlen = int(self.fs*1.5)      
+                        wlen = int(self.fs*3)      
                     )
                     #BUG - left base
                         # the left bases aren't getting calculated correctly.  I tried to adjust wlen as a 
@@ -1353,7 +1353,7 @@ class CoronaryPhaseViewer:
         if bpf is None:
             self.metric_text.set_text("No complete beat\nin center view.")
             return
-            
+
         text = "[CENTER BEAT]\n\n"
         text += "--- Hemodynamics ---\n"
         text += f"SBP:      {getattr(bpf, 'SBP', 0):.1f}\n"
@@ -1478,7 +1478,8 @@ class CardiacFreqTools:
     def __init__(self, fs=1000, bandwidth_parameter=8.0):
         self.fs = fs
         self.c = bandwidth_parameter
-    #TODO - UPdate CardiacFreqTools with more stumpy 
+    
+    #TODO - Update CardiacFreqTools with more stumpy 
         #Try extracting regime change in LAD.  Looking for inverted signals in
         #the wave form and possibly we can extract those. 
 
@@ -1505,7 +1506,6 @@ class CardiacFreqTools:
         x = t / s
         gauss = np.exp(-0.5 * x**2)
         complex_exp = np.exp(1j * self.c * x)
-        
         if wavelet_type == 'morlet':
             wavelet = norm * complex_exp * gauss
         elif wavelet_type == 'cgau1':
