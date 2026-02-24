@@ -2704,15 +2704,6 @@ class SignalDataLoader:
         return full_data
 
 # --- Advanced Viewer ---
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-from matplotlib.widgets import Button, TextBox
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
-
-
-# --- Advanced Viewer ---
 class CoronaryPhaseViewer:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
@@ -2872,7 +2863,7 @@ class CoronaryPhaseViewer:
         
         # Hide x labels for shared axes
         plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
-        
+
     def update_speed(self, text):
         """Adjusts the animation playback speed multiplier."""
         try: 
