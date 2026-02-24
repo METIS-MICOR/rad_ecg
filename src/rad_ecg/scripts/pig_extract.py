@@ -18,7 +18,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import matplotlib.gridspec as gridspec
 from matplotlib.widgets import Button, TextBox
-from matplotlib.animation import FuncAnimation, PillowWriter
+import matplotlib.animation as animation
 from dataclasses import dataclass, field
 from rich import print as pprint
 from rich.tree import Tree
@@ -2704,10 +2704,20 @@ class SignalDataLoader:
         return full_data
 
 # --- Advanced Viewer ---
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+from matplotlib.widgets import Button, TextBox
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+
+
+# --- Advanced Viewer ---
 class CoronaryPhaseViewer:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
     Visualizes SS1 Pressure, LAD Flow, and computed hemodynamic features.
+    Now includes playback animation and GIF export capabilities.
     """
     def __init__(
         self, 
@@ -2732,12 +2742,16 @@ class CoronaryPhaseViewer:
         self.lad = lad_data
         self.beats = beats
         self.fs = sampling_rate
-        self.pig_id = pig_id
+        self.pig_id = pig_id if pig_id else "Unknown_Subject"
         
         # State Settings
         self.window_size = window_size
         self.current_pos = 0
         self.step_size = int(self.fs * 1.0) # Jump 1 second at a time with buttons
+        self.playback_speed = 1.0           # Base speed multiplier
+        self.anim_step = int(self.fs * 0.05 * self.playback_speed) # Smaller jump for smooth animation
+        self.is_playing = False
+        self.anim = None
         
         # Tracking dynamic plot elements for clean removal
         self.spans = []
@@ -2759,6 +2773,7 @@ class CoronaryPhaseViewer:
         """Define GridSpec layout."""
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
         self.gs_main.figure.suptitle(f"{self.pig_id}")
+        
         # Main plot area: SS1, LAD, Navigator
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
             3, 1, 
@@ -2767,29 +2782,49 @@ class CoronaryPhaseViewer:
             hspace=0.1
         )
         
-        # Side controls & Metric Readout
+        # Side controls & Metric Readout 
+        # Ratios reduced (0.6) to shrink button height and make room for text/metrics
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            6, 1, subplot_spec=self.gs_main[1], height_ratios=[1, 1, 1, 1, 4, 1], hspace=0.3
+            7, 1, subplot_spec=self.gs_main[1], 
+            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
+            hspace=0.4
         )
         self.setup_controls()
 
     def setup_controls(self):
-        """Initialize GUI buttons and text boxes."""
-        self.btn_prev = Button(self.fig.add_subplot(self.gs_side[0]), '< Prev (Left)')
-        self.btn_next = Button(self.fig.add_subplot(self.gs_side[1]), 'Next > (Right)')
+        """Initialize GUI buttons and text boxes in the new requested order."""
+        # 1. Play / Pause
+        self.btn_play = Button(self.fig.add_subplot(self.gs_side[0]), 'Play / Pause')
         
-        ax_window = self.fig.add_subplot(self.gs_side[2])
+        # 2. Prev (Left)
+        self.btn_prev = Button(self.fig.add_subplot(self.gs_side[1]), '< Prev (Left)')
+        
+        # 3. Next (Right)
+        self.btn_next = Button(self.fig.add_subplot(self.gs_side[2]), 'Next > (Right)')
+        
+        # 4. Speed
+        ax_speed = self.fig.add_subplot(self.gs_side[3])
+        self.txt_speed = TextBox(ax_speed, 'Speed (x): ', initial=str(self.playback_speed))
+        
+        # 5. Window
+        ax_window = self.fig.add_subplot(self.gs_side[4])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
-        # Text axis for live metric readout
-        self.ax_metrics = self.fig.add_subplot(self.gs_side[4])
+        # 6. Export GIF
+        self.btn_gif = Button(self.fig.add_subplot(self.gs_side[5]), 'Export GIF')
+        
+        # 7. Metrics Text
+        self.ax_metrics = self.fig.add_subplot(self.gs_side[6])
         self.ax_metrics.axis('off')
         self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
 
         # Event connections
+        self.btn_play.on_clicked(self.toggle_play)
         self.btn_prev.on_clicked(self.step_prev)
         self.btn_next.on_clicked(self.step_next)
+        self.txt_speed.on_submit(self.update_speed)
         self.txt_window.on_submit(self.update_window_size)
+        self.btn_gif.on_clicked(self.export_gif)
 
     def _init_axes_pool(self):
         """Initialize empty axes, lines, and custom legends."""
@@ -2834,9 +2869,20 @@ class CoronaryPhaseViewer:
         
         self.ax_nav.set_yticks([])
         self.ax_nav.set_xlabel("Timeline (Click to Jump) | Use Left/Right Arrows to step")
-        # self.gs_plots.fig.suptitle(f"{self.beats[0].id}")
+        
         # Hide x labels for shared axes
         plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
+        
+    def update_speed(self, text):
+        """Adjusts the animation playback speed multiplier."""
+        try: 
+            self.playback_speed = float(text)
+            # Ensure it doesn't drop below 1 sample per frame
+            self.anim_step = max(1, int(self.fs * 0.05 * self.playback_speed))
+            print(f"Playback speed set to {self.playback_speed}x")
+        except ValueError as v: 
+            print(f"Invalid speed value: {v}. Please enter a number.")
+            self.txt_speed.set_val(str(self.playback_speed)) # Reset UI to last valid number
 
     def update_view(self):
         """Main update routine. Slices data, redraws lines, and calculates phase shadings."""
@@ -2878,7 +2924,7 @@ class CoronaryPhaseViewer:
                     if getattr(bpf, 'notch_id', None):
                         notch_abs = bpf.sbp_id + bpf.notch_id  
                     else:
-                        None
+                        notch_abs = None
                     
                     if notch_abs:
                         # --- Shade Systole (Onset to Notch) ---
@@ -2899,15 +2945,14 @@ class CoronaryPhaseViewer:
                         sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='v')
 
                         # LAD Peaks
-                        # We need to find the absolute indices of the LAD peaks to plot them correctly
                         lad_systole = self.lad[bpf.onset:notch_abs]
                         lad_diastole = self.lad[notch_abs:bpf.dbp_id]
                         
                         sys_idx_abs = bpf.onset + np.argmax(lad_systole) if lad_systole.size > 0 else bpf.onset
                         dia_idx_abs = notch_abs + np.argmax(lad_diastole) if lad_diastole.size > 0 else notch_abs
-                        sc3 = self.ax_lad.scatter(sys_idx_abs, self.lad[sys_idx_abs], color='red', zorder=5, marker='^')
-                        sc4 = self.ax_lad.scatter(dia_idx_abs, self.lad[dia_idx_abs], color='blue', zorder=5, marker='^')
-                        self.scatters.extend([sc1, sc2, sc3, sc4])
+                        sc5 = self.ax_lad.scatter(sys_idx_abs, self.lad[sys_idx_abs], color='red', zorder=5, marker='^')
+                        sc6 = self.ax_lad.scatter(dia_idx_abs, self.lad[dia_idx_abs], color='blue', zorder=5, marker='^')
+                        self.scatters.extend([sc1, sc2, sc3, sc4, sc5, sc6])
 
         # Update Navigator Cursor
         self.nav_cursor.set_xdata([s + (self.window_size//2)])
@@ -2948,7 +2993,7 @@ class CoronaryPhaseViewer:
             pad = (v_max - v_min) * 0.15 if v_max != v_min else 0.1
             ax.set_ylim(v_min - pad, v_max + pad)
 
-    # --- Interaction Events ---
+    # --- Interaction & Animation Events ---
     def step_next(self, event=None):
         self.current_pos = min(self.current_pos + self.step_size, len(self.ss1) - self.window_size)
         self.update_view()
@@ -2959,7 +3004,6 @@ class CoronaryPhaseViewer:
 
     def on_click_jump(self, event):
         if event.inaxes == self.ax_nav:
-            # Center the click
             self.current_pos = int(event.xdata) - (self.window_size // 2)
             self.current_pos = max(0, min(self.current_pos, len(self.ss1) - self.window_size))
             self.update_view()
@@ -2976,6 +3020,71 @@ class CoronaryPhaseViewer:
             self.step_next()
         elif event.key == 'left':
             self.step_prev()
+        elif event.key == ' ': # Spacebar toggles play/pause
+            self.toggle_play()
+
+    # --- Animation & Export Methods ---
+    def toggle_play(self, event=None):
+        """Toggles the animation playback on and off."""
+        if self.is_playing:
+            self.is_playing = False
+            self.btn_play.label.set_text('Play')
+            if self.anim:
+                self.anim.event_source.stop()
+        else:
+            self.is_playing = True
+            self.btn_play.label.set_text('Pause')
+            if not self.anim:
+                self.anim = animation.FuncAnimation(
+                    self.fig, self._animate_step, interval=50, blit=False, cache_frame_data=False
+                )
+            self.anim.event_source.start()
+
+    def _animate_step(self, frame):
+        """Advances the plot by a small increment for playback."""
+        if self.current_pos >= len(self.ss1) - self.window_size:
+            self.toggle_play() # Stop at end of file
+            return
+            
+        self.current_pos = min(self.current_pos + self.anim_step, len(self.ss1) - self.window_size)
+        self.update_view()
+
+    def export_gif(self, event=None):
+        """Exports the next 5 seconds of the timeline to a GIF file."""
+        print("Preparing GIF export... Please wait.")
+        
+        # Pause playback if it's currently running
+        was_playing = self.is_playing
+        if was_playing:
+            self.toggle_play()
+
+        # Export settings (exporting the next 5 seconds at 10 FPS)
+        original_pos = self.current_pos
+        duration_sec = 5
+        fps = 10
+        frames = duration_sec * fps
+        step = int(self.fs / fps) 
+
+        def gif_frame(i):
+            self.current_pos = min(original_pos + (i * step), len(self.ss1) - self.window_size)
+            self.update_view()
+
+        # Generate temp animation
+        export_anim = animation.FuncAnimation(self.fig, gif_frame, frames=frames, blit=False)
+        filename = f"{self.pig_id}_coronary_phase.gif"
+        
+        # Save using Pillow
+        try:
+            export_anim.save(filename, writer=animation.PillowWriter(fps=fps))
+            print(f"Export complete! Saved as {filename}")
+        except Exception as e:
+            print(f"Failed to save GIF. Ensure Pillow is installed. Error: {e}")
+
+        # Restore original state
+        self.current_pos = original_pos
+        self.update_view()
+        if was_playing:
+            self.toggle_play()
 
 @dataclass
 class BP_Feat():
@@ -3019,8 +3128,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = True
+        self.view_pig      :bool  = True
+        self.view_models   :bool  = False
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
