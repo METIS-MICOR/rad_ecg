@@ -2893,7 +2893,8 @@ class CoronaryPhaseViewer:
                         sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
                         sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
                         sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
-
+                        sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='<')
+                        
                         # LAD Peaks
                         # We need to find the absolute indices of the LAD peaks to plot them correctly
                         lad_systole = self.lad[bpf.onset:notch_abs]
@@ -3666,7 +3667,7 @@ class PigRAD:
                     progress.advance(jobtask_proc)
 
                 #View the data
-                if self.view_sect:
+                if self.view_pig:
                     viewer = CoronaryPhaseViewer(
                         ss1_data = full_data[channels[self.ss1_lead]].to_numpy(), 
                         lad_data = full_data[channels[self.lad_lead]], 
