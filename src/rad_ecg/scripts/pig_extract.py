@@ -290,7 +290,7 @@ class PigRAD:
             return np.nan
         return np.round(np.nanmean(clean_vals), precision).item()
     
-    def _find_sbp_onset(self, ss1wave:np.array, sys_peak_idx:int):
+    def _find_sbp_info(self, ss1wave:np.array, sys_peak_idx:int) -> tuple:
         """
         Finds the true physiological onset (foot) of a pressure wave by analyzing 
         the first derivative (dp/dt) before the systolic peak.  Look for the greatest rate
@@ -310,7 +310,7 @@ class PigRAD:
         # Find the steepest part of the upstroke (maximum positive slope)
         max_slope_local_idx = np.argmax(dpdt)
         max_slope_val = dpdt[max_slope_local_idx]
-        
+
         # Walk backwards from the steepest point until the slope flattens out.
         # Define "flat" as dropping below 5% of the maximum upstroke slope.
         flat_threshold = max_slope_val * 0.05
@@ -349,7 +349,7 @@ class PigRAD:
         bpf.sbp_id = peak.item()
         bpf.dbp_id = s_heights["right_bases"][id].item()
         # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
-        bpf.onset = self._find_sbp_onset(ss1wave, bpf.sbp_id)
+        bpf.onset = self._find_sbp_info(ss1wave, bpf.sbp_id)
         # Validate indices to prevent reversed slicing (sbp > dbp)
         if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
             return None
@@ -359,7 +359,13 @@ class PigRAD:
         bpf.DBP = ss1wave[bpf.dbp_id].item()
         bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
         #TODO - Update pulse width to dicrotic notch height
-        
+
+        # Systolic Slope
+        sys_run = (bpf.sbp_id - bpf.onset) / self.fs
+        bpf.sys_sl = ((bpf.SBP - ss1wave[bpf.onset]) / sys_run).item() if sys_run > 0 else None
+        #TODO - Ask Mark if we should upgrade this to DP/dt 
+            #Could get that return from _find_sbp_info
+
         # Slices
         sub_notch = ss1wave[bpf.sbp_id:bpf.dbp_id]
         sub_full = ss1wave[bpf.onset:bpf.dbp_id]
@@ -371,19 +377,32 @@ class PigRAD:
             bpf.shock_gap = bpf.true_MAP - bpf.ap_MAP
         
         # Dicrotic Notch & DNI
-        if sub_notch.size > 3: # Need minimum length for savgol filter
+        # Enforce an 80ms refractory period after the peak
+        refractory_samples = int(self.fs * 0.08) 
+        
+        # Mask out the diastolic foot (highly concave-up valley at the end)
+        # mask the last 25% of the descending limb, or a minimum of 50ms
+        tail_samples = max(int(self.fs * 0.05), int(sub_notch.size * 0.25))
+        
+        # Ensure the slice is long enough to handle both masks safely
+        if sub_notch.size > (refractory_samples + tail_samples + 3): 
             try:
+                # Calculate 2nd deriv over the whole slice to avoid filter edge effects
                 d2_notch = self._derivative(sub_notch, 2)
+                
+                # Apply the masks by setting the out-of-bounds 2nd derivative to negative infinity
+                d2_notch[:refractory_samples] = -np.inf
+                d2_notch[-tail_samples:] = -np.inf
+                
+                # Now the argmax is trapped in the middle of the slope where the notch lives
                 bpf.notch_id = np.argmax(d2_notch).item()
                 bpf.notch = sub_notch[bpf.notch_id].item()
+                
                 if bpf.notch and (bpf.SBP - bpf.DBP) > 0.1:
                     bpf.dni = (bpf.SBP - bpf.notch) / (bpf.SBP - bpf.DBP)
+                    
             except Exception as e:
                 logger.warning(f"DNI/notch calculation failed: {e}")
-
-        # Systolic Slope
-        sys_run = (bpf.sbp_id - bpf.onset) / self.fs
-        bpf.sys_sl = ((bpf.SBP - ss1wave[bpf.onset]) / sys_run).item() if sys_run > 0 else None
 
         # Resistive Index (Carotid)
         if id + 1 < len(s_peaks): # Ensure we don't go out of bounds
@@ -1266,7 +1285,6 @@ class CoronaryPhaseViewer:
         ds = max(1, len(self.ss1) // 5000) # Downsample for performance
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
         self.nav_cursor = self.ax_nav.axvline(self.current_pos, color='red', lw=2)
-        
         self.ax_nav.set_yticks([])
         self.ax_nav.set_xlabel("Timeline (Click to Jump) | Use Left/Right Arrows to step")
         
@@ -2507,7 +2525,6 @@ class FeatureEngineering(EDA):
             norm2 = np.linalg.norm(vec2)
             return dp / (norm1 * norm2)
 
-
     # #FUNCTION categorical_encoding
     #def categorical_encoding(self, enc:str, feat:str, order:list=None):
     #     """Note, can only drop single columns at a time. I'll 
@@ -2623,7 +2640,6 @@ class FeatureEngineering(EDA):
             plt.close()
 
         target = False
-
         #If its a single feature, it will come through as a string
         if isinstance(features, str):
             #If single column.  Repeat without the list comp
