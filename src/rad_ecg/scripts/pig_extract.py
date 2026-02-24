@@ -2711,11 +2711,12 @@ class CoronaryPhaseViewer:
     """
     def __init__(
         self, 
-        ss1_data: np.array, 
-        lad_data: np.array, 
-        beats: list, 
+        ss1_data     : np.array, 
+        lad_data     : np.array, 
+        beats        : list, 
         sampling_rate: float = 1000.0, 
-        window_size: int = 3000
+        window_size  : int = 5000,
+        pig_id       : str = None,
     ):
         """
         Args:
@@ -2724,12 +2725,14 @@ class CoronaryPhaseViewer:
             beats (list[BP_Feat]): List of extracted BP_Feat's
             sampling_rate (float): fs in Hz.
             window_size (int): Number of samples to show in the view.
+            pig_id (str): Pig ID
         """        
         # Data Setup
         self.ss1 = ss1_data
         self.lad = lad_data
         self.beats = beats
         self.fs = sampling_rate
+        self.pig_id = pig_id
         
         # State Settings
         self.window_size = window_size
@@ -2755,7 +2758,7 @@ class CoronaryPhaseViewer:
     def setup_layout(self):
         """Define GridSpec layout."""
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
-        
+        self.gs_main.figure.suptitle(f"{self.pig_id}")
         # Main plot area: SS1, LAD, Navigator
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
             3, 1, 
@@ -2803,7 +2806,7 @@ class CoronaryPhaseViewer:
             Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='SS1 Systolic Onset'),
             Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='SS1 Systolic Peak'),
             Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Dicrotic Notch'),
-            Line2D([0], [0], color='purple', marker='<', linestyle='None', markersize=8, label='SS1 Diastolic'),
+            Line2D([0], [0], color='purple', marker='v', linestyle='None', markersize=8, label='SS1 Diastolic Peak'),
         ]
         self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
@@ -2831,7 +2834,7 @@ class CoronaryPhaseViewer:
         
         self.ax_nav.set_yticks([])
         self.ax_nav.set_xlabel("Timeline (Click to Jump) | Use Left/Right Arrows to step")
-        
+        # self.gs_plots.fig.suptitle(f"{self.beats[0].id}")
         # Hide x labels for shared axes
         plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
 
@@ -2893,8 +2896,8 @@ class CoronaryPhaseViewer:
                         sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
                         sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
                         sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
-                        sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='<')
-                        
+                        sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='v')
+
                         # LAD Peaks
                         # We need to find the absolute indices of the LAD peaks to plot them correctly
                         lad_systole = self.lad[bpf.onset:notch_abs]
@@ -3016,8 +3019,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
+        self.view_pig      :bool  = False
         self.view_models   :bool  = True
-        self.view_pig      :bool  = True
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -3102,6 +3105,7 @@ class PigRAD:
             ('lad_acc_sl' , 'f4'),  # Diastolic Acceleration Slope
             ('flow_div'   , 'f4'),  # Carotid to LAD Flow Ratio 
         ]
+        #IDEA - feature - Pulse transit time?  
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
@@ -3547,7 +3551,7 @@ class PigRAD:
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.20,
+                        prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.30,
                         height = np.percentile(ss1wave, 60),
                         distance = int(self.fs*(0.4)),
                         wlen = int(self.fs*1.5)      
@@ -3673,7 +3677,8 @@ class PigRAD:
                         lad_data = full_data[channels[self.lad_lead]], 
                         beats = tot_beats, 
                         sampling_rate = self.fs,
-                        window_size = int(self.fs * 4)  # Show 4 seconds of data at a time
+                        window_size = int(self.fs * 4),  # Show 4 seconds of data at a time
+                        pig_id = pig_id
                     )
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
@@ -3707,7 +3712,7 @@ class PigRAD:
             cac = container['arr_0']
             console.print("[bold green]Data loaded. Launching Viewer...[/]")
             
-            if self.view_gui:
+            if self.view_pig:
                 pass
                 # Launch Viewer
                 #TODO - Regime Viewer update
