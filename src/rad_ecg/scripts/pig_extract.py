@@ -440,8 +440,9 @@ class PigRAD:
         else:
             #If it can't find the notch, it can't do the rest of the calculations
             return bpf        
-
-        #Generate SS1 Features: P1, P2, P3 & AIx
+        # ==========================================
+        # --- SS1 Features: P1, P3, P3, AIX ---
+        # ==========================================
         p1_val, p2_val, p3_val = None, None, None
 
         # Absolute index of the notch
@@ -489,31 +490,47 @@ class PigRAD:
 
         # Find P3 (Dicrotic Wave) using Kneed
         diastolic_run = ss1wave[notch_abs:bpf.dbp_id]
-        
-        # Require a minimum length so kneed doesn't throw an error on noise
         if len(diastolic_run) > 5:  
-            x_dias = np.arange(len(diastolic_run))
-            # P3 creates an outward (upward) bulge on the decreasing diastolic slope.
-            # Sensitivity parameter (default is 1.0)
-            kneedle = KneeLocator(
-                x=x_dias, 
-                y=diastolic_run, 
-                curve="concave", 
-                direction="decreasing",
-                S=1.0                  
-            )
+            # check if P3 is an obvious, true peak (common in deep shock)
+            dias_peaks, _ = find_peaks(diastolic_run)
             
-            if kneedle.knee is not None:
-                p3_val = diastolic_run[kneedle.knee].item()
+            if len(dias_peaks) > 0:
+                # Grab the highest prominent peak in the diastolic run
+                p3_idx = dias_peaks[np.argmax(diastolic_run[dias_peaks])]
+                p3_val = diastolic_run[p3_idx].item()
+                
             else:
-                # Fallback: If no subtle knee is found, it might be a true peak or completely flat. Fallback to finding the absolute max.
-                p3_val = np.max(diastolic_run).item()
+                # Fallback: No true peak found. Look for a subtle bulge (knee).
+                x_dias = np.arange(len(diastolic_run))
+                # Dynamically determine the slope direction
+                if diastolic_run[0] > diastolic_run[-1]:
+                    run_direction = "decreasing"
+                else:
+                    run_direction = "increasing"
+                
+                try:
+                    # Sensitivity parameter (default is 1.0)
+                    kneedle = KneeLocator(
+                        x=x_dias, 
+                        y=diastolic_run, 
+                        curve="concave", 
+                        direction=run_direction,
+                        S=1.0                  
+                    )
+                    if kneedle.knee is not None:
+                        p3_val = diastolic_run[kneedle.knee].item()
+                    else:
+                        # Absolute fallback if kneed finds nothing
+                        p3_val = np.max(diastolic_run).item()
+
+                except Exception as e:
+                    logger.warning(f"Kneed failed on P3 calc: {e}")
+                    p3_val = np.max(diastolic_run).item()
 
         elif len(diastolic_run) > 0:
             p3_val = np.max(diastolic_run).item()
-        
+        # if its flat flat.  p3 is just the notch val
         else:
-            # if its flat flat.  p3 is just the notch val
             p3_val = bpf.notch
 
         # Assign to dataclass & calculate ratios
@@ -952,14 +969,15 @@ class PigRAD:
             scaler = "p_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
-            #kfold       : KFold Validation
-            #stratkfold  : StratifiedKFold
-            #groupkfold  : GroupKfold
-            #groupshuffle: GroupShuffleSplit
-            #leavepout   : Leave p out 
-            #leaveoneout : Leave one out
-            #shuffle     : ShuffleSplit
-            #stratshuffle: StratifiedShuffleSplit
+            #kfold           : KFold Validation
+            #stratkfold      : StratifiedKFold
+            #groupkfold      : GroupKfold
+            #groupshuffle    : GroupShuffleSplit
+            #leaveonegroupout: LeaveOneGroupOut
+            #leavepout       : Leave p out 
+            #leaveoneout     : Leave one out
+            #shuffle         : ShuffleSplit
+            #stratshuffle    : StratifiedShuffleSplit
             cross_val = "leaveonegroupout"
 
             #Classifiers
@@ -2961,7 +2979,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"mcc",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3005,7 +3023,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"mcc",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3040,7 +3058,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"mcc",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -3071,7 +3089,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"mcc",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
