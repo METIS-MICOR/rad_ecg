@@ -15,6 +15,7 @@ from pathlib import Path, PurePath
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
+from matplotlib.patches import Patch
 import matplotlib.gridspec as gridspec
 from matplotlib.widgets import Button, TextBox
 from matplotlib.animation import FuncAnimation, PillowWriter
@@ -2703,336 +2704,311 @@ class SignalDataLoader:
         return full_data
 
 # --- Advanced Viewer ---
-class RegimeViewer:
+class CoronaryPhaseViewer:
     """
-    Interactive viewer for signal, Semantic Segmentation via minimum CAC (Corrected Arc Curve), and Phase Variance.
-    Includes frequency analysis and custom navigation.
+    Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
+    Visualizes SS1 Pressure, LAD Flow, and computed hemodynamic features.
     """
     def __init__(
         self, 
-        signal_data  :np.array, 
-        cac_data     :np.array, 
-        regime_locs  :np.array, 
-        m            :int, 
-        sampling_rate:float=1000.0, 
-        lead         :str='Carotid (TS420)'
-        ):
+        ss1_data: np.array, 
+        lad_data: np.array, 
+        beats: list, 
+        sampling_rate: float = 1000.0, 
+        window_size: int = 3000
+    ):
         """
         Args:
-            signal_data (np.array): np.array of the signal data
-            cac_data (np.array): np.array of CAC curve data
-            regime_locs (np.array): np.array of regime change locations
-            m (int): stumpy search window width
-            sampling_rate (float): in Hz. Defaults to 1000.0
-            lead (str): Signal being analyzed
+            ss1_data (np.array): SS1 pressure signal.
+            lad_data (np.array): LAD flow signal.
+            beats (list[BP_Feat]): List of extracted BP_Feat's
+            sampling_rate (float): fs in Hz.
+            window_size (int): Number of samples to show in the view.
         """        
-        # 1. Data Setup
-        self.signal = signal_data
-        self.cac = cac_data
-        self.regime_locs = regime_locs
-        self.m = m
+        # Data Setup
+        self.ss1 = ss1_data
+        self.lad = lad_data
+        self.beats = beats
         self.fs = sampling_rate
-        self.lead = lead        
-
-        # Calculate Phase Variance Stream
-        console.print("[cyan]Pre-computing Phase Variance Stream...[/]")
-        self.ptools = CardiacFreqTools(fs=self.fs)
-        self.phase_var_stream = self.ptools.compute_continuous_phase_metric(self.signal)
         
-        # 2. State Settings
-        self.window_size = 10_000
+        # State Settings
+        self.window_size = window_size
         self.current_pos = 0
-        self.step_size = 20
-        self.paused = False
+        self.step_size = int(self.fs * 1.0) # Jump 1 second at a time with buttons
         
-        # Frequency State: 0=Off, 1=Stem, 2=Specgram
-        self.freq_mode = 0 
+        # Tracking dynamic plot elements for clean removal
+        self.spans = []
+        self.scatters = []
         
-        # 3. Setup Figure
+        # Setup Figure
         self.fig = plt.figure(figsize=(16, 10))
-        self.fig.canvas.mpl_connect('close_event', self._on_close)
         self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump)
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
+        
         self.setup_layout()
         self._init_axes_pool()
         
-        # 4. Start Animation
-        self.ani = FuncAnimation(
-            self.fig, self.update_frame, interval=30, blit=False, cache_frame_data=False
-        )
+        # 4. Initial Draw
+        self.update_view()
         plt.show()
 
     def setup_layout(self):
         """Define GridSpec layout."""
-        self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 1.5], figure=self.fig)
+        self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
         
-        # Main plot area: signal, CAC, Phase Var, Navigator
+        # Main plot area: SS1, LAD, Navigator
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
-            4, 1, 
+            3, 1, 
             subplot_spec=self.gs_main[0], 
-            height_ratios=[3, 1.5, 1.5, 0.5],
-            hspace=0.15
+            height_ratios=[2, 2, 0.5],
+            hspace=0.1
         )
         
-        # Side controls
+        # Side controls & Metric Readout
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            9, 1, subplot_spec=self.gs_main[1], hspace=0.5
+            6, 1, subplot_spec=self.gs_main[1], height_ratios=[1, 1, 1, 1, 4, 1], hspace=0.3
         )
         self.setup_controls()
 
     def setup_controls(self):
-        """This will set all the objects you need into their respective axes
-        """        
-        self.btn_pause = Button(self.fig.add_subplot(self.gs_side[0]), 'Pause/Play')
-        self.btn_freq = Button(self.fig.add_subplot(self.gs_side[1]), 'Freq: OFF')
-        self.btn_reset = Button(self.fig.add_subplot(self.gs_side[2]), 'Reset Scale')
-        self.btn_gif = Button(self.fig.add_subplot(self.gs_side[3]), 'Export GIF')
-
-        ax_speed = self.fig.add_subplot(self.gs_side[4])
-        self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.step_size))
-        ax_window = self.fig.add_subplot(self.gs_side[5])
+        """Initialize GUI buttons and text boxes."""
+        self.btn_prev = Button(self.fig.add_subplot(self.gs_side[0]), '< Prev (Left)')
+        self.btn_next = Button(self.fig.add_subplot(self.gs_side[1]), 'Next > (Right)')
+        
+        ax_window = self.fig.add_subplot(self.gs_side[2])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
-        self.btn_pause.on_clicked(self.toggle_pause)
-        self.btn_freq.on_clicked(self.toggle_frequency)
-        self.btn_reset.on_clicked(self.manual_rescale)
-        self.btn_gif.on_clicked(self.export_gif)
-        self.txt_speed.on_submit(self.update_speed)
+        # Text axis for live metric readout
+        self.ax_metrics = self.fig.add_subplot(self.gs_side[4])
+        self.ax_metrics.axis('off')
+        self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
+
+        # Event connections
+        self.btn_prev.on_clicked(self.step_prev)
+        self.btn_next.on_clicked(self.step_next)
         self.txt_window.on_submit(self.update_window_size)
 
     def _init_axes_pool(self):
-        """to initlizae the axis.  Plot empty figures for faster filling at animation time
-        """        
-        # --- Row 1: signal + Frequency ---
-        if self.freq_mode == 0:
-            self.ax_sig = self.fig.add_subplot(self.gs_plots[0])
-            self.ax_freq = None
-        else:
-            gs_row = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[0], wspace=0.1, width_ratios=[0.8, 0.8])
-            self.ax_sig = self.fig.add_subplot(gs_row[0])
-            self.ax_freq = self.fig.add_subplot(gs_row[1])
-
-        self.line_sig, = self.ax_sig.plot([], [], color='black', lw=1, label=f"lead {self.lead}")
-        self.ax_sig.set_ylabel(f"{self.lead}")
-        self.ax_sig.legend(loc="upper right")
+        """Initialize empty axes, lines, and custom legends."""
+        # --- Row 1: SS1 Pressure ---
+        self.ax_ss1 = self.fig.add_subplot(self.gs_plots[0])
+        self.line_ss1, = self.ax_ss1.plot([], [], color='black', lw=1.5, label="SS1 Pressure")
+        self.ax_ss1.set_ylabel("Pressure (mmHg)/min")
         
-        # --- Row 2: CAC ---
-        self.ax_cac = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_sig)
-        self.line_cac, = self.ax_cac.plot([], [], color='dodgerblue', lw=1.5, label="FLUSS CAC")
-        self.ax_cac.fill_between([], [], color='dodgerblue', alpha=0.1)
-        self.ax_cac.set_ylabel("Arc Curve (0-1)")
-        self.ax_cac.set_ylim(0, 1.05)
-        self.ax_cac.legend(loc="upper right")
-
-        # --- Row 3: Phase Variance ---
-        self.ax_phase = self.fig.add_subplot(self.gs_plots[2], sharex=self.ax_sig)
-        self.line_phase, = self.ax_phase.plot([], [], color='purple', lw=1.5, label="Phase Instability")
-        self.ax_phase.set_ylabel("Phase Var (rad²)")
-        self.ax_phase.legend(loc="lower right")
-
-        # --- Row 4: Navigator ---
-        self.ax_nav = self.fig.add_subplot(self.gs_plots[3])
-        # Downsample for nav
-        ds = max(1, len(self.signal) // 5000)
-        self.ax_nav.plot(np.arange(0, len(self.signal), ds), self.signal[::ds], color='gray', alpha=0.5)
-        self.nav_cursor = self.ax_nav.axvline(0, color='red', lw=2)
+        # Build Custom Legend for SS1
+        ss1_legend_handles = [
+            self.line_ss1,
+            Patch(facecolor='lightcoral', alpha=0.3, label='Systole (Onset to Notch)'),
+            Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole (Notch to End)'),
+            Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='SS1 Systolic Onset'),
+            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='SS1 Systolic Peak'),
+            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Dicrotic Notch'),
+            Line2D([0], [0], color='purple', marker='<', linestyle='None', markersize=8, label='SS1 Diastolic'),
+        ]
+        self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
-        # Mark Regimes
-        for loc in self.regime_locs:
-            self.ax_nav.axvline(loc, color='blue', alpha=0.3, ymax=0.5)
-            # Add markers to main plots if handled in update, but typically static lines need careful management in blit
+        # --- Row 2: LAD Flow ---
+        self.ax_lad = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ss1)
+        self.line_lad, = self.ax_lad.plot([], [], color='crimson', lw=1.5, label="LAD Flow")
+        self.ax_lad.axhline(0, color='gray', linestyle='--', alpha=0.5) # Zero flow line
+        self.ax_lad.set_ylabel("Flow (mL/min)")
+        
+        # Build Custom Legend for LAD
+        lad_legend_handles = [
+            self.line_lad,
+            Patch(facecolor='lightcoral', alpha=0.3, label='Systole Phase'),
+            Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole Phase'),
+            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='LAD Systolic Peak'),
+            Line2D([0], [0], color='blue', marker='^', linestyle='None', markersize=8, label='LAD Diastolic Peak')
+        ]
+        self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
+        # --- Row 3: Navigator ---
+        self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
+        ds = max(1, len(self.ss1) // 5000) # Downsample for performance
+        self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
+        self.nav_cursor = self.ax_nav.axvline(self.current_pos, color='red', lw=2)
+        
         self.ax_nav.set_yticks([])
-        self.ax_nav.set_xlabel("Timeline (Click to Jump) | Press SPACE to Pause")
+        self.ax_nav.set_xlabel("Timeline (Click to Jump) | Use Left/Right Arrows to step")
         
         # Hide x labels for shared axes
-        plt.setp(self.ax_sig.get_xticklabels(), visible=False)
-        plt.setp(self.ax_cac.get_xticklabels(), visible=False)
+        plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
 
-    def rebuild_layout(self):
-        self.ani.event_source.stop()
-        
-        self.ax_sig.remove()
-        if self.ax_freq: 
-            self.ax_freq.remove()
-        self.ax_cac.remove()
-        self.ax_phase.remove()
-        self.ax_nav.remove()
-        self._init_axes_pool()
-        self.fig.canvas.draw_idle()
-        self.ani.event_source.start()
-
-    def toggle_frequency(self, event):
-        self.freq_mode = (self.freq_mode + 1) % 3
-        labels = {0: "Freq: OFF", 1: "Freq: STEM", 2: "Freq: SPEC"}
-        self.btn_freq.label.set_text(labels[self.freq_mode])
-        self.rebuild_layout()
-
-    def update_frame(self, frame):
-        if not self.paused:
-            self.current_pos += self.step_size
-            if self.current_pos + self.window_size > len(self.signal):
-                self.current_pos = 0 # Loop
-
-        # Data Slicing
+    def update_view(self):
+        """Main update routine. Slices data, redraws lines, and calculates phase shadings."""
         s = self.current_pos
-        e = s + self.window_size
+        e = min(s + self.window_size, len(self.ss1))
         x_data = np.arange(s, e)
 
-        # Update signal
-        view_sig = self.signal[s:e]
-        self.line_sig.set_data(x_data, view_sig)
-        
-        # Auto-scale signal y-axis roughly
-        if len(view_sig) > 0:
-            # self._apply_scale(ax=self.ax_sig, view_data=view_sig)
-            mn, mx = np.min(view_sig), np.max(view_sig)
-            self.ax_sig.set_xlim(s, e)
-            self.ax_sig.set_ylim(mn - 0.2, mx + 0.2)
+        # Update Lines
+        self.line_ss1.set_data(x_data, self.ss1[s:e])
+        self.line_lad.set_data(x_data, self.lad[s:e])
 
-        # Update CAC (Corrected Arc Curve)
-        view_cac = self.cac[s : min(e, len(self.cac))]
-        # Pad if short
-        if len(view_cac) < (e-s):
-            view_cac = np.pad(view_cac, (0, (e-s)-len(view_cac)), constant_values=1.0)
+        # Rescale axes
+        if e > s:
+            self.ax_ss1.set_xlim(s, e)
+            self._apply_scale(self.ax_ss1, self.ss1[s:e])
+            self._apply_scale(self.ax_lad, self.lad[s:e])
+
+        # Clean up old phase spans and scatter points
+        for span in self.spans:
+            span.remove()
+        for scat in self.scatters:
+            scat.remove()
+        self.spans.clear()
+        self.scatters.clear()
+
+        # Draw Phases and Peaks for beats in the current window
+        center_beat = None
+        center_idx = s + (self.window_size // 2)
+
+        for bpf in self.beats:
+            # Check if beat overlaps with current view
+            if getattr(bpf, 'onset', None) and getattr(bpf, 'dbp_id', None) and getattr(bpf, 'sbp_id', None):
+                if bpf.dbp_id > s and bpf.onset < e:
+                    
+                    # Capture the beat closest to the center for the metrics readout
+                    if bpf.onset <= center_idx <= bpf.dbp_id:
+                        center_beat = bpf
+                    
+                    if getattr(bpf, 'notch_id', None):
+                        notch_abs = bpf.sbp_id + bpf.notch_id  
+                    else:
+                        None
+                    
+                    if notch_abs:
+                        # --- Shade Systole (Onset to Notch) ---
+                        s_span_1 = self.ax_ss1.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
+                        s_span_2 = self.ax_lad.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
+                        self.spans.extend([s_span_1, s_span_2])
+                        
+                        # --- Shade Diastole (Notch to End/DBP) ---
+                        d_span_1 = self.ax_ss1.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
+                        d_span_2 = self.ax_lad.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
+                        self.spans.extend([d_span_1, d_span_2])
+
+                        # --- Plot Scatter Points ---
+                        # SS1 Peaks
+                        sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
+                        sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
+                        sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
+
+                        # LAD Peaks
+                        # We need to find the absolute indices of the LAD peaks to plot them correctly
+                        lad_systole = self.lad[bpf.onset:notch_abs]
+                        lad_diastole = self.lad[notch_abs:bpf.dbp_id]
+                        
+                        sys_idx_abs = bpf.onset + np.argmax(lad_systole) if lad_systole.size > 0 else bpf.onset
+                        dia_idx_abs = notch_abs + np.argmax(lad_diastole) if lad_diastole.size > 0 else notch_abs
+                        sc3 = self.ax_lad.scatter(sys_idx_abs, self.lad[sys_idx_abs], color='red', zorder=5, marker='^')
+                        sc4 = self.ax_lad.scatter(dia_idx_abs, self.lad[dia_idx_abs], color='blue', zorder=5, marker='^')
+                        self.scatters.extend([sc1, sc2, sc3, sc4])
+
+        # Update Navigator Cursor
+        self.nav_cursor.set_xdata([s + (self.window_size//2)])
+        
+        # Update Metric Readout
+        self.update_metrics_text(center_beat)
+
+        self.fig.canvas.draw_idle()
+
+    def update_metrics_text(self, bpf):
+        """Updates the side panel with features from the centered beat."""
+        if bpf is None:
+            self.metric_text.set_text("No complete beat\nin center view.")
+            return
             
-        self.line_cac.set_data(x_data, view_cac)
-        # Iterate and remove instead of clearing the ArtistList directly
-        for c in list(self.ax_cac.collections):
-            c.remove()
-            
-        self.ax_cac.fill_between(x_data, view_cac, color='dodgerblue', alpha=0.1)
+        text = "[CENTER BEAT]\n\n"
+        text += "--- Hemodynamics ---\n"
+        text += f"SBP:      {getattr(bpf, 'SBP', 0):.1f}\n"
+        text += f"DBP:      {getattr(bpf, 'DBP', 0):.1f}\n"
+        text += f"true_MAP: {getattr(bpf, 'true_MAP', 0):.1f}\n\n"
         
-        # Update Phase Variance
-        view_phase = self.phase_var_stream[s:e]
-        self.line_phase.set_data(x_data, view_phase)
-        if len(view_phase) > 0:
-             self.ax_phase.set_ylim(0, max(np.max(view_phase)*1.1, 0.1))
-
-        # Regime Lines (Vertical Markers)
-        # Clear previous vertical lines
-        for line in self.ax_sig.lines[1:]: 
-            line.remove() # Keep index 0 (signal)
-        for line in self.ax_cac.lines[1:]:
-            line.remove()
+        text += "--- Coronary Flow ---\n"
+        text += f"Mean LAD: {getattr(bpf, 'lad_mean', 0):.2f}\n"
+        text += f"Sys Peak: {getattr(bpf, 'lad_sys_pk', 0):.2f}\n"
+        text += f"Dia Peak: {getattr(bpf, 'lad_dia_pk', 0):.2f}\n"
+        text += f"DS Ratio: {getattr(bpf, 'lad_ds_rat', 0):.2f}\n"
+        text += f"Dia AUC:  {getattr(bpf, 'lad_dia_auc', 0):.2f}\n\n"
         
-        local_regimes = [r for r in self.regime_locs if s <= r < e]
-        for r in local_regimes:
-            self.ax_sig.axvline(r, color='red', linestyle='--', alpha=0.8)
-            self.ax_cac.axvline(r, color='red', linestyle='--', alpha=0.8)
-
-        # 5. Frequency Plot
-        if self.freq_mode > 0 and self.ax_freq:
-            self.ax_freq.cla()
-            # STEM
-            if self.freq_mode == 1: 
-                yf = np.abs(rfft(view_sig))                 #fft sample
-                xf = rfftfreq(len(view_sig), 1 / self.fs)   #frequency list
-                half_point = int(len(view_sig)/2)           #Find nyquist freq
-                freqs = yf[:half_point]
-                freq_l = xf[:half_point]
-                self.ax_freq.plot(freq_l, freqs, color='purple', lw=1, label=f"FFT_{self.lead}")
-                self.ax_freq.fill_between(freq_l, freqs, color='purple', alpha=0.3)
-                self.ax_freq.set_xlim(0, 50)                # Zoom on relevant signal bands
-                self.ax_freq.set_title(f"FFT {self.lead}")
-            # SPECGRAM  
-            elif self.freq_mode == 2: 
-                try:
-                    self.ax_freq.specgram(view_sig, NFFT=128, Fs=self.fs, noverlap=64, cmap='inferno')
-                    self.ax_freq.set_yticks([])
-                except Exception as e:
-                    logger.error(f"{e}")
-
-        # 6. Nav Cursor
-        self.nav_cursor.set_xdata([s])
-        
-        return []
-
-    def on_click_jump(self, event):
-        if event.inaxes == self.ax_nav:
-            self.current_pos = int(event.xdata)
-            self.current_pos = max(0, min(self.current_pos, len(self.signal) - self.window_size))
-            if self.paused:
-                self.update_frame(0)
-                self.fig.canvas.draw_idle()
-
-    def toggle_pause(self, event=None):
-        self.paused = not self.paused
+        text += "--- Resistance ---\n"
+        text += f"CVR:      {getattr(bpf, 'cvr', 0):.2f}\n"
+        text += f"DCR:      {getattr(bpf, 'dcr', 0):.2f}\n"
+        text += f"Flow Div: {getattr(bpf, 'flow_div', 0):.2f}\n"
+        self.metric_text.set_text(text)
 
     def _apply_scale(self, ax, view_data):
         if view_data.size > 1:
             v_min, v_max = np.min(view_data), np.max(view_data)
-            pad = (v_max - v_min) * 0.1 if v_max != v_min else 0.1
+            pad = (v_max - v_min) * 0.15 if v_max != v_min else 0.1
             ax.set_ylim(v_min - pad, v_max + pad)
 
-    def manual_rescale(self, event):
-        s = self.current_pos
-        e = s + self.window_size
-        view = self.signal[s:e]
-        if len(view) > 0:
-            self._apply_scale(ax=self.ax_sig, view_data=view)
-            self.fig.canvas.draw_idle()
+    # --- Interaction Events ---
+    def step_next(self, event=None):
+        self.current_pos = min(self.current_pos + self.step_size, len(self.ss1) - self.window_size)
+        self.update_view()
 
-    def update_speed(self, text):
-        try: 
-            self.step_size = int(text)
-        except ValueError as v: 
-            logger.error(f"{v}")
+    def step_prev(self, event=None):
+        self.current_pos = max(0, self.current_pos - self.step_size)
+        self.update_view()
+
+    def on_click_jump(self, event):
+        if event.inaxes == self.ax_nav:
+            # Center the click
+            self.current_pos = int(event.xdata) - (self.window_size // 2)
+            self.current_pos = max(0, min(self.current_pos, len(self.ss1) - self.window_size))
+            self.update_view()
 
     def update_window_size(self, text):
         try: 
             self.window_size = int(text)
+            self.update_view()
         except ValueError as v: 
-            logger.error(f"{v}")
+            print(f"Invalid window size: {v}")
 
     def on_key_press(self, event):
-        if event.key == ' ': 
-            self.toggle_pause()
-
-    def _on_close(self, event):
-        self.ani.event_source.stop()
-
-    def export_gif(self, event):
-        was_paused = self.paused
-        self.paused = True
-        f_path = f"export_pos{self.current_pos}.gif"
-        logger.info(f"Exporting GIF to {f_path}...")
-        writer = PillowWriter(fps=15)
-        with writer.saving(self.fig, f_path, dpi=80):
-            for _ in range(60):
-                self.current_pos += self.step_size
-                self.update_frame(0)
-                self.fig.canvas.draw()
-                writer.grab_frame()
-        logger.info("Gif saved :tada:")
-        self.paused = was_paused
+        if event.key == 'right': 
+            self.step_next()
+        elif event.key == 'left':
+            self.step_prev()
 
 @dataclass
 class BP_Feat():
-    id       :str   = None #record index
-    onset    :int   = None #Left trough of Systolic peak
-    sbp_id   :int   = None #Sytolic Index
-    dbp_id   :int   = None #Diastolic Index
-    notch_id :int   = None #Dicrotic notch
-    SBP      :float = None #Systolic peak val
-    DBP      :float = None #Diastolic trough val
-    notch    :float = None #Notch val
-    true_MAP :float = None #MAP via integral
-    ap_MAP   :float = None #MAP via formula
-    shock_gap:float = None #Diff of trueMAP and apMAP
-    dni      :float = None #dicrotic Notch Index
-    sys_sl   :float = None #systolic slope
-    dia_sl   :float = None #diastolic slope
-    ri       :float = None #resistive index
-    pul_wid  :float = None #pulse width 
-    p1       :float = None #Percussion Wave (P1)
-    p2       :float = None #Tidal Wave (P2)
-    p3       :float = None #Dicrotic Wave (P3)
-    p1_p2    :float = None #Ratio of P1 to P2
-    p1_p3    :float = None #Ratio of P1 to P3,
-    aix      :float = None #Augmentation Index (AIx)
-    ph_mor   :float = None # Mean Phase Angle (Morlet)
-    ph_cgau  :float = None # Mean Phase Angle (Cgau1)
+    id          :str   = None #record index
+    onset       :int   = None #Left trough of Systolic peak
+    sbp_id      :int   = None #Sytolic Index
+    dbp_id      :int   = None #Diastolic Index
+    notch_id    :int   = None #Dicrotic notch
+    SBP         :float = None #Systolic peak val
+    DBP         :float = None #Diastolic trough val
+    notch       :float = None #Notch val
+    true_MAP    :float = None #MAP via integral
+    ap_MAP      :float = None #MAP via formula
+    shock_gap   :float = None #Diff of trueMAP and apMAP
+    dni         :float = None #dicrotic Notch Index
+    sys_sl      :float = None #systolic slope
+    dia_sl      :float = None #diastolic slope
+    ri          :float = None #resistive index
+    pul_wid     :float = None #pulse width 
+    p1          :float = None #Percussion Wave (P1)
+    p2          :float = None #Tidal Wave (P2)
+    p3          :float = None #Dicrotic Wave (P3)
+    p1_p2       :float = None #Ratio of P1 to P2
+    p1_p3       :float = None #Ratio of P1 to P3,
+    aix         :float = None #Augmentation Index (AIx)
+    ph_mor      :float = None #Mean Phase Angle (Morlet)
+    ph_cgau     :float = None #Mean Phase Angle (Cgau1)
+    lad_mean    :float = None #Mean Flow
+    lad_sys_pk  :float = None #Mean systolic peak
+    lad_dia_pk  :float = None #Mean diastolic peak
+    lad_ds_rat  :float = None #Diastolic to Systolic Peak Ratio
+    lad_dia_auc :float = None #Diastolic Flow Volume (AUC)
+    cvr         :float = None #Coronary Vascular Resistance (MAP / LAD_mean)
+    dcr         :float = None #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
+    lad_pi      :float = None #LAD Pulsatility Index
+    lad_acc_sl  :float = None #Diastolic Acceleration Slope
+    flow_div    :float = None #Carotid to LAD Flow Ratio 
 
 class PigRAD:
     def __init__(self, npz_path):
@@ -3040,6 +3016,7 @@ class PigRAD:
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
         self.view_models   :bool  = True
+        self.view_pig      :bool  = True
         self.fs            :float = 1000.0   #Hz
         self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -3083,7 +3060,7 @@ class PigRAD:
             ('valid'      , 'i4'),  #valid Section
             ('shock_class', 'U4'),  #Shock Class
             ('HR'         , 'f4'),  #Heart Rate
-            ############# morphomics ################################
+            ############# Morphomics ################################
             ('SBP'        , 'f4'),  #Systolic Pressure
             ('DBP'        , 'f4'),  #Diastolic Pressure
             ('EBV'        , 'f4'),  #Estimated Blood Volume
@@ -3101,7 +3078,7 @@ class PigRAD:
             ('p1_p2'      , 'f4'),  #Ratio of P1 to P2
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
-            ######### frequency componenets ##################
+            ######### Frequency componenets ##################
             ('f0'         , 'f4'),  #Top Frequency (Fundamental)
             ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
             ('f2'         , 'f4'),  #Harmonic 2 (3rd biggest peak)
@@ -3112,6 +3089,17 @@ class PigRAD:
             ('psd3'       , 'f4'),  #Amplitude of Harmonic 3
             ('var_mor'    , 'f4'),  #Phase Variance (Morlet)
             ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1)
+            # ####### LAD Flow Features ######################
+            ('lad_mean'   , 'f4'),  # Mean LAD Flow
+            ('lad_dia_pk' , 'f4'),  # Diastolic Peak Flow
+            ('lad_sys_pk' , 'f4'),  # Systolic Peak Flow
+            ('lad_ds_rat' , 'f4'),  # Diastolic to Systolic Peak Ratio
+            ('lad_dia_auc', 'f4'),  # Diastolic Flow Volume (AUC)
+            ('cvr'        , 'f4'),  # Coronary Vascular Resistance (MAP / LAD_mean)
+            ('dcr'        , 'f4'),  # Diastolic Coronary Resistance (DBP / LAD_dia_mean)
+            ('lad_pi'     , 'f4'),  # LAD Pulsatility Index
+            ('lad_acc_sl' , 'f4'),  # Diastolic Acceleration Slope
+            ('flow_div'   , 'f4'),  # Carotid to LAD Flow Ratio 
         ]
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
@@ -3142,7 +3130,7 @@ class PigRAD:
             signal (np.array): waveform 
 
         Returns:
-            float: Mean Arterial Pressure (mmHg/s) via area under the curve
+            float: AUC of signal
         """        
         return np.trapezoid(signal, dx=1.0/self.fs).item()
     
@@ -3206,7 +3194,7 @@ class PigRAD:
             return np.nan
         return np.round(np.nanmean(clean_vals), precision).item()
     
-    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
+    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
         """Extracts features for a single systolic cycle.
 
         Args:
@@ -3215,6 +3203,7 @@ class PigRAD:
             peak (int): _description_
             ss1wave (np.ndarray): _description_
             carwave (np.ndarray): _description_
+            ladwave (np.ndarray): _description_
             s_heights (dict): _description_
             s_peaks (np.ndarray): _description_
 
@@ -3222,9 +3211,11 @@ class PigRAD:
             BP_Feat(dataclass): Beat object with generated features
         """        
         bpf = BP_Feat()
-        
-        # Safely assign indices
-        bpf.id = str(idx) + "_" + str(id)                  #Encode section_peak as dual index
+        # ==========================================
+        # --- Pressure Features ---
+        # ==========================================
+        # Safely assign indices. Encode section_peak as dual index
+        bpf.id = str(idx) + "_" + str(id)                  
         bpf.sbp_id = peak.item()
         bpf.dbp_id = s_heights["right_bases"][id].item()
         bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
@@ -3383,14 +3374,59 @@ class PigRAD:
         
         if p1_val and p3_val:
             bpf.p1_p3 = p1_val / p3_val
+
+        # ==========================================
+        # --- LAD Flow & Resistance Features ---
+        # ==========================================
+        sub_lad = ladwave[bpf.onset:bpf.dbp_id]
+        sub_car_full = carwave[bpf.onset:bpf.dbp_id]
         
+        if sub_lad.size > 0:
+            bpf.lad_mean = np.mean(sub_lad).item()
+            
+            # Flow Division Ratio (Carotid vs LAD)
+            if sub_car_full.size > 0 and bpf.lad_mean != 0:
+                bpf.flow_div = np.mean(sub_car_full).item() / bpf.lad_mean
+            
+            # Coronary Vascular Resistance
+            if getattr(bpf, 'true_MAP', None) and bpf.lad_mean != 0:
+                bpf.cvr = bpf.true_MAP / bpf.lad_mean
+
+            # Pulsatility Index
+            lad_max, lad_min = np.max(sub_lad).item(), np.min(sub_lad).item()
+            if bpf.lad_mean != 0:
+                bpf.lad_pi = (lad_max - lad_min) / bpf.lad_mean
+
+            # We need the dicrotic notch to split systole and diastole
+            if getattr(bpf, 'notch', None):
+                notch_abs = bpf.sbp_id + bpf.notch_id
+                lad_systole = ladwave[bpf.onset:notch_abs]
+                lad_diastole = ladwave[notch_abs:bpf.dbp_id]
+                
+                if lad_systole.size > 0 and lad_diastole.size > 0:
+                    bpf.lad_sys_pk = np.max(lad_systole).item()
+                    bpf.lad_dia_pk = np.max(lad_diastole).item()
+                    
+                    # Diastolic/Systolic Ratio
+                    if bpf.lad_sys_pk != 0:
+                        bpf.lad_ds_rat = bpf.lad_dia_pk / bpf.lad_sys_pk
+                        
+                    # Diastolic Volume (AUC)
+                    bpf.lad_dia_auc = self._integrate(lad_diastole)
+                    
+                    # Diastolic Coronary Resistance
+                    lad_dia_mean = np.mean(lad_diastole).item()
+                    if getattr(bpf, 'DBP', None) and lad_dia_mean != 0:
+                        bpf.dcr = bpf.DBP / lad_dia_mean
+
+                    # Diastolic Acceleration Slope
+                    dia_pk_idx_rel = np.argmax(lad_diastole)
+                    if dia_pk_idx_rel > 0:
+                        dia_run = dia_pk_idx_rel / self.fs
+                        bpf.lad_acc_sl = ((bpf.lad_dia_pk - lad_diastole[0]) / dia_run).item()
+
         return bpf
  
-    def band_pass(self):
-        """Function to run the bandpass over LAD and Carotid leads
-        """        
-        #Bandpass the flow streams and ECG.
-
     def calc_RI(self, psv:float, edv:float) -> float:
         """
         Calculates the Resistive Index (RI) from Peak Systolic Velocity (PSV) 
@@ -3421,7 +3457,7 @@ class PigRAD:
         ) as progress:
             freq_tool = CardiacFreqTools(fs=self.fs)
             jobtask = progress.add_task("Processing Pigs...", total=len(self.loader.records))
-            menwithhats = cycle([
+            menwithouthats = cycle([
                 "Calculating features",
                 "We can dance if we want to",
                 "We can leave your friends behind",
@@ -3435,6 +3471,7 @@ class PigRAD:
                 "Everything's out of control",
                 "We can dance, we can dance"]
             )
+            # Iterate every pig 
             for pig_id, record in self.loader.records.items():
                 update_t = f"Processing Pig ID: {pig_id}"
                 progress.update(task_id=jobtask, description=update_t)
@@ -3446,12 +3483,11 @@ class PigRAD:
                 sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
                 pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
                 logger.info(f"sections shape: {sections.shape}")
-                
                 #Input section data into avg_data container
                 pig_avg_data["pig_id"] = pig_id
-                pig_avg_data["start"] = sections[:, 0]
-                pig_avg_data["end"] = sections[:, 1]
-                pig_avg_data["valid"] = sections[:, 2]
+                pig_avg_data["start"]  = sections[:, 0]
+                pig_avg_data["end"]    = sections[:, 1]
+                pig_avg_data["valid"]  = sections[:, 2]
                 del sections
 
                 #Calc estimated blood volume for section. 
@@ -3483,7 +3519,8 @@ class PigRAD:
                     full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
                     logger.info(f"{channels[lead]}")
 
-                jobtask_proc = progress.add_task(f"{next(menwithhats)}", total=pig_avg_data.shape[0])
+                jobtask_proc = progress.add_task(f"{next(menwithouthats)}", total=pig_avg_data.shape[0])
+                tot_beats:list[BP_Feat] = []
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
@@ -3501,9 +3538,9 @@ class PigRAD:
                     # plt.plot(range(ecgwave.shape[0]), ecgwave.to_numpy())
                     # plt.scatter(e_peaks, e_heights["peak_heights"], color="red")
 
-                    #Select section leads
+                    #Select section streams
                     ss1wave = full_data[channels[self.ss1_lead]][start:end].to_numpy()
-                    # ladwave = self.full_data[channels[self.lad_lead]][start:end]
+                    ladwave = full_data[channels[self.lad_lead]][start:end]
                     carwave = full_data[channels[self.car_lead]][start:end]
 
                     # first find systolic peaks
@@ -3559,18 +3596,27 @@ class PigRAD:
                     
                     ind_beats:list[BP_Feat] = []
                     for id, (peak, ph_m, ph_c) in enumerate(zip(s_peaks[:-1], beat_phases_mor, beat_phases_cgau)):
-                        beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, s_heights, s_peaks)
+                        beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, ladwave, s_heights, s_peaks)
                         if beat_feat is not None:
                             # Assign the individual beat phases here
                             beat_feat.ph_mor = ph_m
                             beat_feat.ph_cgau = ph_c
+                            
+                            #Shift the indexes from the start.
+                            beat_feat.onset += start
+                            beat_feat.sbp_id += start
+                            beat_feat.dbp_id += start
                             ind_beats.append(beat_feat)
 
                     if not ind_beats:
                         logger.warning(f"Sect {idx} produced no valid beats after processing.")
                         # Skip averaging to prevent the np.nanmean empty slice error
                         continue
-                    # --- Morphomics / Hemodynamic calculations ---
+                    
+                    #Add beats to the total beats container
+                    tot_beats.extend(ind_beats)    
+
+                    # --- Morphomics / Pressure calculations ---
                     pig_avg_data["EBV"][idx]         = self._yabig_meanie(full_data["EBV"][start:end])
                     pig_avg_data["shock_class"][idx] = Counter(target[start:end]).most_common()[0][0].item()
                     pig_avg_data["dni"][idx]         = self._yabig_meanie([r.dni for r in ind_beats])
@@ -3589,8 +3635,22 @@ class PigRAD:
                     pig_avg_data["p1_p2"][idx]       = self._yabig_meanie([r.p1_p2 for r in ind_beats])
                     pig_avg_data["p1_p3"][idx]       = self._yabig_meanie([r.p1_p3 for r in ind_beats])
                     pig_avg_data["aix"][idx]         = self._yabig_meanie([r.aix for r in ind_beats])
-                    # --- STFT CALCULATIONS ---
-                        #ref link.   Is that our Johnny Morrison?
+                    # --- LAD Flow calculations ---
+                    #BUG -
+                        #Consider changing to getattr(r, 'lad_mean', None).  Would be a safer operation
+                    pig_avg_data["lad_mean"][idx]    = self._yabig_meanie([r.lad_mean for r in ind_beats])
+                    pig_avg_data["lad_dia_pk"][idx]  = self._yabig_meanie([r.lad_dia_pk for r in ind_beats])
+                    pig_avg_data["lad_sys_pk"][idx]  = self._yabig_meanie([r.lad_sys_pk for r in ind_beats])
+                    pig_avg_data["lad_ds_rat"][idx]  = self._yabig_meanie([r.lad_ds_rat for r in ind_beats])
+                    pig_avg_data["lad_dia_auc"][idx] = self._yabig_meanie([r.lad_dia_auc for r in ind_beats])
+                    pig_avg_data["cvr"][idx]         = self._yabig_meanie([r.cvr for r in ind_beats])
+                    pig_avg_data["dcr"][idx]         = self._yabig_meanie([r.dcr for r in ind_beats])
+                    pig_avg_data["lad_pi"][idx]      = self._yabig_meanie([r.lad_pi for r in ind_beats])
+                    pig_avg_data["lad_acc_sl"][idx]  = self._yabig_meanie([r.lad_acc_sl for r in ind_beats])
+                    pig_avg_data["flow_div"][idx]    = self._yabig_meanie([r.flow_div for r in ind_beats])
+                    
+                    # --- STFT calculations ---
+                        #ref link.   Is that our Johnny Morrison? It is! 
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
                     top_f, top_psd                   = freq_tool.STFT_extract(ss1wave, s_peaks)
                     pig_avg_data["f0"][idx]          = top_f[0]
@@ -3605,6 +3665,15 @@ class PigRAD:
                     #Move the progbar
                     progress.advance(jobtask_proc)
 
+                #View the data
+                if self.view_sect:
+                    viewer = CoronaryPhaseViewer(
+                        ss1_data = full_data[channels[self.ss1_lead]].to_numpy(), 
+                        lad_data = full_data[channels[self.lad_lead]], 
+                        beats = tot_beats, 
+                        sampling_rate = self.fs,
+                        window_size = int(self.fs * 4)  # Show 4 seconds of data at a time
+                    )
                 # Store the completed pig array in our master list
                 self.all_avg_data.append(pig_avg_data)
                 #Update the progbars
@@ -3670,9 +3739,9 @@ class PigRAD:
             sel_cols = eda.feature_names[4:]
             #Sum basic stats
             eda.sum_stats(sel_cols, "Numeric Features")
-            #graph your features
+            #graph features
             if eda.view_eda:
-                #Plot your eda charts
+                #Plot eda charts
                 for feature in sel_cols:
                     # eda.eda_plot("scatter", "EBV", feature)
                     eda.eda_plot("histogram", feature, None, eda.target)
@@ -3757,7 +3826,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
             #Gridsearch
-            modeltraining._grid_search("xgboost", 10)
+            # modeltraining._grid_search("xgboost", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
