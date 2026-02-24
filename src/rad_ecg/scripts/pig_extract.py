@@ -290,6 +290,40 @@ class PigRAD:
             return np.nan
         return np.round(np.nanmean(clean_vals), precision).item()
     
+    def _find_sbp_onset(self, ss1wave:np.array, sys_peak_idx:int):
+        """
+        Finds the true physiological onset (foot) of a pressure wave by analyzing 
+        the first derivative (dp/dt) before the systolic peak.  Look for the greatest rate
+        of change.
+        """
+        # Define a strict lookback window (e.g., 300ms max before the peak)
+        # This prevents the search from bleeding into the previous beat's dicrotic notch
+        lookback_samples = int(self.fs * 0.3)
+        start_idx = max(0, sys_peak_idx - lookback_samples)
+        
+        # Extract the segment just before the peak
+        segment = ss1wave[start_idx:sys_peak_idx]
+        
+        # Calculate the first derivative (dp/dt) of this segment
+        dpdt = np.gradient(segment)
+        
+        # Find the steepest part of the upstroke (maximum positive slope)
+        max_slope_local_idx = np.argmax(dpdt)
+        max_slope_val = dpdt[max_slope_local_idx]
+        
+        # Walk backwards from the steepest point until the slope flattens out.
+        # Define "flat" as dropping below 5% of the maximum upstroke slope.
+        flat_threshold = max_slope_val * 0.05
+        
+        onset_local_idx = max_slope_local_idx
+        while onset_local_idx > 0 and dpdt[onset_local_idx] > flat_threshold:
+            onset_local_idx -= 1
+            
+        # 5. Convert back to global coordinates
+        true_onset_idx = start_idx + onset_local_idx
+        
+        return true_onset_idx
+
     def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
         """Extracts features for a single systolic cycle.
 
@@ -305,7 +339,7 @@ class PigRAD:
 
         Returns:
             BP_Feat(dataclass): Beat object with generated features
-        """        
+        """
         bpf = BP_Feat()
         # ==========================================
         # --- Pressure Features ---
@@ -314,8 +348,8 @@ class PigRAD:
         bpf.id = str(idx) + "_" + str(id)                  
         bpf.sbp_id = peak.item()
         bpf.dbp_id = s_heights["right_bases"][id].item()
-        bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
-        
+        # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
+        bpf.onset = self._find_sbp_onset(ss1wave, bpf.sbp_id)
         # Validate indices to prevent reversed slicing (sbp > dbp)
         if bpf.onset >= bpf.sbp_id or bpf.sbp_id >= bpf.dbp_id:
             return None
@@ -639,12 +673,14 @@ class PigRAD:
                     ladwave = full_data[channels[self.lad_lead]][start:end]
                     carwave = full_data[channels[self.car_lead]][start:end]
 
+                    prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
+                    # logger.debug(f"prom: {prom_night*30:.2f}")
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = (np.percentile(ss1wave, 99) - np.percentile(ss1wave, 5)) * 0.15,
-                        height = np.percentile(ss1wave, 20),
-                        distance = int(self.fs*(0.33)),
+                        prominence = prom_night * 0.30,
+                        height = np.percentile(ss1wave, 50),
+                        distance = int(self.fs*(0.10)),
                         wlen = int(self.fs*3)       
                     )
                     #BUG - left base
@@ -776,7 +812,7 @@ class PigRAD:
                 #Update the progbars
                 progress.remove_task(jobtask_proc)
                 progress.advance(jobtask)
-                
+
         # After all pigs are processed, concatenate into a single master array
         self.avg_data = np.concatenate(self.all_avg_data)
         end_text = f"[bold green]File processing complete. Total sections: {self.avg_data.shape[0]}[/]"
@@ -1087,7 +1123,7 @@ class CoronaryPhaseViewer:
         self.beats = beats
         self.fs = sampling_rate
         self.pig_id = pig_id if pig_id else "Unknown_Subject"
-        
+
         # State Settings
         self.window_size = window_size
         self.current_pos = 0
@@ -1137,27 +1173,27 @@ class CoronaryPhaseViewer:
 
     def setup_controls(self):
         """Initialize GUI buttons and text boxes in the new requested order."""
-        # 1. Play / Pause
+        # Play / Pause
         self.btn_play = Button(self.fig.add_subplot(self.gs_side[0]), 'Play / Pause')
         
-        # 2. Prev (Left)
+        # Prev (Left)
         self.btn_prev = Button(self.fig.add_subplot(self.gs_side[1]), '< Prev (Left)')
         
-        # 3. Next (Right)
+        # Next (Right)
         self.btn_next = Button(self.fig.add_subplot(self.gs_side[2]), 'Next > (Right)')
         
-        # 4. Speed
+        # Speed
         ax_speed = self.fig.add_subplot(self.gs_side[3])
         self.txt_speed = TextBox(ax_speed, 'Speed (x): ', initial=str(self.playback_speed))
         
-        # 5. Window
+        # Window
         ax_window = self.fig.add_subplot(self.gs_side[4])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
-        # 6. Export GIF
+        # Export GIF
         self.btn_gif = Button(self.fig.add_subplot(self.gs_side[5]), 'Export GIF')
         
-        # 7. Metrics Text
+        # Metrics Text
         self.ax_metrics = self.fig.add_subplot(self.gs_side[6])
         self.ax_metrics.axis('off')
         self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
