@@ -642,10 +642,10 @@ class PigRAD:
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = (np.max(ss1wave) - np.min(ss1wave)) * 0.30,
-                        height = np.percentile(ss1wave, 60),
-                        distance = int(self.fs*(0.4)),
-                        wlen = int(self.fs*3)      
+                        prominence = (np.percentile(ss1wave, 99) - np.percentile(ss1wave, 5)) * 0.15,
+                        height = np.percentile(ss1wave, 20),
+                        distance = int(self.fs*(0.33)),
+                        wlen = int(self.fs*3)       
                     )
                     #BUG - left base
                         # the left bases aren't getting calculated correctly.  I tried to adjust wlen as a 
@@ -1243,9 +1243,9 @@ class CoronaryPhaseViewer:
             self.playback_speed = float(text)
             # Ensure it doesn't drop below 1 sample per frame
             self.anim_step = max(1, int(self.fs * 0.05 * self.playback_speed))
-            print(f"Playback speed set to {self.playback_speed}x")
+            console.print(f"[green]Playback speed set to {self.playback_speed}x[/]")
         except ValueError as v: 
-            print(f"Invalid speed value: {v}. Please enter a number.")
+            console.print(f"[red]Invalid speed value: {v}. Please enter a number.[/]")
             self.txt_speed.set_val(str(self.playback_speed)) # Reset UI to last valid number
 
     def update_view(self):
