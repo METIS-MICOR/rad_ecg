@@ -109,11 +109,11 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
+        self.view_eda      :bool  = True
+        self.view_pig      :bool  = False
         self.view_models   :bool  = False
-        self.fs            :float = 1000.0   #Hz
-        self.windowsize    :int   = 12       #size of section window 
+        self.fs            :float = 1000    #Hz
+        self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -560,23 +560,24 @@ class PigRAD:
         sub_lad = ladwave[bpf.onset:bpf.dbp_id]
         sub_car_full = carwave[bpf.onset:bpf.dbp_id]
         
+        # Define a physiological epsilon (e.g., 0.5 mL/min) to prevent exploding denominators
+        eps = 0.5
+        
         if sub_lad.size > 0:
             bpf.lad_mean = np.mean(sub_lad).item()
             
-            # Flow Division Ratio (Carotid vs LAD)
-            if sub_car_full.size > 0 and bpf.lad_mean != 0:
-                bpf.flow_div = np.mean(sub_car_full).item() / bpf.lad_mean
-            
-            # Coronary Vascular Resistance
-            if getattr(bpf, 'true_MAP', None) and bpf.lad_mean != 0:
-                bpf.cvr = bpf.true_MAP / bpf.lad_mean
+            # Flow Division Ratio & CVR & PI (Require lad_mean to clear the epsilon threshold)
+            if abs(bpf.lad_mean) > eps:
+                if sub_car_full.size > 0:
+                    bpf.flow_div = np.mean(sub_car_full).item() / bpf.lad_mean
+                
+                if getattr(bpf, 'true_MAP', None):
+                    bpf.cvr = bpf.true_MAP / bpf.lad_mean
 
-            # Pulsatility Index
-            lad_max, lad_min = np.max(sub_lad).item(), np.min(sub_lad).item()
-            if bpf.lad_mean != 0:
+                lad_max, lad_min = np.max(sub_lad).item(), np.min(sub_lad).item()
                 bpf.lad_pi = (lad_max - lad_min) / bpf.lad_mean
 
-            # We need the dicrotic notch to split systole and diastole
+            # Diastolic Phase Metrics
             if getattr(bpf, 'notch', None):
                 notch_abs = bpf.sbp_id + bpf.notch_id
                 lad_systole = ladwave[bpf.onset:notch_abs]
@@ -587,20 +588,23 @@ class PigRAD:
                     bpf.lad_dia_pk = np.max(lad_diastole).item()
                     
                     # Diastolic/Systolic Ratio
-                    if bpf.lad_sys_pk != 0:
+                    if abs(bpf.lad_sys_pk) > eps:
                         bpf.lad_ds_rat = bpf.lad_dia_pk / bpf.lad_sys_pk
-                        
+                     
                     # Diastolic Volume (AUC)
                     bpf.lad_dia_auc = self._integrate(lad_diastole)
                     
                     # Diastolic Coronary Resistance
                     lad_dia_mean = np.mean(lad_diastole).item()
-                    if getattr(bpf, 'DBP', None) and lad_dia_mean != 0:
+                    if getattr(bpf, 'DBP', None) and abs(lad_dia_mean) > eps:
                         bpf.dcr = bpf.DBP / lad_dia_mean
 
-                    # Diastolic Acceleration Slope
+                    # Diastolic Acceleration Slope 
+                    # Enforce a minimum distance (e.g., 20ms) to prevent micro-run explosions
                     dia_pk_idx_rel = np.argmax(lad_diastole)
-                    if dia_pk_idx_rel > 0:
+                    min_run_samples = int(self.fs * 0.02)
+                    
+                    if dia_pk_idx_rel > min_run_samples:
                         dia_run = dia_pk_idx_rel / self.fs
                         bpf.lad_acc_sl = ((bpf.lad_dia_pk - lad_diastole[0]) / dia_run).item()
 
@@ -1760,7 +1764,7 @@ class EDA(object):
         self.drop_zeros(self.feature_names[5:])
         
         #Drop outliers (6 IQR range)
-        self.drop_outliers(self.feature_names[5:])
+        # self.drop_outliers(self.feature_names[5:])
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
@@ -2979,7 +2983,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3023,7 +3027,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3058,7 +3062,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -3089,7 +3093,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"mcc",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
