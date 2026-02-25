@@ -110,8 +110,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
-        self.view_models   :bool  = False
+        self.view_pig      :bool  = False
+        self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 8       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -1012,6 +1012,10 @@ class PigRAD:
             
             #reassign interest cols after transform
             ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            removecols = ["aix", "lad_mean", "cvr", "flow_div", "lad_pi", "var_mor", "var_cgau", "f0", "f1", "f2", "f3"]
+            for col in removecols:
+                if col in ofinterest:
+                    ofinterest.pop(ofinterest.index(col))
 
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
@@ -1221,14 +1225,14 @@ class SignalGUI:
             window_size (int): Number of samples to show in the view (e.g., 5000 = 5 seconds at 1kHz).
             pig_id (str): Pig ID for titles and file exports.
         """
-        # --- 1. Data Setup ---
+        # Data Setup 
         self.ss1 = ss1_data
         self.lad = lad_data
         self.beats = beats
         self.fs = sampling_rate
         self.pig_id = pig_id if pig_id else "Unknown_Subject"
 
-        # --- State Settings ---
+        # State Settings 
         self.window_size = window_size
         self.current_pos = 0                                       # Start index of the current view window
         self.step_size = int(self.fs * 1.0)                        # 1-second jump for Next/Prev buttons
@@ -1245,7 +1249,7 @@ class SignalGUI:
         self.spans = []
         self.scatters = []
         
-        # --- Figure Initialization ---
+        # Figure Initialization 
         self.fig = plt.figure(figsize=(16, 10))
         self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump) # Bind clicks on the nav bar
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)     # Bind keyboard shortcuts
@@ -1944,9 +1948,8 @@ class EDA(object):
         #Get rid of these cols for modeling. 
         else:
             for col in [
-                "psd0", "psd1", "psd2", 
-                "psd3", "aix", "lad_mean", "cvr", "flow_div", 
-                "lad_pi", "var_mor", "var_cgau", "f0", "f1", "f2", "f3", 
+                "psd0", "psd1", "psd2", "psd3", 
+
                 ]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
@@ -3158,7 +3161,7 @@ class ModelTraining(object):
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3202,7 +3205,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
@@ -3237,7 +3240,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -3268,7 +3271,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"f1_weighted",
+                "scoring_metric":"accuracy",
                 #link to params
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
