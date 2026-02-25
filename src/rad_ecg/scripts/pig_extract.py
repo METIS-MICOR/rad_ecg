@@ -327,7 +327,7 @@ class PigRAD:
         return true_onset_idx
 
     def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
-        """Extracts features for a single systolic cycle.
+        """Extracts features for a single beat.
 
         Args:
             id (int): _description_
@@ -1450,7 +1450,7 @@ class CoronaryPhaseViewer:
         text += "--- Hemodynamics ---\n"
         text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 1)}\n"
         text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 1)}\n"
-        text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n\n"
+        text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n"
         text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 1)}\n\n"
         text += "--- Coronary Flow ---\n"
         text += f"Mean LAD: {fmt(getattr(bpf, 'lad_mean', None), 2)}\n"
