@@ -1197,26 +1197,6 @@ class SignalDataLoader:
         return full_data
 
 #CLASS Advanced Viewer
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import matplotlib.animation as animation
-from matplotlib.widgets import Button, TextBox
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
-from scipy.signal import welch, find_peaks, convolve
-from scipy.fft import rfft, rfftfreq
-from scipy.stats import entropy, wasserstein_distance
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
-import matplotlib.animation as animation
-from matplotlib.widgets import Button, TextBox
-from matplotlib.patches import Patch
-from matplotlib.lines import Line2D
-from scipy.signal import welch
-from scipy.stats import entropy
-
 class SignalGUI:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
@@ -1248,7 +1228,7 @@ class SignalGUI:
         self.fs = sampling_rate
         self.pig_id = pig_id if pig_id else "Unknown_Subject"
 
-        # --- 2. State Settings ---
+        # --- State Settings ---
         self.window_size = window_size
         self.current_pos = 0                                       # Start index of the current view window
         self.step_size = int(self.fs * 1.0)                        # 1-second jump for Next/Prev buttons
@@ -1265,7 +1245,7 @@ class SignalGUI:
         self.spans = []
         self.scatters = []
         
-        # --- 3. Figure Initialization ---
+        # --- Figure Initialization ---
         self.fig = plt.figure(figsize=(16, 10))
         self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump) # Bind clicks on the nav bar
         self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)     # Bind keyboard shortcuts
@@ -1299,20 +1279,18 @@ class SignalGUI:
 
     def setup_controls(self):
         """Initializes GUI buttons and text boxes into their respective grid slots."""
+        #Buttons
         self.btn_play = Button(self.fig.add_subplot(self.gs_side[0]), 'Play / Pause')
         self.btn_prev = Button(self.fig.add_subplot(self.gs_side[1]), '< Prev (Left)')
         self.btn_next = Button(self.fig.add_subplot(self.gs_side[2]), 'Next > (Right)')
-        
         ax_speed = self.fig.add_subplot(self.gs_side[3])
         self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.playback_speed))
-        
         ax_window = self.fig.add_subplot(self.gs_side[4])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
-        
         self.btn_freq = Button(self.fig.add_subplot(self.gs_side[5]), 'Freq: OFF')
         self.btn_gif = Button(self.fig.add_subplot(self.gs_side[6]), 'Export GIF')
         
-        # The metrics text needs an empty axis to live in
+        # The metrics text needs an empty axis 
         self.ax_metrics = self.fig.add_subplot(self.gs_side[7])
         self.ax_metrics.axis('off')
         self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
@@ -1405,7 +1383,7 @@ class SignalGUI:
         self.center_text = self.ax_ss1.text(0, 1.05, "Center Beat", transform=trans, ha='center', va='center', color='darkorange', fontweight='bold', fontsize=9, bbox=dict(facecolor='white', edgecolor='none', alpha=0.8), clip_on=False)
         self.center_text.set_visible(False)
 
-        # --- Configure LAD Plot (Time Domain) ---
+        # Configure LAD Plot (Time Domain)
         self.line_lad, = self.ax_lad.plot([], [], color='crimson', lw=1.5, label="LAD Flow")
         self.ax_lad.axhline(0, color='gray', linestyle='--', alpha=0.5) 
         self.ax_lad.set_ylabel("Flow (mL/min)")
@@ -1418,7 +1396,7 @@ class SignalGUI:
         ]
         self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
-        # --- Configure Navigator Bar ---
+        # Configure Navigator Bar 
         self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
         ds = max(1, len(self.ss1) // 5000) # Heavy downsampling so the nav bar renders instantly
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
@@ -1443,13 +1421,13 @@ class SignalGUI:
         ss1_view = self.ss1[s:e]
         lad_view = self.lad[s:e]
 
-        # 1. Clean up old transient artist elements (prevents major memory leaks during playback)
+        # Clean up old transient artist elements (prevents major memory leaks during playback)
         for span in self.spans: span.remove()
         for scat in self.scatters: scat.remove()
         self.spans.clear()
         self.scatters.clear()
         
-        # 2. Continuous Background SQI Calculation
+        # Continuous Background SQI Calculation
         # This calculates the Power Ratio & Entropy for the *visible window* on every frame
         f_sqi = {"power_ratio": None, "entropy": None}
         if len(ss1_view) > 0:
@@ -1466,7 +1444,7 @@ class SignalGUI:
                 psd_norm = psd_sqi / total_pwr
                 f_sqi["entropy"] = entropy(psd_norm) / np.log(len(psd_norm))
 
-        # 3. Update Time Domain Line Traces
+        # Update Time Domain Line Traces
         self.line_ss1.set_data(x_data, ss1_view)
         self.line_lad.set_data(x_data, lad_view)
 
@@ -1477,7 +1455,7 @@ class SignalGUI:
             self._apply_scale(self.ax_ss1, ss1_view)
             self._apply_scale(self.ax_lad, lad_view)
 
-        # 4. Draw Beat Indicators and Calculate Centered Phase 
+        # Draw Beat Indicators and Calculate Centered Phase 
         center_beat = None
         center_idx = s + (self.window_size // 2)
 
@@ -1535,7 +1513,7 @@ class SignalGUI:
             self.center_mark_horiz.set_visible(False)
             self.center_text.set_visible(False)
 
-        # 5. Side-By-Side Frequency Traces (If Toggled)
+        # Side-By-Side Frequency Traces (If Toggled)
         if self.freq_mode == 1 and len(ss1_view) > 100:
             self.ax_ss1_freq.cla()
             self.ax_lad_freq.cla()
@@ -1561,7 +1539,7 @@ class SignalGUI:
             self.ax_ss1_freq.set_title("SS1 Spectral Analysis", fontsize=10)
             self.ax_lad_freq.set_title("LAD Spectral Analysis", fontsize=10)
 
-        # 6. Final UI Updates
+        # Final UI Updates
         # Move navigator dot
         self.nav_cursor.set_xdata([s + (self.window_size//2)])
 
@@ -1631,9 +1609,9 @@ class SignalGUI:
         try: 
             self.playback_speed = float(text)
             self.anim_step = max(1, int(self.fs * 0.05 * self.playback_speed))
-            print(f"Playback speed set to {self.playback_speed}x")
+            console.print(f"Playback speed set to {self.playback_speed}x")
         except ValueError as v: 
-            print(f"Invalid speed value: {v}. Please enter a number.")
+            console.print(f"Invalid speed value: {v}. Please enter a number.")
             self.txt_speed.set_val(str(self.playback_speed))
 
     def update_window_size(self, text):
@@ -1653,7 +1631,7 @@ class SignalGUI:
         elif event.key == ' ':
             self.toggle_play()
 
-    # --- Animation & Export ---
+    # Animation & Export 
     def toggle_play(self, event=None):
         """Starts or pauses the live timeline playback."""
         if self.is_playing:
@@ -1677,7 +1655,7 @@ class SignalGUI:
 
     def export_gif(self, event=None):
         """Exports the next 5 seconds of the timeline to a GIF file using Pillow."""
-        print("Preparing GIF export... Please wait.")
+        console.print("Preparing GIF export... Please wait.")
         was_playing = self.is_playing
         if was_playing: self.toggle_play()
 
@@ -1694,9 +1672,9 @@ class SignalGUI:
         
         try:
             export_anim.save(filename, writer=animation.PillowWriter(fps=10))
-            print(f"Export complete! Saved as {filename}")
+            console.print(f"Export complete! Saved as {filename}")
         except Exception as e:
-            print(f"Failed to save GIF. Ensure Pillow is installed. Error: {e}")
+            console.print(f"Failed to save GIF. Ensure Pillow is installed. Error: {e}")
 
         # Return UI to original state after export
         self.current_pos = original_pos
