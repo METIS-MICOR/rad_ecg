@@ -110,8 +110,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
-        self.view_models   :bool  = False
+        self.view_pig      :bool  = False
+        self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -1766,8 +1766,8 @@ class EDA(object):
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
         
-        #Drop outliers (6 IQR range)
-        # self.drop_outliers(self.feature_names[5:])
+        #Drop outliers (features, IQR range)
+        self.drop_outliers(self.feature_names[5:], 10)
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
@@ -1854,14 +1854,15 @@ class EDA(object):
         logger.info(f'Shape after drop {self.data.shape}')
 
     #FUNCTION drop_outliers
-    def drop_outliers(self, col: str | list = None):
+    def drop_outliers(self, col: str | list = None, degree: int = 6):
         """
         Outlier Dropping routine based on 6x IQR.
         Identifies the Interquartile Range (IQR) and removes rows where values 
-        fall outside of (Q1 - 8*IQR) or (Q3 + 8*IQR).
+        fall outside of (Q1 - 6*IQR) or (Q3 + 6*IQR).
         
         Args:
             col (str | list, optional): Column or list of columns to check for outliers.
+            degree (int, optional): Degree of IQR you want if not 6 IQR
         """
         if col is None:
             return
@@ -1879,8 +1880,8 @@ class EDA(object):
                 
                 # Calculate IQR and bounds
                 IQR = Q3 - Q1
-                lower_bound = Q1 - (8 * IQR)
-                upper_bound = Q3 + (8 * IQR)
+                lower_bound = Q1 - (degree * IQR)
+                upper_bound = Q3 + (degree * IQR)
                 
                 # Create a mask for rows to keep: within bounds OR missing (NaN)
                 # We keep NaNs here so they don't accidentally get dropped 
