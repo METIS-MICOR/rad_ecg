@@ -110,10 +110,10 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = True
+        self.view_pig      :bool  = True
+        self.view_models   :bool  = False
         self.fs            :float = 1000    #Hz
-        self.windowsize    :int   = 10      #size of section window 
+        self.windowsize    :int   = 8       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -173,6 +173,17 @@ class PigRAD:
             ('p1_p2'      , 'f4'),  #Ratio of P1 to P2
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
+            # ####### LAD Flow Features ######################
+            ('lad_mean'   , 'f4'),  # Mean LAD Flow
+            ('lad_dia_pk' , 'f4'),  # Diastolic Peak Flow
+            ('lad_sys_pk' , 'f4'),  # Systolic Peak Flow
+            ('lad_ds_rat' , 'f4'),  # Diastolic to Systolic Peak Ratio
+            ('lad_dia_auc', 'f4'),  # Diastolic Flow Volume (AUC)
+            ('cvr'        , 'f4'),  # Coronary Vascular Resistance (MAP / LAD_mean)
+            ('dcr'        , 'f4'),  # Diastolic Coronary Resistance (DBP / LAD_dia_mean)
+            ('lad_pi'     , 'f4'),  # LAD Pulsatility Index
+            ('lad_acc_sl' , 'f4'),  # Diastolic Acceleration Slope
+            ('flow_div'   , 'f4'),  # Carotid to LAD Flow Ratio            
             ######### Frequency componenets ##################
             ('f0'         , 'f4'),  #Top Frequency (Fundamental)
             ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
@@ -184,17 +195,10 @@ class PigRAD:
             ('psd3'       , 'f4'),  #Amplitude of Harmonic 3
             ('var_mor'    , 'f4'),  #Phase Variance (Morlet)
             ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1)
-            # ####### LAD Flow Features ######################
-            ('lad_mean'   , 'f4'),  # Mean LAD Flow
-            ('lad_dia_pk' , 'f4'),  # Diastolic Peak Flow
-            ('lad_sys_pk' , 'f4'),  # Systolic Peak Flow
-            ('lad_ds_rat' , 'f4'),  # Diastolic to Systolic Peak Ratio
-            ('lad_dia_auc', 'f4'),  # Diastolic Flow Volume (AUC)
-            ('cvr'        , 'f4'),  # Coronary Vascular Resistance (MAP / LAD_mean)
-            ('dcr'        , 'f4'),  # Diastolic Coronary Resistance (DBP / LAD_dia_mean)
-            ('lad_pi'     , 'f4'),  # LAD Pulsatility Index
-            ('lad_acc_sl' , 'f4'),  # Diastolic Acceleration Slope
-            ('flow_div'   , 'f4'),  # Carotid to LAD Flow Ratio 
+            # ####### Signal Quality & Shift #################
+            ('sqi_power'  , 'f4'),  # Spectral Purity (In-Band Power Ratio)
+            ('sqi_entropy', 'f4'),  # Spectral Entropy
+            # ('w_dist'     , 'f4'),  # Wasserstein Distance from Baseline
         ]
         #IDEA - feature - Pulse transit time?  
 
@@ -305,8 +309,9 @@ class PigRAD:
         segment = ss1wave[start_idx:sys_peak_idx]
         
         # Calculate the first derivative (dp/dt) of this segment
-        if segment.size > 30:
+        if segment.size > 30: #was 2 for gradient
             # dpdt = np.gradient(segment)
+            #update to smooth the signal
             dpdt = self._derivative(segment, 1)
 
         else:
@@ -710,6 +715,7 @@ class PigRAD:
 
                 jobtask_proc = progress.add_task(f"{next(menwithouthats)}", total=pig_avg_data.shape[0])
                 tot_beats:list[BP_Feat] = []
+                
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
                     end = section["end"].item()
@@ -736,14 +742,33 @@ class PigRAD:
                     #TODO - Develop a feature routine that can evaluate if we have a biological signal. 
                         #IDEA - Welch's STFT for signal majority in the 0.5Hz to 15Hz band
                         #IDEA - Shannon Entropy
-                        #IDEA - Wasserstein Distribution shift
-
+                        #IDEA - Wasserstein Distribution shift. 
+                            #Not sure this will work. 
+                    
+                    # ---Signal Quality & Baseline Check ---
                     power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(ss1wave)
+                    # power_ratio, spec_entropy, w_dist, current_psd_norm = freq_tool.evaluate_signal(
+                    #     ss1wave, baseline_psd_norm=baseline_psd_norm
+                    # )
+                    # Log the metrics to the dataset
+                    # pig_avg_data["sqi_power"][idx] = power_ratio
+                    # pig_avg_data["sqi_entropy"][idx] = spec_entropy
+                    # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
+
                     # Threshold the signal to a particular power range and or spectral entropy
                     if power_ratio < 0.95 or spec_entropy > 0.45:
                         logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
                         continue 
+                    else:
+                        pig_avg_data["sqi_power"][idx] = power_ratio
+                        pig_avg_data["sqi_entropy"][idx] = spec_entropy
+
+                    # If this is our first valid physiological section, lock it in as the baseline
+                    # if baseline_psd_norm is None:
+                    #     baseline_psd_norm = current_psd_norm
+                    #     pig_avg_data["w_dist"][idx] = 0.0 # Distance to itself is zero
+                    #     logger.info(f"Baseline PSD locked at section {idx}")
 
                     prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
                     # logger.debug(f"prom: {prom_night*30:.2f}")
@@ -804,6 +829,10 @@ class PigRAD:
                             logger.warning(f"Empty slice encountered in sect {idx}")
                     
                     ind_beats:list[BP_Feat] = []
+
+                    #Initialize the baseline PSD for each pig
+                    # baseline_psd_norm = None
+
                     for id, (peak, ph_m, ph_c) in enumerate(zip(s_peaks[:-1], beat_phases_mor, beat_phases_cgau)):
                         beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, ladwave, s_heights, s_peaks)
                         if beat_feat is not None:
@@ -1168,11 +1197,31 @@ class SignalDataLoader:
         return full_data
 
 #CLASS Advanced Viewer
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.animation as animation
+from matplotlib.widgets import Button, TextBox
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+from scipy.signal import welch, find_peaks, convolve
+from scipy.fft import rfft, rfftfreq
+from scipy.stats import entropy, wasserstein_distance
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.animation as animation
+from matplotlib.widgets import Button, TextBox
+from matplotlib.patches import Patch
+from matplotlib.lines import Line2D
+from scipy.signal import welch
+from scipy.stats import entropy
+
 class SignalGUI:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
-    Visualizes SS1 Pressure, LAD Flow, and computed hemodynamic features.
-    Now includes playback animation and GIF export capabilities.
+    Includes time-domain tracing, side-by-side Welch PSD frequency analysis, 
+    live SQI metric tracking, and GIF export capabilities.
     """
     def __init__(
         self, 
@@ -1187,325 +1236,408 @@ class SignalGUI:
         Args:
             ss1_data (np.array): SS1 pressure signal.
             lad_data (np.array): LAD flow signal.
-            beats (list[BP_Feat]): List of extracted BP_Feat's
-            sampling_rate (float): fs in Hz.
-            window_size (int): Number of samples to show in the view.
-            pig_id (str): Pig ID
+            beats (list[BP_Feat]): List of extracted BP_Feat dataclasses.
+            sampling_rate (float): Sampling frequency (fs) in Hz.
+            window_size (int): Number of samples to show in the view (e.g., 5000 = 5 seconds at 1kHz).
+            pig_id (str): Pig ID for titles and file exports.
         """
-        # Data Setup
+        # --- 1. Data Setup ---
         self.ss1 = ss1_data
         self.lad = lad_data
         self.beats = beats
         self.fs = sampling_rate
         self.pig_id = pig_id if pig_id else "Unknown_Subject"
 
-        # State Settings
+        # --- 2. State Settings ---
         self.window_size = window_size
-        self.current_pos = 0
-        self.step_size = int(self.fs * 1.0) # Jump 1 second at a time with buttons
-        self.playback_speed = 1.0           # Base speed multiplier
-        self.anim_step = int(self.fs * 0.05 * self.playback_speed) # Smaller jump for smooth animation
-        self.is_playing = False
-        self.anim = None
+        self.current_pos = 0                                       # Start index of the current view window
+        self.step_size = int(self.fs * 1.0)                        # 1-second jump for Next/Prev buttons
+        self.playback_speed = 1.0                                  # Multiplier for live playback
+        self.anim_step = int(self.fs * 0.05 * self.playback_speed) # Samples to advance per animation frame
+        self.is_playing = False                                    # Toggle for live playback
+        self.anim = None                                           # Holder for the FuncAnimation object
         
-        # Tracking dynamic plot elements for clean removal
+        # Frequency State Tracker: 0 = Off, 1 = Welch PSD
+        self.freq_mode = 0 
+        
+        # Track transient Matplotlib elements (shading spans and scatter points) 
+        # so they can be securely wiped and redrawn on every frame without memory leaks.
         self.spans = []
         self.scatters = []
         
-        # Setup Figure
+        # --- 3. Figure Initialization ---
         self.fig = plt.figure(figsize=(16, 10))
-        self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump)
-        self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)
+        self.fig.canvas.mpl_connect('button_press_event', self.on_click_jump) # Bind clicks on the nav bar
+        self.fig.canvas.mpl_connect('key_press_event', self.on_key_press)     # Bind keyboard shortcuts
         
+        # Build the scaffolding and trigger the first draw
         self.setup_layout()
         self._init_axes_pool()
-        
-        # 4. Initial Draw
         self.update_view()
         plt.show()
 
     def setup_layout(self):
-        """Define GridSpec layout."""
+        """Defines the overarching GridSpec layout for the main plots vs the side control panel."""
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
         self.gs_main.figure.suptitle(f"{self.pig_id}")
         
-        # Main plot area: SS1, LAD, navbar
+        # Left Panel: Main Plot Area (SS1, LAD, Navigator)
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
             3, 1, 
             subplot_spec=self.gs_main[0], 
             height_ratios=[2, 2, 0.5],
-            hspace=0.1
+            hspace=0.35 
         )
         
-        # Side controls & Metric Readout 
+        # Right Panel: Side Controls & Live Metrics Readout
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            7, 1, subplot_spec=self.gs_main[1], 
-            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
+            8, 1, subplot_spec=self.gs_main[1], 
+            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
             hspace=0.4
         )
         self.setup_controls()
 
     def setup_controls(self):
-        """Initialize GUI buttons and text boxes in the new requested order."""
-        # Play / Pause
+        """Initializes GUI buttons and text boxes into their respective grid slots."""
         self.btn_play = Button(self.fig.add_subplot(self.gs_side[0]), 'Play / Pause')
-        
-        # Prev (Left)
         self.btn_prev = Button(self.fig.add_subplot(self.gs_side[1]), '< Prev (Left)')
-        
-        # Next (Right)
         self.btn_next = Button(self.fig.add_subplot(self.gs_side[2]), 'Next > (Right)')
         
-        # Speed
         ax_speed = self.fig.add_subplot(self.gs_side[3])
-        self.txt_speed = TextBox(ax_speed, 'Speed (x): ', initial=str(self.playback_speed))
+        self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.playback_speed))
         
-        # Window
         ax_window = self.fig.add_subplot(self.gs_side[4])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
         
-        # Export GIF
-        self.btn_gif = Button(self.fig.add_subplot(self.gs_side[5]), 'Export GIF')
+        self.btn_freq = Button(self.fig.add_subplot(self.gs_side[5]), 'Freq: OFF')
+        self.btn_gif = Button(self.fig.add_subplot(self.gs_side[6]), 'Export GIF')
         
-        # Metrics Text
-        self.ax_metrics = self.fig.add_subplot(self.gs_side[6])
+        # The metrics text needs an empty axis to live in
+        self.ax_metrics = self.fig.add_subplot(self.gs_side[7])
         self.ax_metrics.axis('off')
         self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
 
-        # Event connections
+        # Bind UI elements to their respective event functions
         self.btn_play.on_clicked(self.toggle_play)
         self.btn_prev.on_clicked(self.step_prev)
         self.btn_next.on_clicked(self.step_next)
         self.txt_speed.on_submit(self.update_speed)
         self.txt_window.on_submit(self.update_window_size)
+        self.btn_freq.on_clicked(self.toggle_frequency)
         self.btn_gif.on_clicked(self.export_gif)
 
+    def rebuild_layout(self):
+        """
+        Safely destroys and rebuilds the plotting axes when toggling View Modes.
+        This prevents Matplotlib from stacking ghost axes on top of each other.
+        """
+        was_playing = self.is_playing
+        if was_playing:
+            self.toggle_play()
+            
+        # Remove existing axes securely from the figure
+        for ax_name in ['ax_ss1', 'ax_ss1_freq', 'ax_lad', 'ax_lad_freq', 'ax_nav']:
+            if hasattr(self, ax_name) and getattr(self, ax_name) is not None:
+                getattr(self, ax_name).remove()
+                setattr(self, ax_name, None)
+
+        # Re-initialize the layout based on the new freq_mode state
+        self._init_axes_pool()
+        self.fig.canvas.draw_idle()
+        self.update_view()
+        
+        # Resume animation if it was running before the layout change
+        if was_playing:
+            self.toggle_play()
+
+    def toggle_frequency(self, event=None):
+        """Cycles Frequency mode (Off -> PSD) and updates the UI button."""
+        self.freq_mode = (self.freq_mode + 1) % 2
+        labels = {0: "Freq: OFF", 1: "Freq: PSD"}
+        self.btn_freq.label.set_text(labels[self.freq_mode])
+        self.rebuild_layout()
+
     def _init_axes_pool(self):
-        """Initialize empty axes, lines, and custom legends."""
-        # --- Row 1: SS1 Pressure ---
-        self.ax_ss1 = self.fig.add_subplot(self.gs_plots[0])
+        """
+        Initializes axes dynamically based on the current frequency mode.
+        If freq_mode == 1, it splits the main plot rows lengthwise to show Time and PSD side-by-side.
+        """
+        self.spans = []
+        self.scatters = []
+
+        # --- Base Axis Construction ---
+        if self.freq_mode == 0:
+            # Standard full-width time domain view
+            self.ax_ss1 = self.fig.add_subplot(self.gs_plots[0])
+            self.ax_lad = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ss1)
+            self.ax_ss1_freq, self.ax_lad_freq = None, None
+        else:
+            # Split rows lengthwise (1x2 grids) for side-by-side Time/PSD view
+            gs_row1 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[0], wspace=0.15)
+            self.ax_ss1 = self.fig.add_subplot(gs_row1[0])
+            self.ax_ss1_freq = self.fig.add_subplot(gs_row1[1])
+            
+            gs_row2 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[1], wspace=0.15)
+            self.ax_lad = self.fig.add_subplot(gs_row2[0], sharex=self.ax_ss1)
+            self.ax_lad_freq = self.fig.add_subplot(gs_row2[1])
+
+        # --- Configure SS1 Plot (Time Domain) ---
         self.line_ss1, = self.ax_ss1.plot([], [], color='black', lw=1.5, label="SS1 Pressure")
-        self.ax_ss1.set_ylabel("Pressure (mmHg)/min")
+        self.ax_ss1.set_ylabel("Pressure (mmHg)")
         
         # Build Custom Legend for SS1
         ss1_legend_handles = [
             self.line_ss1,
-            Patch(facecolor='lightcoral', alpha=0.3, label='Systole (Onset to Notch)'),
-            Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole (Notch to End)'),
-            Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='SS1 Systolic Onset'),
-            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='SS1 Systolic Peak'),
-            Line2D([0], [0], color='purple', marker='v', linestyle='None', markersize=8, label='SS1 Diastolic Peak'),
-            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Dicrotic Notch'),
+            Patch(facecolor='lightcoral', alpha=0.3, label='Systole'),
+            Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole'),
+            Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='Onset'),
+            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='Sys Peak'),
+            Line2D([0], [0], color='purple', marker='v', linestyle='None', markersize=8, label='Dia Peak'),
+            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Notch'),
         ]
         self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
-        # Center Beat Territory Indicator
-        # X is data coordinates, Y is axes fraction (0 to 1). Draw slightly above 1.
+        # Center Beat Indicators (Floats just above the Y-axis using axes fraction transforms)
         trans = self.ax_ss1.get_xaxis_transform()
-        
-        # Vertical marker lines and a connecting dashed line
         self.center_mark_start, = self.ax_ss1.plot([], [], color='darkorange', lw=2, clip_on=False, transform=trans)
         self.center_mark_end, = self.ax_ss1.plot([], [], color='darkorange', lw=2, clip_on=False, transform=trans)
         self.center_mark_horiz, = self.ax_ss1.plot([], [], color='darkorange', lw=1, linestyle='--', clip_on=False, transform=trans)
-        
-        # Text box in the middle
-        self.center_text = self.ax_ss1.text(
-            0, 1.05, "Center Beat", 
-            transform=trans, 
-            ha='center', va='center', 
-            color='darkorange', fontweight='bold', fontsize=9,
-            bbox=dict(facecolor='white', edgecolor='none', alpha=0.8), # White background to pop over lines
-            clip_on=False
-        )
+        self.center_text = self.ax_ss1.text(0, 1.05, "Center Beat", transform=trans, ha='center', va='center', color='darkorange', fontweight='bold', fontsize=9, bbox=dict(facecolor='white', edgecolor='none', alpha=0.8), clip_on=False)
         self.center_text.set_visible(False)
 
-        # --- Row 2: LAD Flow ---
-        self.ax_lad = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ss1)
+        # --- Configure LAD Plot (Time Domain) ---
         self.line_lad, = self.ax_lad.plot([], [], color='crimson', lw=1.5, label="LAD Flow")
-        self.ax_lad.axhline(0, color='gray', linestyle='--', alpha=0.5) # Zero flow line
+        self.ax_lad.axhline(0, color='gray', linestyle='--', alpha=0.5) 
         self.ax_lad.set_ylabel("Flow (mL/min)")
         
         # Build Custom Legend for LAD
         lad_legend_handles = [
             self.line_lad,
-            Patch(facecolor='lightcoral', alpha=0.3, label='Systole Phase'),
-            Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole Phase'),
-            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='LAD Systolic Peak'),
-            Line2D([0], [0], color='blue', marker='^', linestyle='None', markersize=8, label='LAD Diastolic Peak')
+            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='LAD Sys Peak'),
+            Line2D([0], [0], color='blue', marker='^', linestyle='None', markersize=8, label='LAD Dia Peak')
         ]
         self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
-        # --- Row 3: Navbar ---
+        # --- Configure Navigator Bar ---
         self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
-        ds = max(1, len(self.ss1) // 5000) # Downsample for performance
+        ds = max(1, len(self.ss1) // 5000) # Heavy downsampling so the nav bar renders instantly
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
         self.nav_cursor = self.ax_nav.axvline(self.current_pos, color='red', lw=2)
         self.ax_nav.set_yticks([])
-        self.ax_nav.set_xlabel("Timeline (Click to Jump) | Use Left/Right Arrows to step")
+        self.ax_nav.set_xlabel("Timeline (Click to Jump) | Spacebar to Pause")
         
-        # Hide x labels for shared axes
-        plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
-
-    def update_speed(self, text):
-        """Adjusts the animation playback speed multiplier."""
-        try: 
-            self.playback_speed = float(text)
-            # Ensure it doesn't drop below 1 sample per frame
-            self.anim_step = max(1, int(self.fs * 0.05 * self.playback_speed))
-            console.print(f"[green]Playback speed set to {self.playback_speed}x[/]")
-        except ValueError as v: 
-            console.print(f"[red]Invalid speed value: {v}. Please enter a number.[/]")
-            self.txt_speed.set_val(str(self.playback_speed)) # Reset UI to last valid number
+        # Hide x labels for shared axes if we aren't in freq mode (where space is tight)
+        if self.freq_mode == 0:
+            plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
 
     def update_view(self):
-        """Main update routine. Slices data, redraws lines, and calculates phase shadings."""
+        """
+        Main execution loop. Called on every frame/click. 
+        Slices data, draws time traces, runs continuous SQI, and plots Welch PSD side-panels.
+        """
+        # Define window bounds
         s = self.current_pos
         e = min(s + self.window_size, len(self.ss1))
         x_data = np.arange(s, e)
+        
+        ss1_view = self.ss1[s:e]
+        lad_view = self.lad[s:e]
 
-        # Update Lines
-        self.line_ss1.set_data(x_data, self.ss1[s:e])
-        self.line_lad.set_data(x_data, self.lad[s:e])
-
-        # Rescale axes
-        if e > s:
-            self.ax_ss1.set_xlim(s, e)
-            self._apply_scale(self.ax_ss1, self.ss1[s:e])
-            self._apply_scale(self.ax_lad, self.lad[s:e])
-
-        # Clean up old phase spans and scatter points
-        for span in self.spans:
-            span.remove()
-        for scat in self.scatters:
-            scat.remove()
+        # 1. Clean up old transient artist elements (prevents major memory leaks during playback)
+        for span in self.spans: span.remove()
+        for scat in self.scatters: scat.remove()
         self.spans.clear()
         self.scatters.clear()
+        
+        # 2. Continuous Background SQI Calculation
+        # This calculates the Power Ratio & Entropy for the *visible window* on every frame
+        f_sqi = {"power_ratio": None, "entropy": None}
+        if len(ss1_view) > 0:
+            # Calculate Welch PSD (Caps segment length to max 2 seconds for resolution)
+            nperseg_sqi = min(len(ss1_view), int(self.fs * 2))
+            f_sqi_freq, psd_sqi = welch(ss1_view, fs=self.fs, nperseg=nperseg_sqi)
+            total_pwr = np.sum(psd_sqi)
+            
+            if total_pwr > 0:
+                sqi_band = (f_sqi_freq >= 0.5) & (f_sqi_freq <= 15.0)
+                f_sqi["power_ratio"] = np.sum(psd_sqi[sqi_band]) / total_pwr
+                
+                # Normalize PSD to a probability distribution to calculate Shannon entropy
+                psd_norm = psd_sqi / total_pwr
+                f_sqi["entropy"] = entropy(psd_norm) / np.log(len(psd_norm))
 
-        # Draw Phases and Peaks for beats in the current window
+        # 3. Update Time Domain Line Traces
+        self.line_ss1.set_data(x_data, ss1_view)
+        self.line_lad.set_data(x_data, lad_view)
+
+        # Rescale the Y-axis dynamically based on the current visible data limits
+        if e > s:
+            self.ax_ss1.set_xlim(s, e)
+            self.ax_lad.set_xlim(s, e)
+            self._apply_scale(self.ax_ss1, ss1_view)
+            self._apply_scale(self.ax_lad, lad_view)
+
+        # 4. Draw Beat Indicators and Calculate Centered Phase 
         center_beat = None
         center_idx = s + (self.window_size // 2)
 
         for bpf in self.beats:
-            # Check if beat overlaps with current view
+            # Verify the beat has the required anchors
             if getattr(bpf, 'onset', None) and getattr(bpf, 'dbp_id', None) and getattr(bpf, 'sbp_id', None):
+                # Check if beat overlaps with current view
                 if bpf.dbp_id > s and bpf.onset < e:
                     
                     # Capture the beat closest to the center for the metrics readout
                     if bpf.onset <= center_idx <= bpf.dbp_id:
                         center_beat = bpf
                     
-                    if getattr(bpf, 'notch_id', None):
-                        notch_abs = bpf.sbp_id + bpf.notch_id  
-                    else:
-                        notch_abs = None
-                    
+                    # Calculate absolute index for the dicrotic notch
+                    notch_abs = bpf.sbp_id + getattr(bpf, 'notch_id', 0) if getattr(bpf, 'notch_id', None) else None
                     if notch_abs:
                         # --- Shade Systole (Onset to Notch) ---
                         s_span_1 = self.ax_ss1.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
                         s_span_2 = self.ax_lad.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
-                        self.spans.extend([s_span_1, s_span_2])
-                        
                         # --- Shade Diastole (Notch to End/DBP) ---
                         d_span_1 = self.ax_ss1.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
                         d_span_2 = self.ax_lad.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
-                        self.spans.extend([d_span_1, d_span_2])
+                        self.spans.extend([s_span_1, s_span_2, d_span_1, d_span_2])
 
-                        # --- Plot Scatter Points ---
-                        # SS1 Peaks
+                        # --- Plot Scatter Points for SS1 ---
                         sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
                         sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
                         sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
                         sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='v')
+                        self.scatters.extend([sc1, sc2, sc3, sc4])
 
-                        # LAD Peaks
+                        # --- Plot Scatter Points for LAD ---
                         lad_systole = self.lad[bpf.onset:notch_abs]
                         lad_diastole = self.lad[notch_abs:bpf.dbp_id]
-                        
                         sys_idx_abs = bpf.onset + np.argmax(lad_systole) if lad_systole.size > 0 else bpf.onset
                         dia_idx_abs = notch_abs + np.argmax(lad_diastole) if lad_diastole.size > 0 else notch_abs
+                        
                         sc5 = self.ax_lad.scatter(sys_idx_abs, self.lad[sys_idx_abs], color='red', zorder=5, marker='^')
                         sc6 = self.ax_lad.scatter(dia_idx_abs, self.lad[dia_idx_abs], color='blue', zorder=5, marker='^')
-                        self.scatters.extend([sc1, sc2, sc3, sc4, sc5, sc6])
+                        self.scatters.extend([sc5, sc6])
 
-        #update navbar cursor
-        self.nav_cursor.set_xdata([s + (self.window_size//2)])
-
-        #update center beat viz indicator
+        # Toggle Center Beat Visual Indicators (The orange bracket floating over the plot)
         if center_beat:
-            # Set X to onset/dbp, Y to float between 1.02 and 1.08 of the axes height
             self.center_mark_start.set_data([center_beat.onset, center_beat.onset], [1.02, 1.08])
             self.center_mark_end.set_data([center_beat.dbp_id, center_beat.dbp_id], [1.02, 1.08])
             self.center_mark_horiz.set_data([center_beat.onset, center_beat.dbp_id], [1.05, 1.05])
-            
-            # Center the text
-            mid_pt = (center_beat.onset + center_beat.dbp_id) / 2
-            self.center_text.set_position((mid_pt, 1.05))
-            
-            # Make visible
+            self.center_text.set_position(((center_beat.onset + center_beat.dbp_id) / 2, 1.05))
             self.center_mark_start.set_visible(True)
             self.center_mark_end.set_visible(True)
             self.center_mark_horiz.set_visible(True)
             self.center_text.set_visible(True)
         else:
-            # Hide if no complete beat is in the center
             self.center_mark_start.set_visible(False)
             self.center_mark_end.set_visible(False)
             self.center_mark_horiz.set_visible(False)
             self.center_text.set_visible(False)
-        
-        #update metric readout
-        self.update_metrics_text(center_beat)
+
+        # 5. Side-By-Side Frequency Traces (If Toggled)
+        if self.freq_mode == 1 and len(ss1_view) > 100:
+            self.ax_ss1_freq.cla()
+            self.ax_lad_freq.cla()
+            
+            # --- PSD (Welch) Mode ---
+            f_s, p_s = welch(ss1_view, fs=self.fs, nperseg=nperseg_sqi)
+            f_l, p_l = welch(lad_view, fs=self.fs, nperseg=nperseg_sqi)
+            
+            self.ax_ss1_freq.plot(f_s, p_s, color='darkviolet', lw=1.5)
+            self.ax_lad_freq.plot(f_l, p_l, color='darkviolet', lw=1.5)
+            self.ax_ss1_freq.fill_between(f_s, p_s, color='darkviolet', alpha=0.3)
+            self.ax_lad_freq.fill_between(f_l, p_l, color='darkviolet', alpha=0.3)
+            
+            self.ax_ss1_freq.set_ylabel("Power / Hz")
+            self.ax_lad_freq.set_ylabel("Power / Hz")
+            
+            # Crop X-axis to physiological frequency range (0 to 30 Hz)
+            self.ax_ss1_freq.set_xlim(0, 30) 
+            self.ax_lad_freq.set_xlim(0, 30)
+            self.ax_ss1_freq.set_xlabel("Frequency (Hz)")
+            self.ax_lad_freq.set_xlabel("Frequency (Hz)")
+
+            self.ax_ss1_freq.set_title("SS1 Spectral Analysis", fontsize=10)
+            self.ax_lad_freq.set_title("LAD Spectral Analysis", fontsize=10)
+
+        # 6. Final UI Updates
+        # Move navigator dot
+        self.nav_cursor.set_xdata([s + (self.window_size//2)])
+
+        # Push metrics to side panel
+        self.update_metrics_text(center_beat, f_sqi)
         self.fig.canvas.draw_idle()
 
-    def update_metrics_text(self, bpf):
-        """Updates the side panel with features from the centered beat."""
-        if bpf is None:
-            self.metric_text.set_text("No complete beat\nin center view.")
-            return
+    def update_metrics_text(self, bpf, f_sqi):
+        """Updates the side panel with features from the centered beat and live SQI."""
         def fmt(val, prec=2):
+            """Helper to safely format floats or return N/A if missing."""
             return f"{val:.{prec}f}" if val is not None else "N/A"
+            
+        text = f"--- Live Signal Quality ---\n"
+        text += f"In-Band Pwr:  {fmt(f_sqi['power_ratio'], 2)}\n"
+        text += f"Spec Entropy: {fmt(f_sqi['entropy'], 2)}\n\n"
         
-        text = "[CENTER BEAT]\n\n"
-        text += "--- Hemodynamics ---\n"
-        text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 1)}\n"
-        text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 1)}\n"
-        text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n"
-        text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 1)}\n\n"
-        text += "--- Coronary Flow ---\n"
-        text += f"Mean LAD: {fmt(getattr(bpf, 'lad_mean', None), 2)}\n"
-        text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
-        text += f"Dia Peak: {fmt(getattr(bpf, 'lad_dia_pk', None), 2)}\n"
-        text += f"DS Ratio: {fmt(getattr(bpf, 'lad_ds_rat', None), 2)}\n"
-        text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n\n"
-        
-        text += "--- Resistance ---\n"
-        text += f"CVR:      {fmt(getattr(bpf, 'cvr', None), 2)}\n"
-        text += f"DCR:      {fmt(getattr(bpf, 'dcr', None), 2)}\n"
-        text += f"Flow Div: {fmt(getattr(bpf, 'flow_div', None), 2)}\n"
+        if bpf is None:
+            text += "No complete beat\nin center view."
+        else:
+            text += "[CENTER BEAT]\n"
+            text += "--- Hemodynamics ---\n"
+            text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 1)}\n"
+            text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 1)}\n"
+            text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n"
+            text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 1)}\n\n"
+            text += "--- Coronary Flow ---\n"
+            text += f"Mean LAD: {fmt(getattr(bpf, 'lad_mean', None), 2)}\n"
+            text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
+            text += f"Dia Peak: {fmt(getattr(bpf, 'lad_dia_pk', None), 2)}\n"
+            text += f"DS Ratio: {fmt(getattr(bpf, 'lad_ds_rat', None), 2)}\n"
+            text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n\n"
+            text += "--- Resistance ---\n"
+            text += f"CVR:      {fmt(getattr(bpf, 'cvr', None), 2)}\n"
+            text += f"DCR:      {fmt(getattr(bpf, 'dcr', None), 2)}\n"
+            text += f"Flow Div: {fmt(getattr(bpf, 'flow_div', None), 2)}\n"
+
         self.metric_text.set_text(text)
 
     def _apply_scale(self, ax, view_data):
+        """Helper to dynamically autoscale the Y-axis of a plot based on visible data bounds with 15% padding."""
         if view_data.size > 1:
             v_min, v_max = np.min(view_data), np.max(view_data)
             pad = (v_max - v_min) * 0.15 if v_max != v_min else 0.1
             ax.set_ylim(v_min - pad, v_max + pad)
 
-    # --- Interaction & Animation Events ---
+    # --- Interaction Events ---
     def step_next(self, event=None):
+        """Advances view window by 1 time step."""
         self.current_pos = min(self.current_pos + self.step_size, len(self.ss1) - self.window_size)
         self.update_view()
 
     def step_prev(self, event=None):
+        """Rewinds view window by 1 time step."""
         self.current_pos = max(0, self.current_pos - self.step_size)
         self.update_view()
 
     def on_click_jump(self, event):
+        """Jumps directly to a point clicked on the navigator bar."""
         if event.inaxes == self.ax_nav:
             self.current_pos = int(event.xdata) - (self.window_size // 2)
             self.current_pos = max(0, min(self.current_pos, len(self.ss1) - self.window_size))
             self.update_view()
 
+    def update_speed(self, text):
+        """Handles user input in the Speed text box to control animation playback rate."""
+        try: 
+            self.playback_speed = float(text)
+            self.anim_step = max(1, int(self.fs * 0.05 * self.playback_speed))
+            print(f"Playback speed set to {self.playback_speed}x")
+        except ValueError as v: 
+            print(f"Invalid speed value: {v}. Please enter a number.")
+            self.txt_speed.set_val(str(self.playback_speed))
+
     def update_window_size(self, text):
+        """Handles user input in the Window text box to zoom in/out of the timeline."""
         try: 
             self.window_size = int(text)
             self.update_view()
@@ -1513,74 +1645,63 @@ class SignalGUI:
             print(f"Invalid window size: {v}")
 
     def on_key_press(self, event):
+        """Keyboard shortcuts: Spacebar (Play/Pause), Left/Right Arrows (Step)."""
         if event.key == 'right': 
             self.step_next()
         elif event.key == 'left':
             self.step_prev()
-        elif event.key == ' ': # Spacebar toggles play/pause
+        elif event.key == ' ':
             self.toggle_play()
 
-    # --- Animation & Export Methods ---
+    # --- Animation & Export ---
     def toggle_play(self, event=None):
-        """Toggles the animation playback on and off."""
+        """Starts or pauses the live timeline playback."""
         if self.is_playing:
             self.is_playing = False
             self.btn_play.label.set_text('Play')
-            if self.anim:
-                self.anim.event_source.stop()
+            if self.anim: self.anim.event_source.stop()
         else:
             self.is_playing = True
             self.btn_play.label.set_text('Pause')
             if not self.anim:
-                self.anim = animation.FuncAnimation(
-                    self.fig, self._animate_step, interval=50, blit=False, cache_frame_data=False
-                )
+                self.anim = animation.FuncAnimation(self.fig, self._animate_step, interval=50, blit=False, cache_frame_data=False)
             self.anim.event_source.start()
 
     def _animate_step(self, frame):
-        """Advances the plot by a small increment for playback."""
+        """Advances the timeline automatically during playback."""
         if self.current_pos >= len(self.ss1) - self.window_size:
-            self.toggle_play() # Stop at end of file
+            self.toggle_play() 
             return
-            
         self.current_pos = min(self.current_pos + self.anim_step, len(self.ss1) - self.window_size)
         self.update_view()
 
     def export_gif(self, event=None):
-        """Exports the next 5 seconds of the timeline to a GIF file."""
-        console.print("[bold green]Preparing GIF export... Please wait.[/]")
-        
-        # Pause playback if it's currently running
+        """Exports the next 5 seconds of the timeline to a GIF file using Pillow."""
+        print("Preparing GIF export... Please wait.")
         was_playing = self.is_playing
-        if was_playing:
-            self.toggle_play()
+        if was_playing: self.toggle_play()
 
-        # Export settings (exporting the next 5 seconds at 10 FPS)
         original_pos = self.current_pos
-        duration_sec = 5
-        fps = 10
-        frames = duration_sec * fps
-        step = int(self.fs / fps) 
+        frames = 5 * 10
+        step = int(self.fs / 10) 
 
         def gif_frame(i):
             self.current_pos = min(original_pos + (i * step), len(self.ss1) - self.window_size)
             self.update_view()
 
-        # Generate temp animation
         export_anim = animation.FuncAnimation(self.fig, gif_frame, frames=frames, blit=False)
         filename = f"{self.pig_id}_{original_pos}.gif"
         
-        # Save using Pillow
         try:
-            export_anim.save(filename, writer=animation.PillowWriter(fps=fps))
-            console.print(f"[green]Export complete! Saved as {filename}[/]")
+            export_anim.save(filename, writer=animation.PillowWriter(fps=10))
+            print(f"Export complete! Saved as {filename}")
         except Exception as e:
-            console.print(f"[red]Failed to save GIF. Ensure Pillow is installed. Error: {e}[/]")
+            print(f"Failed to save GIF. Ensure Pillow is installed. Error: {e}")
 
-        # Restore original state
+        # Return UI to original state after export
         self.current_pos = original_pos
         self.update_view()
-        if was_playing:
+        if was_playing: 
             self.toggle_play()
 
 #CLASS Wavelet / STFT / Phase Calculation Logic
