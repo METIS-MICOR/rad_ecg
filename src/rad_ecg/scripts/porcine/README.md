@@ -68,6 +68,6 @@ name | datatype | description
 |lad_dia_auc | f4 |  Diastolic Flow Volume (AUC)
 |cvr         | f4 |  Coronary Vascular Resistance (MAP / LAD_mean)
 |dcr         | f4 |  Diastolic Coronary Resistance (DBP / LAD_dia_mean)
-|lad_pi      | f4 |  LAD Pulsatility Index 
+|lad_pi      | f4 |  LAD Pulsatility Index (LAD_maxflow - LAD_minflow) / LAD_mean
 |lad_acc_sl  | f4 |  Diastolic Acceleration Slope
-|flow_div    | f4 |  Carotid to LAD Flow Ratio 
+|flow_div    | f4 |  Carotid to LAD Flow Ratio (LAD_mean_carotid / LAD_mean)

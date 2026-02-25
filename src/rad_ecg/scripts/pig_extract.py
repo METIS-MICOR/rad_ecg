@@ -854,7 +854,7 @@ class PigRAD:
 
                 #View the data
                 if self.view_pig:
-                    viewer = CoronaryPhaseViewer(
+                    viewer = SignalGUI(
                         ss1_data = full_data[channels[self.ss1_lead]].to_numpy(), 
                         lad_data = full_data[channels[self.lad_lead]], 
                         beats = tot_beats, 
@@ -1149,7 +1149,7 @@ class SignalDataLoader:
         return full_data
 
 #CLASS Advanced Viewer
-class CoronaryPhaseViewer:
+class SignalGUI:
     """
     Interactive viewer for validating Systolic/Diastolic partitioning of LAD flow.
     Visualizes SS1 Pressure, LAD Flow, and computed hemodynamic features.
