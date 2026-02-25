@@ -28,7 +28,7 @@ from rich.progress import (
 )
 from scipy.fft import rfft, rfftfreq
 from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt, savgol_filter
-from scipy.stats import wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm, linregress
+from scipy.stats import entropy, wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm, linregress
 
 ########################### Custom imports ###############################
 from utils import segment_ECG
@@ -352,8 +352,9 @@ class PigRAD:
         #BUG - Find peaks bases
             # Find peaks was failing in the later stages of hem shock when the
             # dicrotic notch gets below the diastolic valley Being that the
-            # actual peak is finding correctly, We can just use the onset for
-            # the diastolic of the the next peak :tada:
+            # actual peak is finding correctly, 
+            # We can just use the onset for the diastolic of the the next peak :tada:
+            # Old Code for using find_peaks heights
             # bpf.dbp_id = s_heights["right_bases"][id].item()
             # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
         next_peak = s_peaks[id + 1].item()
@@ -728,6 +729,19 @@ class PigRAD:
                     ladwave = full_data[channels[self.lad_lead]][start:end]
                     carwave = full_data[channels[self.car_lead]][start:end]
 
+                    #New feature
+                    #TODO - Develop a feature routine that can evaluate if we have a biological signal. 
+                        #IDEA - Welch's STFT for signal majority in the 0.5Hz to 15Hz band
+                        #IDEA - Shannon Entropy
+                        #IDEA - Wasserstein Distribution shift
+
+                    power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(ss1wave)
+                    # Threshold the signal to a particular power range and or spectral entropy
+                    if power_ratio < 0.40 or spec_entropy > 0.85:
+                        logger.warning(f"Sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
+
+                        continue 
+
                     prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
                     # logger.debug(f"prom: {prom_night*30:.2f}")
                     # first find systolic peaks
@@ -832,8 +846,6 @@ class PigRAD:
                     pig_avg_data["p1_p3"][idx]       = self._yabig_meanie([r.p1_p3 for r in ind_beats])
                     pig_avg_data["aix"][idx]         = self._yabig_meanie([r.aix for r in ind_beats])
                     # --- LAD Flow calculations ---
-                    #BUG -
-                        #Consider changing to getattr(r, 'lad_mean', None).  Would be a safer operation
                     pig_avg_data["lad_mean"][idx]    = self._yabig_meanie([r.lad_mean for r in ind_beats])
                     pig_avg_data["lad_dia_pk"][idx]  = self._yabig_meanie([r.lad_dia_pk for r in ind_beats])
                     pig_avg_data["lad_sys_pk"][idx]  = self._yabig_meanie([r.lad_sys_pk for r in ind_beats])
@@ -1589,13 +1601,13 @@ class CardiacFreqTools:
 
         Args:
             wavelet_type (str): Type of desired wavelet
-            center_freq (float): _description_
+            center_freq (float): Center frequency of wavelet
 
         Raises:
-            ValueError: _description_
+            ValueError: If you don't submit the right wavelet it will error
 
         Returns:
-            _type_: _description_
+            _type_: wavelet
         """        
         w_desired = 2 * np.pi * center_freq
         s = self.c * self.fs / w_desired
@@ -1671,13 +1683,13 @@ class CardiacFreqTools:
         if len(peaks) < 2:
             return np.full(4, np.nan), np.full(4, np.nan)
             
-        # To average FFTs of varying lengths, we must zero-pad them to a consistent size.
-        # 2 seconds of padding (2 * fs) gives 0.5Hz resolution and fits pig R-R intervals well.
+        # To average FFTs of varying lengths, we need to zero-pad them to a consistent size.
+        # 2 seconds of padding (2 * fs) gives 0.5Hz resolution.  Should fit the pig data well
         nfft = int(self.fs * 2.0) 
         freq_list = rfftfreq(nfft, d=1/self.fs)
         all_psd = []
         
-        # Loop through each R-R interval just like your provided STFT code
+        # Loop through each R-R interval
         for i in range(len(peaks) - 1):
             p0 = peaks[i]
             p1 = peaks[i+1]
@@ -1725,6 +1737,53 @@ class CardiacFreqTools:
             top_psd = np.pad(top_psd, (0, pad_size), constant_values=np.nan)
             
         return top_f, top_psd
+    
+    def evaluate_signal(self, signal: np.array, baseline_psd_norm=None) -> tuple:
+        """
+        Evaluates if the signal is physiological or just noise. Uses Welch's method to estimate the power spectral density independently of peak finding.
+        
+        Args:
+            signal (np.array): The raw waveform section.
+            baseline_psd_norm (np.array, optional): A normalized baseline PSD for Wasserstein distance.
+            
+        Returns:
+            tuple: (in_band_ratio, spectral_entropy, wasserstein_dist, current_psd_norm)
+        """
+        # Calculate PSD using Welch's method (Highly robust to random noise spikes)
+        # Using 2-second segments with 50% overlap for smooth spectrum
+        nperseg = int(self.fs * 2.0)
+        freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
+        
+        total_power = np.sum(psd)
+        if total_power == 0:
+            return 0.0, 1.0, np.nan, None
+
+        # --- In-Band Power Ratio ---
+        # Look for power specifically in the 0.5 Hz to 15.0 Hz band (HR + Harmonics)
+        band_mask = (freqs >= 0.5) & (freqs <= 15.0)
+        in_band_power = np.sum(psd[band_mask])
+        power_ratio = in_band_power / total_power
+        
+        # --- Spectral Entropy ---
+        # Normalize the PSD so it sums to 1 (like a probability distribution)
+        psd_norm = psd / total_power
+        
+        # Calculate Shannon entropy and normalize it to a 0-1 scale
+        # 0 = Single pure sine wave, 1 = Pure flat white noise
+        spec_entropy = entropy(psd_norm)
+        norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
+        
+        # --- Wasserstein Distance (Distribution Shift) ---
+        #NOTE - Save for later
+            #Try to see if we can do it with shannon entropy / PSD.  
+            #Use wasserstein as a backup
+            
+        w_dist = np.nan
+        if baseline_psd_norm is not None:
+            # Treat the frequencies as the "locations" and normalized PSD as the "weights"
+            w_dist = wasserstein_distance(freqs, freqs, u_weights=psd_norm, v_weights=baseline_psd_norm)
+
+        return power_ratio, norm_spec_entropy, w_dist, psd_norm
 
 #CLASS EDA
 class EDA(object):
@@ -2369,7 +2428,7 @@ class EDA(object):
                 #Problem is that it screws with the logic of the pairplot
             for colnum in range(0, _comb_df.shape[1]-1, 6): 
                 cols = _comb_df.iloc[:, colnum:colnum+6].columns.tolist()
-                #BUG Code smells here .  must fix
+                #BUG - Code smells here .  must fix
                 if (hue_col in cols) and (hue_col == self.target.name):
                     cols.pop(cols.index(hue_col))
                 if not isinstance(group, bool):
@@ -2854,7 +2913,7 @@ class DataPrep(object):
             self.category_value[model_name] = category_value
 
             #If the category's doesn't exist in the model results.  Add them. 
-            if category_value not in self._predictions: #BUG <---.keys() maybe? 
+            if category_value not in self._predictions: 
                 self._predictions[model_name][category_value]= {}
             if category_value not in self._performance:
                 self._performance[model_name][category_value] = {}
@@ -3371,7 +3430,7 @@ class ModelTraining(object):
                 target_names=display_labels,
                 zero_division=False
             )
-            #BUG. Unrepresented classes throw a div by zero error.  Look into this later. 
+            #BUG - Unrepresented classes throw a div by zero error.  Look into this later. 
             body = report.split("\n\n")
             header = body[0]
             rows = [body[x].split("\n") for x in range(1, len(body))]
@@ -3472,7 +3531,7 @@ class ModelTraining(object):
             groups_data = self.groups_train
             
             # Iterate through the CV folds
-            #BUG had to hardcode the group here 
+            #BUG - had to hardcode the group here 
             for fold, (train_ix, test_ix) in enumerate(CV_func.split(X_data, y_data, groups=groups_data)):
                 # Fit the model on the training fold
                 freshmodel.fit(X_data[train_ix], y_data[train_ix])
