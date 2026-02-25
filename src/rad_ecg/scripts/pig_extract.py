@@ -110,8 +110,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = True
+        self.view_pig      :bool  = True
+        self.view_models   :bool  = False
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -733,15 +733,19 @@ class PigRAD:
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = prom_night * 0.30,
-                        height = np.percentile(ss1wave, 50),
-                        distance = int(self.fs*(0.10)),
+                        prominence = prom_night * 0.20,      #Dropped from 30% to 20%
+                        height = np.percentile(ss1wave, 30), #Dropped from 50 to 30%
+                        distance = int(self.fs*(0.10)),      #100 ms
                         wlen = int(self.fs*3)       
                     )
                     #BUG - left base
                         # the left bases aren't getting calculated correctly.  I tried to adjust wlen as a 
                         # width parameter, buuuut it didn't quite work
-
+                    #BUG - Class 4 amplitude
+                        #Also noticing the S peaks don't get identifed in later stages.  The dicrotic notch gets mislabeled
+                        #but oddly its still able to find the onset correctly.  I guess the walkback is long enough to 
+                        #still capture the preceeding S peak.  
+                        #solution: lowering params as stated above
                     #Debug plot
                     # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
                     # plt.scatter(s_peaks, s_heights["peak_heights"], color="red")
