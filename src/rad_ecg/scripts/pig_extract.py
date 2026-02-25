@@ -110,8 +110,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
-        self.view_models   :bool  = False
+        self.view_pig      :bool  = False
+        self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -305,8 +305,10 @@ class PigRAD:
         segment = ss1wave[start_idx:sys_peak_idx]
         
         # Calculate the first derivative (dp/dt) of this segment
-        if segment.size > 2:
-            dpdt = np.gradient(segment)
+        if segment.size > 30:
+            # dpdt = np.gradient(segment)
+            dpdt = self._derivative(segment, 1)
+
         else:
             return None
         # Find the steepest part of the upstroke (maximum positive slope)
@@ -357,6 +359,7 @@ class PigRAD:
             # Old Code for using find_peaks heights
             # bpf.dbp_id = s_heights["right_bases"][id].item()
             # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
+
         next_peak = s_peaks[id + 1].item()
         bpf.dbp_id = self._find_sbp_info(ss1wave, next_peak)
         bpf.onset = self._find_sbp_info(ss1wave, bpf.sbp_id)
@@ -737,8 +740,8 @@ class PigRAD:
 
                     power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(ss1wave)
                     # Threshold the signal to a particular power range and or spectral entropy
-                    if power_ratio < 0.40 or spec_entropy > 0.85:
-                        logger.warning(f"Sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
+                    if power_ratio < 0.95 or spec_entropy > 0.45:
+                        logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
                         continue 
 
@@ -760,10 +763,6 @@ class PigRAD:
                         #but oddly its still able to find the onset correctly.  I guess the walkback is long enough to 
                         #still capture the preceeding S peak.  
                         #solution: lowering params as stated above
-                    #TODO - I need a signal presence tool
-                        #We're extracting on noise and messing with the measures.  
-                        #Drop back to a STFT and check for lower power majority.
-                        #Or use wasserstein distribution test to see if we've had a major shift.  
 
                     #Debug plot
                     # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
@@ -771,7 +770,7 @@ class PigRAD:
                     # plt.show()
 
                     #NOTE - Changing HR extraction to SS1. ECG is too unreliable.
-                    if s_peaks.size < 3 or s_peaks.size > 100:
+                    if s_peaks.size < 3 or s_peaks.size > 60:
                         logger.info(f"sect {idx} peaks invalid for extract")
                         continue
                     else:
@@ -856,7 +855,6 @@ class PigRAD:
                     pig_avg_data["lad_pi"][idx]      = self._yabig_meanie([r.lad_pi for r in ind_beats])
                     pig_avg_data["lad_acc_sl"][idx]  = self._yabig_meanie([r.lad_acc_sl for r in ind_beats])
                     pig_avg_data["flow_div"][idx]    = self._yabig_meanie([r.flow_div for r in ind_beats])
-                    
                     # --- STFT calculations ---
                         #ref link.   Is that our Johnny Morrison? It is! 
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
@@ -880,7 +878,7 @@ class PigRAD:
                         lad_data = full_data[channels[self.lad_lead]], 
                         beats = tot_beats, 
                         sampling_rate = self.fs,
-                        window_size = int(self.fs * 4),  # Show 4 seconds of data at a time
+                        window_size = int(self.fs * 5),  # Show 5 seconds of data at a time
                         pig_id = pig_id
                     )
                 # Store the completed pig array in our master list
@@ -1038,7 +1036,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, ofinterest, feats)
                 modeltraining.SHAP(tree, ofinterest)
             #Gridsearch
-            modeltraining._grid_search("xgboost", 10)
+            # modeltraining._grid_search("xgboost", 10)
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -1760,7 +1758,7 @@ class CardiacFreqTools:
 
         # --- In-Band Power Ratio ---
         # Look for power specifically in the 0.5 Hz to 15.0 Hz band (HR + Harmonics)
-        band_mask = (freqs >= 0.5) & (freqs <= 15.0)
+        band_mask = (freqs >= 0.1) & (freqs <= 15.0)
         in_band_power = np.sum(psd[band_mask])
         power_ratio = in_band_power / total_power
         
@@ -2127,7 +2125,7 @@ class EDA(object):
                 plt.tight_layout()
                 plt.show()
 
-    # FUNCTION cat_features
+    #FUNCTION cat_features
     # def cat_features(self, plotg:bool=False, print_stats:bool=True):
     # 	""" isolates categorical features and does a quick plot of them
 
@@ -2189,7 +2187,7 @@ class EDA(object):
     # 		console.log("Printing Cat Feature Table")
     # 		console.print(table)
 
-    # FUNCTION heatmap
+    #FUNCTION heatmap
     def corr_heatmap(self, sel_cols:list):
         """Generates correlation heatmap of numeric variables.
 
