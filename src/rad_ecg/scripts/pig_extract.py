@@ -733,10 +733,10 @@ class PigRAD:
                     # first find systolic peaks
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = prom_night * 0.20,      #Dropped from 30% to 20%
+                        prominence = prom_night * 0.30,      
                         height = np.percentile(ss1wave, 30), #Dropped from 50 to 30%
-                        distance = int(self.fs*(0.10)),      #100 ms
-                        wlen = int(self.fs*3)       
+                        distance = int(self.fs*(0.20)),      #Upped from 10 to 20 (200bpm)
+                        wlen = int(self.fs*3)
                     )
                     #BUG - left base
                         # the left bases aren't getting calculated correctly.  I tried to adjust wlen as a 
@@ -746,6 +746,11 @@ class PigRAD:
                         #but oddly its still able to find the onset correctly.  I guess the walkback is long enough to 
                         #still capture the preceeding S peak.  
                         #solution: lowering params as stated above
+                    #TODO - I need a signal presence tool
+                        #We're extracting on noise and messing with the measures.  
+                        #Drop back to a STFT and check for lower power majority.
+                        #Or use wasserstein distribution test to see if we've had a major shift.  
+
                     #Debug plot
                     # plt.plot(range(ss1wave.shape[0]), ss1wave.to_numpy())
                     # plt.scatter(s_peaks, s_heights["peak_heights"], color="red")
