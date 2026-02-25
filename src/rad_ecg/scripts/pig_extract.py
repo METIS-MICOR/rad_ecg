@@ -1172,7 +1172,7 @@ class SignalGUI:
             sampling_rate (float): fs in Hz.
             window_size (int): Number of samples to show in the view.
             pig_id (str): Pig ID
-        """        
+        """
         # Data Setup
         self.ss1 = ss1_data
         self.lad = lad_data
@@ -1316,7 +1316,7 @@ class SignalGUI:
         ]
         self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
-        # --- Row 3: navbar ---
+        # --- Row 3: Navbar ---
         self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
         ds = max(1, len(self.ss1) // 5000) # Downsample for performance
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
@@ -1549,14 +1549,14 @@ class SignalGUI:
 
         # Generate temp animation
         export_anim = animation.FuncAnimation(self.fig, gif_frame, frames=frames, blit=False)
-        filename = f"{self.pig_id}_coronary_phase.gif"
+        filename = f"{self.pig_id}_{original_pos}.gif"
         
         # Save using Pillow
         try:
             export_anim.save(filename, writer=animation.PillowWriter(fps=fps))
-            print(f"Export complete! Saved as {filename}")
+            console.print(f"[green]Export complete! Saved as {filename}[/]")
         except Exception as e:
-            print(f"Failed to save GIF. Ensure Pillow is installed. Error: {e}")
+            console.print(f"[red]Failed to save GIF. Ensure Pillow is installed. Error: {e}[/]")
 
         # Restore original state
         self.current_pos = original_pos
