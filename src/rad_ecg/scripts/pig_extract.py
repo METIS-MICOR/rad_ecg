@@ -3120,13 +3120,12 @@ class ModelTraining(object):
                 },
                 "grid_srch_params":{
                     "learning_rate":np.arange(0, 1.1, 0.1),
-                    "min_child_weight": np.arange(0, 10),
+                    # "min_child_weight": np.arange(0, 10),
                     "gamma": np.arange(0, 5, 0.5),
-                    "subsample": np.arange(0.6, 1.0, 0.2),
-                    "colsample_bytree": np.arange(0.6, 1.0, 0.2),
+                    # "subsample": np.arange(0.6, 1.0, 0.2),
+                    # "colsample_bytree": np.arange(0.6, 1.0, 0.2),
                     "max_depth": np.arange(0, 10, 1),
                     "n_estimators": np.arange(0, 500, 50),      # number of trees
-                    # "learning_rate": np.arange(0, 1.1, 0.1)
                 }
             }
         }
@@ -3814,6 +3813,12 @@ class ModelTraining(object):
 
     #FUNCTION importance plot
     def SHAP(self, model:str, features:list):
+        """Generates and plots SHAP values to help with model variable influence
+
+        Args:
+            model (str): Model to be evaluated
+            features (list): Features to analyze
+        """        
         def onSpacebar(event):
             """When plotting, hit the spacebar if keep the chart from closing. 
 
@@ -3831,10 +3836,9 @@ class ModelTraining(object):
         fitted_model = self._models[model]
 
         #Load the trained model into the tree explainer
-        # 1. Load the TreeExplainer
         tree_explainer = shap.TreeExplainer(fitted_model)
         
-        # 2. Generate the Explanation object (modern API)
+        # Generate the Explanation object (modern API)
         # This replaces the need for raw shap_values in most modern plots
         explanation = tree_explainer(X_train, self._predictions[model])
         
@@ -3943,8 +3947,8 @@ class ModelTraining(object):
                 
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
+
     #FUNCTION _grid_search
-#FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name: str, folds: int):
         from sklearn.model_selection import GridSearchCV
@@ -3971,8 +3975,10 @@ class ModelTraining(object):
             'accuracy': 'accuracy',
             'balanced_accuracy': 'balanced_accuracy',
             'f1_weighted': 'f1_weighted',
+            'f1_macro' : 'f1_macro',
             'mcc': 'matthews_corrcoef'
         }
+        
         # --- Determine the correct CV Strategy ---
         group_splitters = ["groupkfold", "leaveonegroupout", "groupshuffle"]
         if self.cross_val == "leaveonegroupout":
@@ -4049,9 +4055,9 @@ class ModelTraining(object):
 class MultiGPU(BaseEstimator):
     """
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
-    Smartly routes GPU parameters to supported models (XGBoost) and falls back 
-    to CPU for standard sklearn models. Now features CuPy interception for 
-    zero-copy XGBoost data transfers!
+    Routes GPU parameters to supported models (XGBoost) and falls back 
+    to CPU for standard sklearn models. Features CuPy interception for 
+    zero-copy XGBoost data transfers.
     """
     def __init__(self, estimator, gpu_devices):
         self.estimator = estimator
@@ -4067,7 +4073,7 @@ class MultiGPU(BaseEstimator):
             gpu_idx = worker_id % len(self.gpu_devices)
             self.gpu_id = self.gpu_devices[gpu_idx]
             
-            # 1. Handle XGBoost directly
+            # Handle XGBoost directly
             if isinstance(self.estimator, xgb.XGBClassifier):
                 self.estimator.set_params(device=f"cuda:{self.gpu_id}")
                 
@@ -4079,7 +4085,7 @@ class MultiGPU(BaseEstimator):
                         self.estimator.fit(X_gpu, y_gpu, **kwargs)
                         return self
                 
-            # 2. Handle OneVsRestClassifier (For SVMs)
+            # Handle OneVsRestClassifier (For SVMs)
             elif isinstance(self.estimator, OneVsRestClassifier):
                 base_est = self.estimator.estimator
                 if isinstance(base_est, xgb.XGBClassifier):
@@ -4087,7 +4093,7 @@ class MultiGPU(BaseEstimator):
                     self.estimator.estimator = base_est
                     # Note: don't pass CuPy arrays to OneVsRestClassifier because will crash on GPU arrays.
 
-            # 3. Handle Scikit-Learn CPU Models (RF, KNN)
+            # Handle Scikit-Learn CPU Models (RF, KNN)
             elif isinstance(self.estimator, (RandomForestClassifier, KNeighborsClassifier)):
                 if hasattr(self.estimator, 'n_jobs'):
                     self.estimator.set_params(n_jobs=1)
@@ -4107,7 +4113,7 @@ class MultiGPU(BaseEstimator):
         return self.estimator.predict(X)
         
     def predict_proba(self, X):
-        # INTERCEPT: Move prediction data to GPU, then pull results back to CPU
+        # Move prediction data to GPU, then pull results back to CPU
         if CUPY_AVAILABLE and self.gpu_id is not None and isinstance(self.estimator, xgb.XGBClassifier):
             with cp.cuda.Device(self.gpu_id):
                 X_gpu = cp.asarray(X)
