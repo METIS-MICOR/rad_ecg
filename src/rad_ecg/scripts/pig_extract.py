@@ -756,7 +756,7 @@ class PigRAD:
                     # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
 
                     # Threshold the signal to a particular power range and or spectral entropy
-                    if power_ratio < 0.95 or spec_entropy > 0.45:
+                    if power_ratio < 0.95 or spec_entropy > 0.45: #try 35
                         logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
                         continue 
@@ -1575,7 +1575,7 @@ class SignalGUI:
             """Helper to safely format floats or return N/A if missing."""
             return f"{val:.{prec}f}" if val is not None else "N/A"
             
-        text = f"--- Live Signal Quality ---\n"
+        text = f"--- Signal Quality ---\n"
         text += f"In-Band Pwr:  {fmt(f_sqi['power_ratio'], 2)}\n"
         text += f"Spec Entropy: {fmt(f_sqi['entropy'], 2)}\n\n"
         
@@ -1962,8 +1962,14 @@ class EDA(object):
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed col {col}")
+        
+        #Get rid of these cols for modeling. 
         else:
-            for col in ["psd0", "psd1", "psd2", "psd3"]:
+            for col in [
+                "psd0", "psd1", "psd2", 
+                "psd3", "aix", "lad_mean", "cvr", "flow_div", 
+                "lad_pi", "var_mor", "var_cgau", "f0", "f1", "f2", "f3", 
+                ]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed col {col}")
