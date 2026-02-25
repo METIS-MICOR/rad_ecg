@@ -152,7 +152,7 @@ class PigRAD:
             ('pig_id'     , 'U50'), #ID for the pig
             ('start'      , 'i4'),  #start index
             ('end'        , 'i4'),  #end index
-            ('valid'      , 'i4'),  #valid Section
+            ('invalid'    , 'i4'),  #Is it an invalid section?
             ('shock_class', 'U4'),  #Shock Class
             ('HR'         , 'f4'),  #Heart Rate
             ############# Morphomics ################################
@@ -673,7 +673,7 @@ class PigRAD:
                 pig_avg_data["pig_id"] = pig_id
                 pig_avg_data["start"]  = sections[:, 0]
                 pig_avg_data["end"]    = sections[:, 1]
-                pig_avg_data["valid"]  = sections[:, 2]
+                pig_avg_data["invalid"]  = sections[:, 2] #0=no, 1=yes
                 del sections
 
                 #Calc estimated blood volume for section. 
@@ -739,7 +739,7 @@ class PigRAD:
                     # Threshold the signal to a particular power range and or spectral entropy
                     if power_ratio < 0.40 or spec_entropy > 0.85:
                         logger.warning(f"Sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
-
+                        pig_avg_data["invalid"][idx] = 1
                         continue 
 
                     prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
@@ -1768,7 +1768,7 @@ class CardiacFreqTools:
         # Normalize the PSD so it sums to 1 (like a probability distribution)
         psd_norm = psd / total_power
         
-        # Calculate Shannon entropy and normalize it to a 0-1 scale
+        # Calculate Shannon entropy and normalize it (0-1)
         # 0 = Single pure sine wave, 1 = Pure flat white noise
         spec_entropy = entropy(psd_norm)
         norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
