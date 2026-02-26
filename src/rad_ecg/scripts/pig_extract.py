@@ -110,10 +110,10 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = True
+        self.view_pig      :bool  = True
+        self.view_models   :bool  = False
         self.fs            :float = 1000    #Hz
-        self.windowsize    :int   = 8       #size of section window 
+        self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -751,18 +751,15 @@ class PigRAD:
                     #     ss1wave, baseline_psd_norm=baseline_psd_norm
                     # )
                     # Log the metrics to the dataset
-                    # pig_avg_data["sqi_power"][idx] = power_ratio
-                    # pig_avg_data["sqi_entropy"][idx] = spec_entropy
+                    pig_avg_data["sqi_power"][idx] = power_ratio
+                    pig_avg_data["sqi_entropy"][idx] = spec_entropy
                     # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
 
                     # Threshold the signal to a particular power range and or spectral entropy
-                    if power_ratio < 0.95 or spec_entropy > 0.45: #try 35
+                    if power_ratio < 0.95 or spec_entropy > 0.50: #was 45 - right on the edge
                         logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
-                        continue 
-                    else:
-                        pig_avg_data["sqi_power"][idx] = power_ratio
-                        pig_avg_data["sqi_entropy"][idx] = spec_entropy
+                        continue
 
                     # If this is our first valid physiological section, lock it in as the baseline
                     # if baseline_psd_norm is None:
@@ -776,7 +773,7 @@ class PigRAD:
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
                         prominence = prom_night * 0.30,      
-                        height = np.percentile(ss1wave, 30), #Dropped from 50 to 30%
+                        height = np.percentile(ss1wave, 35), #Dropped from 50 to 35%
                         distance = int(self.fs*(0.20)),      #Upped from 10 to 20 (200bpm)
                         wlen = int(self.fs*3)
                     )
@@ -991,7 +988,7 @@ class PigRAD:
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
-            ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             
             #Engineer your features here. available transforms below
             #log:  Log Transform
@@ -1011,11 +1008,15 @@ class PigRAD:
             # engin.engineer("psd3", True, False, "BoxC")
             
             #reassign interest cols after transform
-            ofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-            removecols = ["aix", "lad_mean", "cvr", "flow_div", "lad_pi", "var_mor", "var_cgau", "f0", "f1", "f2", "f3"]
+            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            removecols = [
+                "aix", "lad_mean", "sys_sl", "lad_acc_sl", "cvr", 
+                "flow_div", "lad_pi", "var_mor", "var_cgau", 
+                "f0", "f1", "f2", "f3"
+            ]
             for col in removecols:
-                if col in ofinterest:
-                    ofinterest.pop(ofinterest.index(col))
+                if col in colsofinterest:
+                    colsofinterest.pop(colsofinterest.index(col))
 
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
@@ -1044,7 +1045,7 @@ class PigRAD:
             #'xgboost':XGBoostClassfier
             #'kneigh': KNeighborsClassifier
             console.print("[green]prepping data for training...[/]")
-            dp = DataPrep(ofinterest, scaler, cross_val, engin)
+            dp = DataPrep(colsofinterest, scaler, cross_val, engin)
             modellist = ['svm', 'rfc', 'xgboost', 'kneigh']
             
             #split the training data #splits: test 25%, train 75% 
@@ -1066,10 +1067,12 @@ class PigRAD:
             #Looking at feature importances
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
-                modeltraining.plot_feats(tree, ofinterest, feats)
-                modeltraining.SHAP(tree, ofinterest)
+                modeltraining.plot_feats(tree, colsofinterest, feats)
+                modeltraining.SHAP(tree, colsofinterest)
             #Gridsearch
             # modeltraining._grid_search("xgboost", 10)
+            #IDEA
+                #Ensemble them all together?
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -1170,7 +1173,6 @@ class SignalDataLoader:
         in a deterministic (alphabetical) order.
         """
         raw_names = set()
-        
         for k in self.files:
             # Extract channel name from keys like 'ECG_block_1', 'HR_block_0'
             if '_block_' in k:
@@ -1850,7 +1852,7 @@ class CardiacFreqTools:
         Returns:
             tuple: (in_band_ratio, spectral_entropy, wasserstein_dist, current_psd_norm)
         """
-        # Calculate PSD using Welch's method (Highly robust to random noise spikes)
+        # Calculate PSD using Welch's method - robust to random noise spikes
         # Using 2-second segments with 50% overlap for smooth spectrum
         nperseg = int(self.fs * 2.0)
         freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
