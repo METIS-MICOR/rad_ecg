@@ -114,7 +114,7 @@ class PigRAD:
         self.view_pig      :bool  = False
         self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
-        self.windowsize    :int   = 10      #size of section window 
+        self.windowsize    :int   = 8      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -1005,14 +1005,20 @@ class PigRAD:
             # engin.engineer("psd1", True, False, "BoxC")
             # engin.engineer("psd2", True, False, "BoxC")
             # engin.engineer("psd3", True, False, "BoxC")
+            #TODO - Normalization
+                # Try normalizing some of the higher value metrics.  Being that we're using 
+                # LOSO cross validation we might have wildly different heart rates
+                # from pig to pig.  Which would cause the model to pay less attention
+                # if it has var more variation. 
             norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
+            engin.subject_normalize(norm_features)
 
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             removecols = [
                 "aix", "lad_mean", "sys_sl", "lad_acc_sl", "cvr", 
                 "flow_div", "lad_pi", "var_mor", "var_cgau", 
-                "f0", "f1", "f2", "f3"
+                "f0", "f1", "f2", "f3", "ap_MAP", "shock_gap"
             ]
             for col in removecols:
                 if col in colsofinterest:
@@ -2807,8 +2813,17 @@ class FeatureEngineering(EDA):
     #         self.data.drop([feat], axis=1, inplace=True)
     #         self.feature_names.pop(self.feature_names.index(feat))
     #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
-    def subject_normalize(self):
-        pass
+
+    def subject_normalize(self, colsofinterest:str|list):
+        logger.info(f'Columns to normalize {colsofinterest}')
+        if isinstance(colsofinterest, str):
+            pass
+
+        elif isinstance(colsofinterest, list):
+            pass
+
+        logger.info(f'Columns to normalize {colsofinterest}')
+    
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
