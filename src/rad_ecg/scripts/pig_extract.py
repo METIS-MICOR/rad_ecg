@@ -48,13 +48,14 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
+from sklearn.utils.class_weight import compute_class_weight
 
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC
 from xgboost import XGBClassifier
 import xgboost as xgb
@@ -110,8 +111,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
-        self.view_models   :bool  = False
+        self.view_pig      :bool  = False
+        self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 10      #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -982,8 +983,6 @@ class PigRAD:
                 #Plot the heatmap
                 eda.corr_heatmap(sel_cols=sel_cols)
                 exit()
-            if not self.view_models:
-                exit()
 
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
@@ -1071,8 +1070,16 @@ class PigRAD:
                 modeltraining.SHAP(tree, colsofinterest)
             #Gridsearch
             # modeltraining._grid_search("xgboost", 10)
-            #IDEA
-                #Ensemble them all together?
+            #Ensemble?
+            # ensemble = VotingClassifier(
+            #     estimators=[
+            #         ('knn', modeltraining._models['knn']), 
+            #         ('xgb', modeltraining._models['xgb']), 
+            #         ('rf', modeltraining._models['rfc'])
+            #     ],
+            #     voting='soft' # Uses predicted probabilities rather than hard labels
+            # )
+                
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -1765,6 +1772,7 @@ class CardiacFreqTools:
             
         # Calculate Circular Phase Variance for the entire section
         # R is the resultant vector length (0 to 1). Variance is 1 - R.
+        # R = 
         R = np.abs(np.mean(np.exp(1j * np.array(beat_phases))))
         section_variance = 1 - R 
         
@@ -1880,6 +1888,8 @@ class CardiacFreqTools:
         #NOTE - Save for later
             #Try to see if we can do it with shannon entropy / PSD.  
             #Use wasserstein as a backup
+            #IDEA - What if you use the target label to calculate teh wassterstein distance for each class.  
+                #Giving us a distribution distance from the previous class over time????  Not sure that helps
             
         w_dist = np.nan
         if baseline_psd_norm is not None:
@@ -1949,10 +1959,7 @@ class EDA(object):
         
         #Get rid of these cols for modeling. 
         else:
-            for col in [
-                "psd0", "psd1", "psd2", "psd3", 
-
-                ]:
+            for col in ["psd0", "psd1", "psd2", "psd3"]:
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed col {col}")
@@ -2330,7 +2337,7 @@ class EDA(object):
             vmax=1, 
             annot=True, 
             annot_kws={
-                'fontsize':10,
+                'fontsize':6,
             },
             fmt='.1f',
             cmap='RdYlGn')
@@ -3157,6 +3164,7 @@ class ModelTraining(object):
         self.fp_base = dataprep.fp_base
         self.CV_func = None
         self.view_models = dataprep.view_models
+        self.class_weights = {}
 
         #MEAS Model params
         self._model_params = {
@@ -3177,9 +3185,10 @@ class ModelTraining(object):
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
-                    "n_jobs":None,                        #int | None
+                    "n_jobs":None,                      #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
-                    "warm_start":False                  #bool | False
+                    "warm_start":False,                 #bool | False
+                    "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
                     "n_estimators":100,                 #int | 100		
@@ -3194,7 +3203,8 @@ class ModelTraining(object):
                     "bootstrap":True,                   #bool | True
                     "n_jobs":None,                      #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
-                    "warm_start":False                  #bool | False
+                    "warm_start":False,                 #bool | False
+                    "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "grid_srch_params":{
                     "n_estimators":range(5, 200, 10),
@@ -3219,6 +3229,7 @@ class ModelTraining(object):
                     "metric":"minkowski",               #str | minkowski
                     "metric_params":None,               #dict | None
                     "n_jobs":None,                      #int | None
+                    "weights":"distance"                #Treat target as ordinal
                 },
                 "init_params":{
                     "n_neighbors":5,                   #int | 100		
@@ -3229,6 +3240,7 @@ class ModelTraining(object):
                     "metric":"minkowski",               #str | minkowski
                     "metric_params":None,               #dict | None
                     "n_jobs":None,                      #int | None
+                    "weights":"distance"                #Treat target as ordinal
                 },
                 "grid_srch_params":{
                     "n_estimators":range(5, 200, 10),
@@ -3254,6 +3266,7 @@ class ModelTraining(object):
                     "max_iter":1000,
                     "decision_function_shape":"ovr",
                     "random_state":42,
+                    "class_weight":"balanced"           #Treat target as ordinal
                 },
                 "init_params":{
                     "C":0.8,						
@@ -3263,6 +3276,7 @@ class ModelTraining(object):
                     "max_iter":10000,
                     "decision_function_shape":"ovr",
                     "random_state":42,
+                    "class_weight":"balanced"           #Treat target as ordinal
                 },
                 "grid_srch_params":{
                     "C":np.arange(0, 1.1, 0.1),
@@ -3283,7 +3297,7 @@ class ModelTraining(object):
                     "objective":"multi:softmax",
                     "max_depth":6,
                     "learning_rate": 0.3,
-                    "num_class":5
+                    "num_class":5,
                 },
                 "init_params":{
                     "booster":"gbtree",
@@ -3292,7 +3306,7 @@ class ModelTraining(object):
                     "objective":"multi:softmax",
                     "max_depth":6,
                     "learning_rate": 0.3,
-                    "num_class":5
+                    "num_class":5,
                 },
                 "grid_srch_params":{
                     "learning_rate":np.arange(0, 1.1, 0.1),
@@ -3345,6 +3359,8 @@ class ModelTraining(object):
             case 'rfc':
                 return RandomForestClassifier(**params)
             case 'xgboost':
+                #Due to xgboost not having a class parameter.  We have to save it and feed it into the fit function.... THANKS
+                self.class_weights = compute_class_weight("balanced", classes=np.array([0, 1, 2, 3, 4]), y=self._traind[model_name]["y_train"])
                 return XGBClassifier(**params)
             case 'kneigh':
                 return KNeighborsClassifier(**params)
@@ -3381,7 +3397,10 @@ class ModelTraining(object):
 
         with progress:
             task = progress.add_task("Fitting Model", total=1)
-            self.model.fit(self.X_train, self.y_train)
+            if model_name == "xgboost":
+                self.model.fit(self.X_train, self.y_train, sample_weight=self.class_weights)
+            else:    
+                self.model.fit(self.X_train, self.y_train)
             progress.update(task, advance=1)
 
         # self.model.fit(self.X_train, self.y_train)
@@ -3726,7 +3745,6 @@ class ModelTraining(object):
         #######################Confusion Matrix and classification report##########################
             labels = self.target_names
             no_proba = ["svm", ""]
-            #TODO - Need logic here for multiclass summary
 
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
