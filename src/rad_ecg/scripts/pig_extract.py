@@ -1012,7 +1012,7 @@ class PigRAD:
                 # if it has var more variation. 
             norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
             engin.subject_normalize(norm_features)
-
+            engin.super().sum_stats(sel_cols, "Numeric Features")
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             removecols = [
@@ -2815,15 +2815,48 @@ class FeatureEngineering(EDA):
     #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
 
     def subject_normalize(self, colsofinterest:str|list):
+        """This function is for normalizing each individual pigs data across columns that have a larger than normal variance.
+
+        Args:
+            colsofinterest (str | list): _description_
+        """        
         logger.info(f'Columns to normalize {colsofinterest}')
+        #if its a string (single column) turn it into a list
         if isinstance(colsofinterest, str):
-            pass
+            columns = [columns]
 
-        elif isinstance(colsofinterest, list):
-            pass
+        #Get the id's
+        pigpen = self.data["pig_id"].unique()
+        
+        #Normalize per pig data. 
+        for col in colsofinterest:
+            norm_col = f"{col}_delta"
+            self.data[norm_col] = np.nan
+            for pig in pigpen:
+                # Isolate this specific pig's data
+                sub_mask = self.data.pig_id == pig
+                dual_mask = sub_mask & (self.target == "BL")
+                
+                #Calc baseline mean
+                if dual_mask.any():
+                    baseline_m = self.data.loc[dual_mask, col].mean()
+                else:
+                    #If you can't find a BL mask.  Fall back to the first 10% of
+                    #the data to build your baseline.
+                    sub_indices = self.data[pig].index
+                    fallback_cutoff = max(1, len(sub_indices) // 10)
+                    baseline_ind = sub_indices[:fallback_cutoff]
+                    baseline_m = self.data.loc[baseline_ind, col].mean()
+                
+                #Normalize
+                vals = self.data.loc[sub_mask, col]
+                self.data.loc[sub_mask, norm_col] = (vals - baseline_m) / (abs(baseline_m) + 1e-6) #tiny shift so no divide by zero
 
-        logger.info(f'Columns to normalize {colsofinterest}')
-    
+            self.data.drop([col], axis=1, inplace=True)
+            self.feature_names.pop(self.feature_names.index(col))
+            self.feature_names.append(norm_col)
+        super().sum_stats(self.feature_names, "Normalized Features")
+        logger.info(f'Columns normalized {[x for x in self.feature_names if "_delta" in x]}')
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
