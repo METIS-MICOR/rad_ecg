@@ -1010,12 +1010,18 @@ class PigRAD:
                 # LOSO cross validation we might have wildly different heart rates
                 # from pig to pig.  Which would cause the model to pay less attention
                 # if it has var more variation. 
-            norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
+            norm_features = [
+                'HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean',
+                'cvr', 'sys_sl', 'lad_acc_sl', 'p1', 'p2', 'p3'
+            ]
             engin.subject_normalize(norm_features)
+
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            
+            #Remove unwanted features
             removecols = [
-                "aix", "lad_mean", "sys_sl", "lad_acc_sl", "cvr", 
+                "aix", "lad_mean", "cvr", 
                 "flow_div", "lad_pi", "var_mor", "var_cgau", 
                 "f0", "f1", "f2", "f3", "ap_MAP", "shock_gap"
             ]
