@@ -1012,7 +1012,7 @@ class PigRAD:
                 # if it has var more variation. 
             norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
             engin.subject_normalize(norm_features)
-            engin.super().sum_stats(sel_cols, "Numeric Features")
+
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             removecols = [
