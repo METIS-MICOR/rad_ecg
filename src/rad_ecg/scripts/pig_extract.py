@@ -48,7 +48,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import cross_validate, train_test_split
 from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
-from sklearn.utils.class_weight import compute_class_weight
+from sklearn.utils.class_weight import compute_sample_weight
 
 ########################### Sklearn model imports #########################
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
@@ -1005,7 +1005,8 @@ class PigRAD:
             # engin.engineer("psd1", True, False, "BoxC")
             # engin.engineer("psd2", True, False, "BoxC")
             # engin.engineer("psd3", True, False, "BoxC")
-            
+            norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
+
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             removecols = [
@@ -2806,6 +2807,8 @@ class FeatureEngineering(EDA):
     #         self.data.drop([feat], axis=1, inplace=True)
     #         self.feature_names.pop(self.feature_names.index(feat))
     #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
+    def subject_normalize(self):
+        pass
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
@@ -3360,7 +3363,7 @@ class ModelTraining(object):
                 return RandomForestClassifier(**params)
             case 'xgboost':
                 #Due to xgboost not having a class parameter.  We have to save it and feed it into the fit function.... THANKS
-                self.class_weights = compute_class_weight("balanced", classes=np.array([0, 1, 2, 3, 4]), y=self._traind[model_name]["y_train"])
+                self.class_weights = compute_sample_weight("balanced", y=self._traind[model_name]["y_train"])
                 return XGBClassifier(**params)
             case 'kneigh':
                 return KNeighborsClassifier(**params)
