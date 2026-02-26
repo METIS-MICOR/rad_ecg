@@ -2855,8 +2855,8 @@ class FeatureEngineering(EDA):
             self.data.drop([col], axis=1, inplace=True)
             self.feature_names.pop(self.feature_names.index(col))
             self.feature_names.append(norm_col)
-        super().sum_stats(self.feature_names, "Normalized Features")
-        logger.info(f'Columns normalized {[x for x in self.feature_names if "_delta" in x]}')
+        super().sum_stats(self.feature_names[4:], "Normalized Features")
+        logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if "_delta" in x]}')
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
