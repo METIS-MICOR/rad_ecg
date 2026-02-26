@@ -1012,7 +1012,6 @@ class PigRAD:
                 # if it has var more variation. 
             norm_features = ['HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean', 'cvr']
             engin.subject_normalize(norm_features)
-
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             removecols = [
@@ -2848,9 +2847,9 @@ class FeatureEngineering(EDA):
                     baseline_ind = sub_indices[:fallback_cutoff]
                     baseline_m = self.data.loc[baseline_ind, col].mean()
                 
-                #Normalize
+                #Normalize (Current - Baseline) / absolute(Baseline)
                 vals = self.data.loc[sub_mask, col]
-                self.data.loc[sub_mask, norm_col] = (vals - baseline_m) / (abs(baseline_m) + 1e-6) #tiny shift so no divide by zero
+                self.data.loc[sub_mask, norm_col] = (vals - baseline_m) / (abs(baseline_m) + 1e-6) #tiny shift so no divide by zero errors
 
             self.data.drop([col], axis=1, inplace=True)
             self.feature_names.pop(self.feature_names.index(col))
