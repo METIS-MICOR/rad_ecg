@@ -136,19 +136,18 @@ class PigRAD:
         logger.info(f"Output folder set to: {self.fp_base}")
         
         # Load data (handles single and batch automatically)
-        self.loader = SignalDataLoader(npz_path)
+        self.loader = SignalDataLoader(npz_path, self.fs)
         
         # Master lists to hold data across all pigs
         self.all_avg_data :List = [] 
         self.avg_data     :List = []
         self.bp_data      :List[BP_Feat] = []
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
-
-        #TODO - Will need logic to automatically select leads
-        self.ecg_lead     :str = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
-        self.lad_lead     :str = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
-        self.car_lead     :str = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
-        self.ss1_lead     :str = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
+        #NOTE - Turn off self.loader.auto_pick_lead to debug.  Tends to crash debugger.
+        self.ecg_lead     :int = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
+        self.lad_lead     :int = 1 #self.pick_lead("LAD")      #1 pick the Lad lead
+        self.car_lead     :int = 6 #self.pick_lead("Carotid")  #6 pick the Carotid lead
+        self.ss1_lead     :int = 4 #self.pick_lead("SS1")      #4 pick the SS1 lead
         
         self.avg_dtypes = [
             ('pig_id'     , 'U50'), #ID for the pig
@@ -720,6 +719,35 @@ class PigRAD:
                 full_data = record["data"]
                 channels = record["channels"]
                 logger.info(f"channels {channels}")
+                #Auto select leads via Levenstein distance + In Band Power + Shannon Entropy for the window size of the chunk
+                self.ecg_lead = self.loader.auto_pick_lead(
+                    target_name="ECG",
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
+                self.lad_lead = self.loader.auto_pick_lead(
+                    target_name="LAD", 
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
+                # self.ss1_lead = self.loader.auto_pick_lead(
+                #     target_name="SS1", 
+                #     channels=channels,
+                #     data_source=full_data, 
+                #     num_needed=1, 
+                #     sample_duration=self.windowsize
+                # )
+                self.car_lead = self.loader.auto_pick_lead(
+                    target_name="Carotid", 
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
                 #Section signals
                 sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
                 pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
@@ -1065,9 +1093,8 @@ class PigRAD:
             #Remove unwanted features
             removecols = [
                 "aix", "lad_mean", "cvr", 
-                "flow_div", "lad_pi", #"var_mor", "var_cgau", 
-                #"f0", "f1", "f2", "f3",
-                "ap_MAP", "shock_gap"
+                "flow_div", "lad_pi", "ap_MAP", "shock_gap"
+                #"f0", "f1", "f2", "f3", "var_mor", "var_cgau", 
             ]
             for col in removecols:
                 if col in colsofinterest:
@@ -1078,9 +1105,9 @@ class PigRAD:
                 "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
                 "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", 
             ]
-            engin.normalize_subjects(colsofinterest)
-            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-            
+            engin.normalize_subjects(norm_features)
+            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1]) if engin.data.columns[x] not in removecols]
+
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -1088,7 +1115,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "p_scale"
+            scaler = "q_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold           : KFold Validation
@@ -1199,11 +1226,12 @@ class PigRAD:
 #CLASS Data Loader
 class SignalDataLoader:
     """Handles loading and structuring of the data. Will do single file and batch loading."""
-    def __init__(self, file_path):
+    def __init__(self, file_path:str|list, fs:float=1000.0):
         self.is_batch = isinstance(file_path, list)
         # Dictionary mapping {pig_id: {'data': full_data, 'channels': channels, 'outcomes': outcomes}}
         self.records = {} 
-        
+        self.fs = fs
+
         # Standardize to a list
         paths = file_path if self.is_batch else [file_path]
         
@@ -1272,6 +1300,114 @@ class SignalDataLoader:
                 if ch in self.files:
                     full_data[ch] = self.container[ch]
         return full_data
+    
+    @staticmethod
+    def levenshtein_distance(token1: str, token2: str) -> int:
+        """Calculates minimum single-character edits to change token1 into token2."""
+        distances = np.zeros((len(token1) + 1, len(token2) + 1))
+        for t1 in range(len(token1) + 1): 
+            distances[t1][0] = t1
+        for t2 in range(len(token2) + 1): 
+            distances[0][t2] = t2
+        for t1 in range(1, len(token1) + 1):
+            for t2 in range(1, len(token2) + 1):
+                if (token1[t1-1] == token2[t2-1]):
+                    distances[t1][t2] = distances[t1 - 1][t2 - 1]
+                else:
+                    a = distances[t1][t2 - 1]
+                    b = distances[t1 - 1][t2]
+                    c = distances[t1 - 1][t2 - 1]
+                    if (a <= b and a <= c): 
+                        distances[t1][t2] = a + 1
+                    elif (b <= a and b <= c): 
+                        distances[t1][t2] = b + 1
+                    else: 
+                        distances[t1][t2] = c + 1
+        return int(distances[len(token1)][len(token2)])
+
+    @staticmethod
+    def levenshtein_ratio(token1: str, token2: str) -> float:
+        """Calculates normalized similarity ratio (0 to 1)."""
+        length_sum = len(token1) + len(token2)
+        if length_sum == 0: 
+            return 1.0 
+        distance = SignalDataLoader.levenshtein_distance(token1, token2)
+        return (length_sum - distance) / length_sum
+
+    def auto_pick_lead(
+            self, 
+            target_name: str, 
+            channels: list, 
+            data_source: dict, 
+            num_needed: int = 1, 
+            sample_duration: int = 12
+        ) -> int | list:
+        """
+        Automatically selects the best channel(s) by matching the target name 
+        and validating signal quality via spectral entropy and in-band power.
+        """
+        freq_tool = CardiacFreqTools(fs=self.fs) 
+        candidates = []
+        
+        # 1. Filter by Name (Levenshtein + Substring Boost)
+        for idx, channel in enumerate(channels):
+            sim_score = self.levenshtein_ratio(target_name.lower(), channel.lower())
+            
+            # Massive boost if the target is a direct substring 
+            if target_name.lower() in channel.lower():
+                sim_score += 1.0 
+                
+            candidates.append({
+                'idx': idx, 
+                'name': channel, 
+                'sim_score': sim_score
+            })
+            
+        candidates = sorted(candidates, key=lambda x: x['sim_score'], reverse=True)
+        top_candidates = candidates[:num_needed + 1]
+        
+        # 2. Rank by Signal Quality
+        valid_leads = []
+        for cand in top_candidates:
+            chan_name = cand['name']
+            if chan_name in ["Time", "EBV", "ShockClass"]:
+                continue
+
+            # Extract test sample (Starts at 10 seconds to avoid machine start-up noise)
+            start_idx = int(self.fs * 10)
+            end_idx = start_idx + int(self.fs * sample_duration)
+            
+            try:
+                sig_sample = np.array(data_source[chan_name][start_idx:end_idx])
+                if len(sig_sample) == 0: 
+                    continue
+
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not load data for {chan_name}: {e}[/]")
+                continue
+                
+            # Quality Test
+            power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(sig_sample)
+            cand['power_ratio'] = power_ratio
+            cand['entropy'] = spec_entropy
+            cand['quality_score'] = power_ratio + (1.0 - spec_entropy)
+            valid_leads.append(cand)
+            
+        valid_leads = sorted(valid_leads, key=lambda x: x['quality_score'], reverse=True)
+        
+        # 3. Rich Output UI
+        selected_indices = []
+        
+        for i in range(min(num_needed, len(valid_leads))):
+            lead = valid_leads[i]
+            selected_indices.append(lead['idx'])
+            q_score = lead['quality_score']
+            logger.info(f"{lead['idx']} | {lead['name']} | Quality | {q_score:.2f} | Pwr | {lead['power_ratio']:.2f} | Ent | {lead['entropy']:.2f})")
+        
+        if not selected_indices:
+            raise ValueError(f"Failed to find any viable leads for '{target_name}'.")
+            
+        return selected_indices[0]
 
 #CLASS Advanced Viewer
 class SignalGUI:
