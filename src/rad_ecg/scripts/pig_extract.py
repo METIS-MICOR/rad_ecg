@@ -1052,20 +1052,16 @@ class PigRAD:
             # engin.engineer("psd2", True, False, "BoxC")
             # engin.engineer("psd3", True, False, "BoxC")
             #TODO - Normalization
-                # Try normalizing some of the higher value metrics.  Being that we're using 
-                # LOSO cross validation we might have wildly different heart rates
-                # from pig to pig.  Which would cause the model to pay less attention
-                # if it has var more variation. 
-            norm_features = [
-                "HR", "SBP", "DBP", "true_MAP", "lad_mean",
-                "cvr", "sys_sl", "lad_acc_sl", "p1", "p2", "p3", 
-                "f0", "f1", "f2", "f3", "lad_dia_pk", "lad_sys_pk"
-            ]
-            engin.normalize_subjects(norm_features)
-
+                #Normally in ML we're dealing with cross sectional data. Each row is an
+                #independent unrelated event.  In Longitudinal, subject-grouped data, 
+                #these absolute numbers across pigs can be bad predictors and easily
+                #bias a model if one variable is especially different from pig to pig. 
+                #Which means we have to make normalize the variables to be subject
+                #specific.  So instead of real values we use delta's from baseline
+                #as our inputs.  
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-            
+
             #Remove unwanted features
             removecols = [
                 "aix", "lad_mean", "cvr", 
@@ -1077,6 +1073,14 @@ class PigRAD:
                 if col in colsofinterest:
                     colsofinterest.pop(colsofinterest.index(col))
 
+            norm_features = [
+                "HR", "SBP", "DBP", "true_MAP", "lad_mean",
+                "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
+                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", 
+            ]
+            engin.normalize_subjects(colsofinterest)
+            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -1129,8 +1133,8 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
             #Gridsearch
-            modeltraining._grid_search("rfc", 10)
-            #Ensemble?
+            # modeltraining._grid_search("rfc", 10)
+            #Ensem ble?
             # ensemble = VotingClassifier(
             #     estimators=[
             #         ('knn', modeltraining._models['knn']), 
@@ -1948,7 +1952,7 @@ class CardiacFreqTools:
         #NOTE - Save for later
             #Try to see if we can do it with shannon entropy / PSD.  
             #Use wasserstein as a backup
-            #IDEA - What if you use the target label to calculate teh wassterstein distance for each class.  
+            #IDEA - What if you use the target label to calculate the wassterstein distance for each class.  
                 #Giving us a distribution distance from the previous class over time????  Not sure that helps
             
         w_dist = np.nan
