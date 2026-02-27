@@ -1079,14 +1079,14 @@ class PigRAD:
             # engin.engineer("psd1", True, False, "BoxC")
             # engin.engineer("psd2", True, False, "BoxC")
             # engin.engineer("psd3", True, False, "BoxC")
-            #TODO - Normalization
+            #[x] - Normalization
                 #Normally in ML we're dealing with cross sectional data. Each row is an
                 #independent unrelated event.  In Longitudinal, subject-grouped data, 
                 #these absolute numbers across pigs can be bad predictors and easily
                 #bias a model if one variable is especially different from pig to pig. 
                 #Which means we have to make normalize the variables to be subject
-                #specific.  So instead of real values we use delta's from baseline
-                #as our inputs.  
+                #specific.  So instead of real values we use delta's from a
+                #5 minute baseline as our inputs.  
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
 
@@ -1115,7 +1115,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "q_scale"
+            scaler = "p_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold           : KFold Validation
