@@ -662,7 +662,7 @@ class PigRAD:
                 "A place where they will never find",
                 "And we can act like we come from out of this world",
                 "Leave the real one far behind",
-                "And we can dance, dansez",
+                "And we can dance, dance",
                 "We can go when we want to",
                 "Night is young and so am I",
                 "And we can dress real neat from our hats to our feet",
@@ -1056,11 +1056,11 @@ class PigRAD:
                 # from pig to pig.  Which would cause the model to pay less attention
                 # if it has var more variation. 
             norm_features = [
-                'HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean',
-                'cvr', 'sys_sl', 'lad_acc_sl', 'p1', 'p2', 'p3', 
-                'ap_MAP', 'lad_dia_pk', 'lad_sys_pk'
+                "HR", "SBP", "DBP", "true_MAP", "lad_mean",
+                "cvr", "sys_sl", "lad_acc_sl", "p1", "p2", "p3", 
+                "f0", "f1", "f2", "f3", "lad_dia_pk", "lad_sys_pk"
             ]
-            engin.normalize_subject(norm_features)
+            engin.normalize_subjects(norm_features)
 
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
@@ -1068,8 +1068,9 @@ class PigRAD:
             #Remove unwanted features
             removecols = [
                 "aix", "lad_mean", "cvr", 
-                "flow_div", "lad_pi", "var_mor", "var_cgau", 
-                "f0", "f1", "f2", "f3", "ap_MAP", "shock_gap"
+                "flow_div", "lad_pi", #"var_mor", "var_cgau", 
+                #"f0", "f1", "f2", "f3",
+                "ap_MAP", "shock_gap"
             ]
             for col in removecols:
                 if col in colsofinterest:
@@ -1127,7 +1128,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
             #Gridsearch
-            # modeltraining._grid_search("xgboost", 10)
+            modeltraining._grid_search("rfc", 10)
             #Ensemble?
             # ensemble = VotingClassifier(
             #     estimators=[
@@ -2865,7 +2866,7 @@ class FeatureEngineering(EDA):
     #         self.feature_names.pop(self.feature_names.index(feat))
     #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
 
-    def normalize_subject(self, colsofinterest:str|list):
+    def normalize_subjects(self, colsofinterest:str|list):
         """This function is for normalizing each individual pigs data across columns that have a larger than normal variance.
 
         Args:
