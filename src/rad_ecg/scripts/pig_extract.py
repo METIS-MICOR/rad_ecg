@@ -3886,7 +3886,6 @@ class ModelTraining(object):
                 # "mae"     : MAE(self.y_test, y_pred),
                 # "rsquared": RSQUARED(self.y_test, y_pred),
                 #classification
-
                 "accuracy": ACC_SC(self.y_test, y_pred),
                 "logloss" : LOG_LOSS(self.y_test, y_pred),
                 "balanced_accuracy": balanced_accuracy_score(self.y_test, y_pred),
@@ -4261,7 +4260,6 @@ class ModelTraining(object):
     #FUNCTION _grid_search
     @log_time
     def _grid_search(self, model_name: str, folds: int):
-        from sklearn.model_selection import GridSearchCV
         console.print(f'{model_name} grid search initiated')
         base_clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
