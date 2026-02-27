@@ -46,7 +46,7 @@ from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import cross_validate, train_test_split
-from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef
+from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef, make_scorer
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
 from sklearn.utils.class_weight import compute_sample_weight
 
@@ -3886,6 +3886,7 @@ class ModelTraining(object):
                 # "mae"     : MAE(self.y_test, y_pred),
                 # "rsquared": RSQUARED(self.y_test, y_pred),
                 #classification
+
                 "accuracy": ACC_SC(self.y_test, y_pred),
                 "logloss" : LOG_LOSS(self.y_test, y_pred),
                 "balanced_accuracy": balanced_accuracy_score(self.y_test, y_pred),
@@ -4281,11 +4282,11 @@ class ModelTraining(object):
             clf = base_clf
         # Define all the metrics you want to track during the search
         scoring_dict = {
-            'accuracy': 'accuracy',
-            'balanced_accuracy': 'balanced_accuracy',
-            'f1_weighted': 'f1_weighted',
-            'f1_macro' : 'f1_macro',
-            'mcc': 'matthews_corrcoef'
+            "accuracy": make_scorer(ACC_SC),
+            "balanced_accuracy": make_scorer(balanced_accuracy_score),
+            "f1_weighted": make_scorer(f1_score, average="weighted", zero_division=0.0),
+            "f1_macro": make_scorer(f1_score, average="macro", zero_division=0.0),
+            "mcc": make_scorer(matthews_corrcoef)
         }
         
         # --- Determine the correct CV Strategy ---
