@@ -1101,9 +1101,9 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "SBP", "DBP", "true_MAP", "lad_mean",
+                "HR", "SBP", "DBP", "true_MAP", "lad_mean", "dcr",
                 "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
-                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", 
+                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", "p1_p2", "p1_p3", "dcr"
                 "pul_wid", "sqi_power","sqi_entropy", "dia_sl", "ri", "dni",
                 "lad_dia_auc", "lad_ds_rat","var_mor", "var_cgau"
             ]
@@ -1163,7 +1163,7 @@ class PigRAD:
                 modeltraining.SHAP(tree, colsofinterest)
             #Gridsearch
             # modeltraining._grid_search("rfc", 10)
-            #Ensem ble?
+            #Ensemble?
             # ensemble = VotingClassifier(
             #     estimators=[
             #         ('knn', modeltraining._models['knn']), 
