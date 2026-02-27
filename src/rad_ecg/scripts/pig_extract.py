@@ -114,7 +114,7 @@ class PigRAD:
         self.view_pig      :bool  = False
         self.view_models   :bool  = True
         self.fs            :float = 1000    #Hz
-        self.windowsize    :int   = 8      #size of section window 
+        self.windowsize    :int   = 8       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -656,15 +656,60 @@ class PigRAD:
                 "Calculating features",
                 "We can dance if we want to",
                 "We can leave your friends behind",
-                "Cause your friends don't dance and if they don't dance",
-                "Well, they're no friends of mine",
+                "'Cause your friends don't dance and if they don't dance",
+                "Well they're, no friends of mine",
                 "Say, we can go where we want to",
                 "A place where they will never find",
                 "And we can act like we come from out of this world",
                 "Leave the real one far behind",
-                "And say, we can dance, we can dance",
+                "And we can dance, dansez",
+                "We can go when we want to",
+                "Night is young and so am I",
+                "And we can dress real neat from our hats to our feet",
+                "And surprise them with a victory cry",
+                "Say, we can act if we want to",
+                "If we don't nobody will",
+                "And you can act real rude and totally removed",
+                "And I can act like an imbecile",
+                "And say, We can dance, we can dance",
                 "Everything's out of control",
-                "We can dance, we can dance"]
+                "We can dance, we can dance",
+                "We're doing it from pole to pole",
+                "We can dance, we can dance",
+                "Everybody look at your hands",
+                "We can dance, we can dance",
+                "Everybody's taking the chance",
+                "It's a safety dance",
+                "Oh well it's safe to dance",
+                "Yes it safe to dance",
+                "We can dance if we want to",
+                "We've got all your life and mine",
+                "As long as we abuse it, never going to lose it",
+                "Everything will work out right",
+                "I say, we can dance if we want to",
+                "We can leave your friends behind",
+                "'Cause your friends don't dance, and if they don't dance",
+                "Well they're no friends of mine",
+                "I say, we can dance, we can dance",
+                "Everything's out of control",
+                "We can dance, we can dance",
+                "We're doing it from pole to pole",
+                "We can dance, we can dance",
+                "Everybody look at your hands",
+                "We can dance, we can dance",
+                "Everybody's taking the chance",
+                "Well it's safe to dance",
+                "Yes it's safe to dance",
+                "Well it's safe to dance",
+                "Well it's safe to dance",
+                "Yes it's safe to dance",
+                "Well it's safe to dance",
+                "Well it's safe to dance",
+                "It's a safety dance",
+                "Well it's a safety dance",
+                "Oh it's a safety dance",
+                "Oh it's a safety dance",
+                "Well it's a safety dance"],
             )
             # Iterate every pig 
             for pig_id, record in self.loader.records.items():
@@ -1012,9 +1057,10 @@ class PigRAD:
                 # if it has var more variation. 
             norm_features = [
                 'HR', 'SBP', 'DBP', 'true_MAP', 'lad_mean',
-                'cvr', 'sys_sl', 'lad_acc_sl', 'p1', 'p2', 'p3'
+                'cvr', 'sys_sl', 'lad_acc_sl', 'p1', 'p2', 'p3', 
+                'ap_MAP', 'lad_dia_pk', 'lad_sys_pk'
             ]
-            engin.subject_normalize(norm_features)
+            engin.normalize_subject(norm_features)
 
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
@@ -2819,11 +2865,11 @@ class FeatureEngineering(EDA):
     #         self.feature_names.pop(self.feature_names.index(feat))
     #         logger.info(f"Feature: {feat} has been encoded with {encoder.__class__()} ")
 
-    def subject_normalize(self, colsofinterest:str|list):
+    def normalize_subject(self, colsofinterest:str|list):
         """This function is for normalizing each individual pigs data across columns that have a larger than normal variance.
 
         Args:
-            colsofinterest (str | list): _description_
+            colsofinterest (str | list): Cols you want to normalize
         """        
         logger.info(f'Columns to normalize {colsofinterest}')
         #if its a string (single column) turn it into a list
@@ -3097,7 +3143,7 @@ class DataPrep(object):
             
         else:
             self.category_value = None
-            self._traind[model_name]["X"] = self.data[self.feature_names]
+            self._traind[model_name]["X"] = self.data[self.feature_names].to_numpy()
             if self.task == "classification":
                 switch_dict = {y:x for x, y in self.rev_target_dict.items()}
                 self._traind[model_name]["y"] = self.target.map(switch_dict).to_numpy()
@@ -3137,27 +3183,9 @@ class DataPrep(object):
             #finds optimal scaling, for stabalizing variance and skewness. 
             #Supports box-cox (strictly positive) and yeo-johnson transforms (pos and neg values)
 
-        if isinstance(self.scaler, str):
-            scalernm = self.scaler
-            scaler_dict = {
-                "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
-                "s_scale":StandardScaler(), 
-                "m_scale":MinMaxScaler(feature_range=(0, 1)),
-                "p_scale":PowerTransformer(method='yeo-johnson', standardize=True),
-                "q_scale":QuantileTransformer(output_distribution='normal', random_state=42)
-            }
-            scaler = scaler_dict.get(scalernm)
-            if not scaler:
-                raise ValueError(f"Scaler not loaded, check before continuing")
-            
-            self._traind[model_name]["X"] = scaler.fit_transform(self._traind[model_name]["X"], self._traind[model_name]["y"])
-            self.scaled = True
-            logger.info(f"{model_name}'s data has been scaled with {scaler.__class__()} ")
-
-        #MEAS Test train split
+        # MEAS Test Train Split
         if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
             # Test train split Group-aware outer split
-            # We need to use GroupShuffleSplit so an entire pig goes to testing, preventing leakage
             gss = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
             
             # Get the indices for train and test based on groups
@@ -3167,7 +3195,7 @@ class DataPrep(object):
                 groups=self.groups)
             )
 
-            # Apply the split using iloc to maintain alignment
+            # Assign the training/testing datasets
             self._traind[model_name]["X_train"] = self._traind[model_name]["X"][train_idx]
             self._traind[model_name]["X_test"] = self._traind[model_name]["X"][test_idx]
             self._traind[model_name]["y_train"] = self._traind[model_name]["y"][train_idx]
@@ -3176,12 +3204,42 @@ class DataPrep(object):
             # Save the training groups so CV knows which pig is which during the inner loop
             self._traind[model_name]["groups_train"] = self.groups[train_idx]
         else:
-            #If its not group validation normal test split
-            X_train, X_test, y_train, y_test = train_test_split(self._traind[model_name]["X"], self._traind[model_name]["y"], random_state=42, test_size=split)
+            # If its not group validation normal test split
+            X_train, X_test, y_train, y_test = train_test_split(
+                self._traind[model_name]["X"], 
+                self._traind[model_name]["y"], 
+                random_state=42, test_size=split
+            )
             self._traind[model_name]["X_train"] = X_train 
             self._traind[model_name]["y_train"] = y_train 
             self._traind[model_name]["X_test"] = X_test
             self._traind[model_name]["y_test"] = y_test
+
+        # Scale the Data 
+        if isinstance(self.scaler, str):
+            scaler_dict = {
+                "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
+                "s_scale":StandardScaler(), 
+                "m_scale":MinMaxScaler(feature_range=(0, 1)),
+                "p_scale":PowerTransformer(method='yeo-johnson', standardize=True),
+                "q_scale":QuantileTransformer(output_distribution='normal', random_state=42)
+            }
+            scaler = scaler_dict.get(self.scaler)
+            if not scaler:
+                raise ValueError(f"Scaler not loaded, check before continuing")
+            
+            #Fit/transform the scaler only on the training data
+            self._traind[model_name]["X_train"] = scaler.fit_transform(self._traind[model_name]["X_train"])
+            
+            # Apply the scaling parameters to the test set (DO NOT FIT AGAIN)
+            self._traind[model_name]["X_test"] = scaler.transform(self._traind[model_name]["X_test"])
+            
+            # (Optional) If you need the full 'X' array scaled for other reasons, scale it now 
+            # using the rules learned from the training set, though usually X_train/X_test is enough.
+            # self._traind[model_name]["X"] = scaler.transform(self._traind[model_name]["X"])
+            
+            self.scaled = True
+            logger.info(f"{model_name}'s data has been scaled with {scaler.__class__.__name__}")
 
 #CLASS Model Training
 class ModelTraining(object):
@@ -3507,14 +3565,14 @@ class ModelTraining(object):
         """
         def load_cross_val(cv_name:str):
                 cv_validators = {
-                    "kfold"       :KFold(n_splits=10, shuffle=True, random_state=42),
-                    "stratkfold"  :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-                    # "leaveoneout" :LeaveOneOut(),
-                    "groupkfold"  :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
-                    "leaveonegroupout": LeaveOneGroupOut(),
-                    "groupshuffle":GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-                    "shuffle"     :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
-                    "stratshuffle":StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
+                    "kfold"           :KFold(n_splits=10, shuffle=True, random_state=42),
+                    "stratkfold"      :StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                    # "leaveoneout"   :LeaveOneOut(),
+                    "groupkfold"      :GroupKFold(n_splits=min(5, len(np.unique(self.groups_train)))),
+                    "leaveonegroupout":LeaveOneGroupOut(),
+                    "groupshuffle"    :GroupShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
+                    "shuffle"         :ShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42),
+                    "stratshuffle"    :StratifiedShuffleSplit(n_splits=10, test_size=0.25, train_size=0.5, random_state=42)
                 }
                 return cv_validators[cv_name]
 
