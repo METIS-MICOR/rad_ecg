@@ -4269,7 +4269,7 @@ class ModelTraining(object):
         base_clf = self._models[model_name]
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
-        
+
         # Determine GPU availability and worker count
         num_gpus = len(self.gpu_devices)
         if num_gpus > 0:
@@ -4325,10 +4325,15 @@ class ModelTraining(object):
         
         with progress:
             task = progress.add_task("Fitting Model", total=1)
-            if self.cross_val in group_splitters:
-                grid.fit(self.X_train, self.y_train, groups=self.groups_train)
-            else:
-                grid.fit(self.X_train, self.y_train)
+            # --- Blanket warning suppression for missing class ---
+            import warnings
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
+                
+                if self.cross_val in group_splitters:
+                    grid.fit(self.X_train, self.y_train, groups=self.groups_train)
+                else:
+                    grid.fit(self.X_train, self.y_train)
                 
             progress.update(task, advance=1)
 
