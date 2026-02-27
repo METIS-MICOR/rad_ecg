@@ -1104,6 +1104,8 @@ class PigRAD:
                 "HR", "SBP", "DBP", "true_MAP", "lad_mean",
                 "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
                 "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", 
+                "pul_wid", "sqi_power","sqi_entropy", "dia_sl", "ri", "dni",
+                "lad_dia_auc", "lad_ds_rat","var_mor", "var_cgau"
             ]
             engin.normalize_subjects(norm_features)
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1]) if engin.data.columns[x] not in removecols]
