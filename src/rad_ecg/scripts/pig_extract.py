@@ -51,7 +51,8 @@ from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, Po
 from sklearn.utils.class_weight import compute_sample_weight
 
 ########################### Sklearn model imports #########################
-from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShuffleSplit, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
+from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShuffleSplit
+from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.neighbors import KNeighborsClassifier
