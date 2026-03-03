@@ -104,7 +104,8 @@ class BP_Feat():
     dcr         :float = None #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
     lad_pi      :float = None #LAD Pulsatility Index
     lad_acc_sl  :float = None #Diastolic Acceleration Slope
-    flow_div    :float = None #Carotid to LAD Flow Ratio 
+    flow_div    :float = None #Carotid Mean to LAD Flow Mean Ratio 
+    retro_flow  :float = None #Retrograde flow of Carotid (AUC of negative flow)
 
 #CLASS PigRad
 class PigRAD:
@@ -175,16 +176,22 @@ class PigRAD:
             ('p1_p3'      , 'f4'),  #Ratio of P1 to P3,
             ('aix'        , 'f4'),  #Augmentation Index (AIx)
             # ####### LAD Flow Features ######################
-            ('lad_mean'   , 'f4'),  # Mean LAD Flow
-            ('lad_dia_pk' , 'f4'),  # Diastolic Peak Flow
-            ('lad_sys_pk' , 'f4'),  # Systolic Peak Flow
-            ('lad_ds_rat' , 'f4'),  # Diastolic to Systolic Peak Ratio
-            ('lad_dia_auc', 'f4'),  # Diastolic Flow Volume (AUC)
-            ('cvr'        , 'f4'),  # Coronary Vascular Resistance (MAP / LAD_mean)
-            ('dcr'        , 'f4'),  # Diastolic Coronary Resistance (DBP / LAD_dia_mean)
-            ('lad_pi'     , 'f4'),  # LAD Pulsatility Index
-            ('lad_acc_sl' , 'f4'),  # Diastolic Acceleration Slope
-            ('flow_div'   , 'f4'),  # Carotid to LAD Flow Ratio            
+            ('lad_mean'   , 'f4'),  #Mean LAD Flow
+            ('lad_dia_pk' , 'f4'),  #Diastolic Peak Flow
+            ('lad_sys_pk' , 'f4'),  #Systolic Peak Flow
+            ('lad_ds_rat' , 'f4'),  #Diastolic to Systolic Peak Ratio
+            ('lad_dia_auc', 'f4'),  #Diastolic Flow Volume (AUC)
+            ('cvr'        , 'f4'),  #Coronary Vascular Resistance (MAP / LAD_mean)
+            ('dcr'        , 'f4'),  #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
+            ('lad_pi'     , 'f4'),  #LAD Pulsatility Index
+            ('lad_acc_sl' , 'f4'),  #Diastolic Acceleration Slope
+            ('flow_div'   , 'f4'),  #Carotid to LAD Flow Ratio
+
+            #TODO - retrograde flow
+                #how many samples are positive and negative in diastole 
+                #Does retrograde flow go up over time. Cartoid
+            ('retro_flow', 'f4'),
+
             ######### Frequency componenets ##################
             ('f0'         , 'f4'),  #Top Frequency (Fundamental)
             ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
@@ -195,11 +202,11 @@ class PigRAD:
             ('psd2'       , 'f4'),  #Amplitude of Harmonic 2
             ('psd3'       , 'f4'),  #Amplitude of Harmonic 3
             ('var_mor'    , 'f4'),  #Phase Variance (Morlet)
-            ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1)
+            ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1 - Gaussian)
             # ####### Signal Quality & Shift #################
-            ('sqi_power'  , 'f4'),  # Spectral Purity (In-Band Power Ratio)
-            ('sqi_entropy', 'f4'),  # Spectral Entropy
-            # ('w_dist'     , 'f4'),  # Wasserstein Distance from Baseline
+            ('sqi_power'  , 'f4'),  #Spectral Purity (In-Band Power Ratio)
+            ('sqi_entropy', 'f4'),  #Spectral Entropy
+            # ('w_dist'     , 'f4'),#Wasserstein Distance from Baseline
         ]
         #IDEA - feature - Pulse transit time?  
 
@@ -612,13 +619,20 @@ class PigRAD:
                         bpf.dcr = bpf.DBP / lad_dia_mean
 
                     # Diastolic Acceleration Slope 
-                    # Enforce a minimum distance (e.g., 20ms) to prevent micro-run explosions
+                    # Enforce a minimum distance (e.g., 20ms) to prevent explosions
                     dia_pk_idx_rel = np.argmax(lad_diastole)
                     min_run_samples = int(self.fs * 0.02)
                     
                     if dia_pk_idx_rel > min_run_samples:
                         dia_run = dia_pk_idx_rel / self.fs
                         bpf.lad_acc_sl = ((bpf.lad_dia_pk - lad_diastole[0]) / dia_run).item()
+            # =====================================================
+            # --- Carotid Retrograde Flow & Resistance Features ---
+            # =====================================================
+            if getattr(bpf, 'notch', None):
+                car_diastole = carwave[notch_abs:bpf.dbp_id]
+                retroflow = np.where(car_diastole < 0, car_diastole, 0)
+                bpf.retro_flow = np.abs(self._integrate(retroflow))
 
         return bpf
  
@@ -956,6 +970,7 @@ class PigRAD:
                     pig_avg_data["lad_pi"][idx]      = self._yabig_meanie([r.lad_pi for r in ind_beats])
                     pig_avg_data["lad_acc_sl"][idx]  = self._yabig_meanie([r.lad_acc_sl for r in ind_beats])
                     pig_avg_data["flow_div"][idx]    = self._yabig_meanie([r.flow_div for r in ind_beats])
+                    pig_avg_data["retro_flow"][idx]  = self._yabig_meanie([r.retro_flow for r in ind_beats])
                     # --- STFT calculations ---
                         #ref link.   Is that our Johnny Morrison? It is! 
                         #https://shimingyoung.github.io/papers/morphomics_2019.pdf?hl=en-US
@@ -1062,7 +1077,6 @@ class PigRAD:
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
-            
             #Engineer your features here. available transforms below
             #log:  Log Transform
             #recip:Reciprocal
@@ -1103,13 +1117,13 @@ class PigRAD:
             norm_features = [
                 "HR", "SBP", "DBP", "true_MAP", "lad_mean", "dcr",
                 "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
-                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", "p1_p2", "p1_p3", "dcr",
+                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", "p1_p2", "p1_p3",
                 "pul_wid", "sqi_power","sqi_entropy", "dia_sl", "ri", "dni",
-                "lad_dia_auc", "lad_ds_rat","var_mor", "var_cgau"
+                "lad_dia_auc", "lad_ds_rat","var_mor", "var_cgau", "retro_flow"
             ]
+
             engin.normalize_subjects(norm_features)
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1]) if engin.data.columns[x] not in removecols]
-
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -3025,7 +3039,7 @@ class FeatureEngineering(EDA):
         
         #Normalize per pig data. 
         for col in colsofinterest:
-            norm_col = f"{col}_delta"
+            norm_col = f"{col}_d" #delta
             self.data[norm_col] = np.nan
             for pig in pigpen:
                 # Isolate this specific pig's data
