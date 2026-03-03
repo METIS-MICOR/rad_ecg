@@ -112,11 +112,11 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
-        self.view_pig      :bool  = True
+        self.view_eda      :bool  = True
+        self.view_pig      :bool  = False
         self.view_models   :bool  = False
-        self.fs            :float = 1000    #Hz
-        self.windowsize    :int   = 8       #size of section window 
+        self.fs            :float = 1000     #Hz
+        self.windowsize    :int   = 10       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -186,12 +186,7 @@ class PigRAD:
             ('lad_pi'     , 'f4'),  #LAD Pulsatility Index
             ('lad_acc_sl' , 'f4'),  #Diastolic Acceleration Slope
             ('flow_div'   , 'f4'),  #Carotid to LAD Flow Ratio
-
-            #TODO - retrograde flow
-                #how many samples are positive and negative in diastole 
-                #Does retrograde flow go up over time. Cartoid
-            ('retro_flow', 'f4'),
-
+            ('retro_flow',  'f4'),  #AUC of the negative flow in Carotid during diastole
             ######### Frequency componenets ##################
             ('f0'         , 'f4'),  #Top Frequency (Fundamental)
             ('f1'         , 'f4'),  #Harmonic 1 (2nd biggest peak)
@@ -592,7 +587,8 @@ class PigRAD:
                     bpf.cvr = bpf.true_MAP / bpf.lad_mean
                 else:
                     bpf.cvr = None
-
+                
+                #Calculate Pulsality Index
                 lad_max, lad_min = np.max(sub_lad).item(), np.min(sub_lad).item()
                 bpf.lad_pi = (lad_max - lad_min) / bpf.lad_mean
 
@@ -601,18 +597,18 @@ class PigRAD:
                 notch_abs = bpf.sbp_id + bpf.notch_id
                 lad_systole = ladwave[bpf.onset:notch_abs]
                 lad_diastole = ladwave[notch_abs:bpf.dbp_id]
-                
+                #Assign LAD peaks for systole and diastole
                 if lad_systole.size > 0 and lad_diastole.size > 0:
                     bpf.lad_sys_pk = np.max(lad_systole).item()
                     bpf.lad_dia_pk = np.max(lad_diastole).item()
                     
-                    # Diastolic/Systolic Ratio
+                    # Diastolic/Systolic Peak Ratio
                     if abs(bpf.lad_sys_pk) > eps:
                         bpf.lad_ds_rat = bpf.lad_dia_pk / bpf.lad_sys_pk
                      
                     # Diastolic Volume (AUC)
-                    lad_diastole_pos = np.where(lad_diastole < 0, lad_diastole, 0)
-                    bpf.lad_dia_auc = self._integrate(lad_diastole)
+                    lad_diastole_neg = np.where(lad_diastole < 0, lad_diastole, 0)
+                    bpf.lad_dia_auc = np.abs(self._integrate(lad_diastole_neg))
                     
                     # Diastolic Coronary Resistance
                     lad_dia_mean = np.mean(lad_diastole).item()
@@ -833,7 +829,7 @@ class PigRAD:
                         #IDEA - Welch's STFT for signal majority in the 0.5Hz to 15Hz band
                         #IDEA - Shannon Entropy
                         #IDEA - Wasserstein Distribution shift. 
-                            #Not sure this will work. 
+                            #This didn't really work
                     
                     # ---Signal Quality & Baseline Check ---
                     power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(ss1wave)
@@ -845,21 +841,15 @@ class PigRAD:
                     pig_avg_data["sqi_entropy"][idx] = spec_entropy
                     # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
 
-                    # Threshold the signal to a particular power range and or spectral entropy
+                    # Threshold the signal to a particular power range and or spectral entropy (shannon energy)
                     if power_ratio < 0.95 or spec_entropy > 0.50: #was 45 - right on the edge
                         logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
                         continue
 
-                    # If this is our first valid physiological section, lock it in as the baseline
-                    # if baseline_psd_norm is None:
-                    #     baseline_psd_norm = current_psd_norm
-                    #     pig_avg_data["w_dist"][idx] = 0.0 # Distance to itself is zero
-                    #     logger.info(f"Baseline PSD locked at section {idx}")
-
                     prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
                     # logger.debug(f"prom: {prom_night*30:.2f}")
-                    # first find systolic peaks
+                    # first find systolic peaks in SS1
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
                         prominence = prom_night * 0.30,      

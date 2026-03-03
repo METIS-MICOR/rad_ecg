@@ -71,4 +71,5 @@ name | datatype | description
 |lad_pi      | f4 |  LAD Pulsatility Index (LAD_maxflow - LAD_minflow) / LAD_mean
 |lad_acc_sl  | f4 |  Diastolic Acceleration Slope
 |flow_div    | f4 |  Carotid to LAD Flow Ratio (LAD_mean_carotid / LAD_mean)
+|retro_flow  | f4 |  Calculating flow reversal in Carotid lead (AUC of neg values)
 #todo input entropy features
