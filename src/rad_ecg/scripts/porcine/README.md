@@ -73,6 +73,4 @@ name | datatype | description
 |flow_div    | f4 |  Carotid to LAD Flow Ratio (LAD_mean_carotid / LAD_mean)
 |retro_flow  | f4 |  Calculating flow reversal in Carotid lead (AUC of negative values)
 |sqi_power   | f4 |  Spectral Purity (In-Band Power Ratio) |
-|sqi_entropy | f4 | Spectral Entropy
-
-#todo input entropy features
+|sqi_entropy | f4 |  Spectral Entropy (Shannon Energy) |

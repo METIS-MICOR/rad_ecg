@@ -27,7 +27,7 @@ from rich.progress import (
     Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 )
 from scipy.fft import rfft, rfftfreq
-from scipy.signal import find_peaks, stft, welch, convolve, butter, filtfilt, savgol_filter
+from scipy.signal import find_peaks, welch, convolve, butter, filtfilt, savgol_filter, iirnotch #stft
 from scipy.stats import entropy, wasserstein_distance, pearsonr, probplot, boxcox, yeojohnson, norm, linregress
 
 ########################### Custom imports ###############################
@@ -112,7 +112,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = False
+        self.view_eda      :bool  = True
         self.view_pig      :bool  = False
         self.view_models   :bool  = False
         self.fs            :float = 1000     #Hz
@@ -236,7 +236,7 @@ class PigRAD:
         """        
         return np.trapezoid(signal, dx=1.0/self.fs).item()
     
-    def _bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=40.0, fs=1000.0, order:int=4)->np.array:
+    def _bandpass_filt(self, data:np.array, lowcut:float=0.1, highcut:float=100.0, fs=1000.0, order:int=4)->np.array:
         """Apply Band Pass Filter
 
         Args:
@@ -287,6 +287,22 @@ class PigRAD:
         nyq = 0.5 * fs
         cutoff = highcut / nyq
         b, a = butter(order, cutoff, btype='high', analog=False)
+        return filtfilt(b, a, data)
+    def _notch_filt(self, data:np.array, notch_freq:float=60.0, q_factor:float=30.0, fs=1000.0)->np.array:
+        """Apply a Notch Filter to remove a specific frequency
+
+        Args:
+            data (np.array): Signal to filter
+            notch_freq (float, optional): Frequency to remove (e.g., 50 or 60 Hz for powerline noise). Defaults to 60.0.
+            q_factor (float, optional): Quality factor. Higher Q creates a narrower notch. Defaults to 30.0.
+            fs (float, optional): sampling rate. Defaults to 1000.0.
+
+        Returns:
+            np.array: Filtered signal
+        """
+        nyq = 0.5 * fs
+        freq = notch_freq / nyq
+        b, a = iirnotch(freq, q_factor)
         return filtfilt(b, a, data)
     
     def _yabig_meanie(self, values: list, precision: int = 4) -> float:
@@ -721,20 +737,20 @@ class PigRAD:
                 channels = record["channels"]
                 logger.info(f"channels {channels}")
                 #Auto select leads via Levenstein distance + In Band Power + Shannon Entropy for the window size of the chunk
-                self.ecg_lead = self.loader.auto_pick_lead(
-                    target_name="ECG",
-                    channels=channels,
-                    data_source=full_data, 
-                    num_needed=1, 
-                    sample_duration=self.windowsize
-                )
-                self.lad_lead = self.loader.auto_pick_lead(
-                    target_name="LAD", 
-                    channels=channels,
-                    data_source=full_data, 
-                    num_needed=1, 
-                    sample_duration=self.windowsize
-                )
+                # self.ecg_lead = self.loader.auto_pick_lead(
+                #     target_name="ECG",
+                #     channels=channels,
+                #     data_source=full_data, 
+                #     num_needed=1, 
+                #     sample_duration=self.windowsize
+                # )
+                # self.lad_lead = self.loader.auto_pick_lead(
+                #     target_name="LAD", 
+                #     channels=channels,
+                #     data_source=full_data, 
+                #     num_needed=1, 
+                #     sample_duration=self.windowsize
+                # )
                 # self.ss1_lead = self.loader.auto_pick_lead(
                 #     target_name="SS1 (SP200)", 
                 #     channels=channels,
@@ -742,13 +758,13 @@ class PigRAD:
                 #     num_needed=1, 
                 #     sample_duration=self.windowsize
                 # )
-                self.car_lead = self.loader.auto_pick_lead(
-                    target_name="Carotid", 
-                    channels=channels,
-                    data_source=full_data, 
-                    num_needed=1, 
-                    sample_duration=self.windowsize
-                )
+                # self.car_lead = self.loader.auto_pick_lead(
+                #     target_name="Carotid", 
+                #     channels=channels,
+                #     data_source=full_data, 
+                #     num_needed=1, 
+                #     sample_duration=self.windowsize
+                # )
                 #Section signals
                 sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
                 pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
@@ -786,8 +802,8 @@ class PigRAD:
 
                 #bandpass the ecg, lad, and carotid signals
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
-                    full_data[channels[lead]] = self._bandpass_filt(data=full_data[channels[lead]])
-                    logger.info(f"{channels[lead]}")
+                    full_data[channels[lead]] = self._low_pass_filt(data=full_data[channels[lead]], lowcut=40)
+                    logger.info(f"{channels[lead]} lowpass filtered lowcut: 40")
 
                 jobtask_proc = progress.add_task(f"{next(menwithouthats)}", total=pig_avg_data.shape[0])
                 tot_beats:list[BP_Feat] = []
@@ -842,7 +858,7 @@ class PigRAD:
                     # first find systolic peaks in SS1
                     s_peaks, s_heights = find_peaks(
                         x = ss1wave,
-                        prominence = prom_night * 0.30,      
+                        prominence = prom_night * 0.40,      #Was .30 but getting double counts
                         height = np.percentile(ss1wave, 35), #Dropped from 50 to 35%
                         distance = int(self.fs*(0.20)),      #Upped from 10 to 20 (200bpm)
                         wlen = int(self.fs*3)
@@ -974,6 +990,7 @@ class PigRAD:
                     viewer = SignalGUI(
                         ss1_data = full_data[channels[self.ss1_lead]].to_numpy(), 
                         lad_data = full_data[channels[self.lad_lead]], 
+                        car_data = full_data[channels[self.car_lead]],
                         beats = tot_beats, 
                         sampling_rate = self.fs,
                         window_size = int(self.fs * 5),  # Show 5 seconds of data at a time
@@ -1157,6 +1174,7 @@ class PigRAD:
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
+
             #Gridsearch
             # modeltraining._grid_search("rfc", 10)
             #Ensemble?
@@ -1168,7 +1186,6 @@ class PigRAD:
             #     ],
             #     voting='soft' # Uses predicted probabilities rather than hard labels
             # )
-                
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -1418,6 +1435,7 @@ class SignalGUI:
         self, 
         ss1_data     : np.array, 
         lad_data     : np.array, 
+        car_data     : np.array, 
         beats        : list, 
         sampling_rate: float = 1000.0, 
         window_size  : int = 5000,
@@ -1427,6 +1445,7 @@ class SignalGUI:
         Args:
             ss1_data (np.array): SS1 pressure signal.
             lad_data (np.array): LAD flow signal.
+            car_data (np.array): Carotid flow signal. 
             beats (list[BP_Feat]): List of extracted BP_Feat dataclasses.
             sampling_rate (float): Sampling frequency (fs) in Hz.
             window_size (int): Number of samples to show in the view (e.g., 5000 = 5 seconds at 1kHz).
@@ -1435,6 +1454,7 @@ class SignalGUI:
         # Data Setup 
         self.ss1 = ss1_data
         self.lad = lad_data
+        self.car = car_data 
         self.beats = beats
         self.fs = sampling_rate
         self.pig_id = pig_id if pig_id else "Unknown_Subject"
@@ -1472,18 +1492,19 @@ class SignalGUI:
         self.gs_main = gridspec.GridSpec(1, 2, width_ratios=[10, 2], figure=self.fig)
         self.gs_main.figure.suptitle(f"{self.pig_id}")
         
-        # Left Panel: Main Plot Area (SS1, LAD, Navigator)
+        # Left Panel: Main Plot Area (SS1, LAD, Carotid, Navigator)
+            # Split into 4 rows
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
-            3, 1, 
+            4, 1, #! Increased rows to 4
             subplot_spec=self.gs_main[0], 
-            height_ratios=[2, 2, 0.5],
-            hspace=0.35 
+            height_ratios=[2, 1.5, 1.5, 0.5], 
+            hspace=0.30
         )
         
         # Right Panel: Side Controls & Live Metrics Readout
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
-            8, 1, subplot_spec=self.gs_main[1], 
-            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
+            7, 1, subplot_spec=self.gs_main[1], 
+            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
             hspace=0.4
         )
         self.setup_controls()
@@ -1498,11 +1519,14 @@ class SignalGUI:
         self.txt_speed = TextBox(ax_speed, 'Speed: ', initial=str(self.playback_speed))
         ax_window = self.fig.add_subplot(self.gs_side[4])
         self.txt_window = TextBox(ax_window, 'Window: ', initial=str(self.window_size))
-        self.btn_freq = Button(self.fig.add_subplot(self.gs_side[5]), 'Freq: OFF')
-        self.btn_gif = Button(self.fig.add_subplot(self.gs_side[6]), 'Export GIF')
+        
+        # Split the row into two columns for Freq and GIF
+        gs_split_btn = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_side[5], wspace=0.1) 
+        self.btn_freq = Button(self.fig.add_subplot(gs_split_btn[0]), 'Freq: OFF') 
+        self.btn_gif = Button(self.fig.add_subplot(gs_split_btn[1]), 'Export GIF') 
         
         # The metrics text needs an empty axis 
-        self.ax_metrics = self.fig.add_subplot(self.gs_side[7])
+        self.ax_metrics = self.fig.add_subplot(self.gs_side[6]) 
         self.ax_metrics.axis('off')
         self.metric_text = self.ax_metrics.text(0.05, 0.95, "Metrics...", va='top', ha='left', fontsize=10, family='monospace')
 
@@ -1525,7 +1549,7 @@ class SignalGUI:
             self.toggle_play()
             
         # Remove existing axes securely from the figure
-        for ax_name in ['ax_ss1', 'ax_ss1_freq', 'ax_lad', 'ax_lad_freq', 'ax_nav']:
+        for ax_name in ['ax_ss1', 'ax_ss1_freq', 'ax_lad', 'ax_lad_freq', 'ax_car', 'ax_car_freq', 'ax_nav']: 
             if hasattr(self, ax_name) and getattr(self, ax_name) is not None:
                 getattr(self, ax_name).remove()
                 setattr(self, ax_name, None)
@@ -1559,7 +1583,8 @@ class SignalGUI:
             # Standard full-width time domain view
             self.ax_ss1 = self.fig.add_subplot(self.gs_plots[0])
             self.ax_lad = self.fig.add_subplot(self.gs_plots[1], sharex=self.ax_ss1)
-            self.ax_ss1_freq, self.ax_lad_freq = None, None
+            self.ax_car = self.fig.add_subplot(self.gs_plots[2], sharex=self.ax_ss1)
+            self.ax_ss1_freq, self.ax_lad_freq, self.ax_car_freq = None, None, None 
         else:
             # Split rows lengthwise (1x2 grids) for side-by-side Time/PSD view
             gs_row1 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[0], wspace=0.15)
@@ -1569,6 +1594,10 @@ class SignalGUI:
             gs_row2 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[1], wspace=0.15)
             self.ax_lad = self.fig.add_subplot(gs_row2[0], sharex=self.ax_ss1)
             self.ax_lad_freq = self.fig.add_subplot(gs_row2[1])
+
+            gs_row3 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=self.gs_plots[2], wspace=0.15) 
+            self.ax_car = self.fig.add_subplot(gs_row3[0], sharex=self.ax_ss1) 
+            self.ax_car_freq = self.fig.add_subplot(gs_row3[1]) 
 
         # --- Configure SS1 Plot (Time Domain) ---
         self.line_ss1, = self.ax_ss1.plot([], [], color='black', lw=1.5, label="SS1 Pressure")
@@ -1607,9 +1636,16 @@ class SignalGUI:
         ]
         self.ax_lad.legend(handles=lad_legend_handles, loc="upper right", framealpha=0.9)
 
-        # Configure Navigator Bar 
-        self.ax_nav = self.fig.add_subplot(self.gs_plots[2])
-        ds = max(1, len(self.ss1) // 5000) # Heavy downsampling so the nav bar renders instantly
+        # Configure Carotid Plot (Time Domain)
+        self.line_car, = self.ax_car.plot([], [], color='darkcyan', lw=1.5, label="Carotid Flow") 
+        self.ax_car.axhline(0, color='gray', linestyle='--', alpha=0.5) 
+        self.ax_car.set_ylabel("Flow (mL/min)") 
+        self.ax_car.legend(loc="upper right", framealpha=0.9) 
+
+        # --- Configure Navigator Bar ---
+        self.ax_nav = self.fig.add_subplot(self.gs_plots[3]) 
+        # Downsample SS1 signal so the nav bar renders faster
+        ds = max(1, len(self.ss1) // 5000) 
         self.ax_nav.plot(np.arange(0, len(self.ss1), ds), self.ss1[::ds], color='gray', alpha=0.5)
         self.nav_cursor = self.ax_nav.axvline(self.current_pos, color='red', lw=2)
         self.ax_nav.set_yticks([])
@@ -1618,6 +1654,7 @@ class SignalGUI:
         # Hide x labels for shared axes if we aren't in freq mode (where space is tight)
         if self.freq_mode == 0:
             plt.setp(self.ax_ss1.get_xticklabels(), visible=False)
+            plt.setp(self.ax_lad.get_xticklabels(), visible=False) 
 
     def update_view(self):
         """
@@ -1631,6 +1668,7 @@ class SignalGUI:
         
         ss1_view = self.ss1[s:e]
         lad_view = self.lad[s:e]
+        car_view = self.car[s:e] 
 
         # Clean up old transient artist elements (prevents major memory leaks during playback)
         for span in self.spans: span.remove()
@@ -1658,13 +1696,16 @@ class SignalGUI:
         # Update Time Domain Line Traces
         self.line_ss1.set_data(x_data, ss1_view)
         self.line_lad.set_data(x_data, lad_view)
+        self.line_car.set_data(x_data, car_view)
 
         # Rescale the Y-axis dynamically based on the current visible data limits
         if e > s:
             self.ax_ss1.set_xlim(s, e)
             self.ax_lad.set_xlim(s, e)
+            self.ax_car.set_xlim(s, e)
             self._apply_scale(self.ax_ss1, ss1_view)
             self._apply_scale(self.ax_lad, lad_view)
+            self._apply_scale(self.ax_car, car_view)
 
         # Draw Beat Indicators and Calculate Centered Phase 
         center_beat = None
@@ -1683,22 +1724,24 @@ class SignalGUI:
                     # Calculate absolute index for the dicrotic notch
                     notch_abs = bpf.sbp_id + getattr(bpf, 'notch_id', 0) if getattr(bpf, 'notch_id', None) else None
                     if notch_abs:
-                        # --- Shade Systole (Onset to Notch) ---
+                        # Shade Systole (Onset to Notch)
                         s_span_1 = self.ax_ss1.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
                         s_span_2 = self.ax_lad.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2)
-                        # --- Shade Diastole (Notch to End/DBP) ---
+                        s_span_3 = self.ax_car.axvspan(bpf.onset, notch_abs, color='lightcoral', alpha=0.2) 
+                        # Shade Diastole (Notch to End/DBP)
                         d_span_1 = self.ax_ss1.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
                         d_span_2 = self.ax_lad.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2)
-                        self.spans.extend([s_span_1, s_span_2, d_span_1, d_span_2])
+                        d_span_3 = self.ax_car.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2) 
+                        self.spans.extend([s_span_1, s_span_2, s_span_3, d_span_1, d_span_2, d_span_3])      
 
-                        # --- Plot Scatter Points for SS1 ---
+                        # Plot Scatter Points for SS1
                         sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
                         sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
                         sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
                         sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='v')
                         self.scatters.extend([sc1, sc2, sc3, sc4])
 
-                        # --- Plot Scatter Points for LAD ---
+                        # Plot Scatter Points for LAD
                         lad_systole = self.lad[bpf.onset:notch_abs]
                         lad_diastole = self.lad[notch_abs:bpf.dbp_id]
                         sys_idx_abs = bpf.onset + np.argmax(lad_systole) if lad_systole.size > 0 else bpf.onset
@@ -1728,27 +1771,33 @@ class SignalGUI:
         if self.freq_mode == 1 and len(ss1_view) > 100:
             self.ax_ss1_freq.cla()
             self.ax_lad_freq.cla()
+            self.ax_car_freq.cla() 
             
-            # --- PSD (Welch) Mode ---
+            # PSD (Welch) Mode
             f_s, p_s = welch(ss1_view, fs=self.fs, nperseg=nperseg_sqi)
             f_l, p_l = welch(lad_view, fs=self.fs, nperseg=nperseg_sqi)
+            f_c, p_c = welch(car_view, fs=self.fs, nperseg=nperseg_sqi)
             
             self.ax_ss1_freq.plot(f_s, p_s, color='darkviolet', lw=1.5)
             self.ax_lad_freq.plot(f_l, p_l, color='darkviolet', lw=1.5)
+            self.ax_car_freq.plot(f_c, p_c, color='darkviolet', lw=1.5)
+
             self.ax_ss1_freq.fill_between(f_s, p_s, color='darkviolet', alpha=0.3)
             self.ax_lad_freq.fill_between(f_l, p_l, color='darkviolet', alpha=0.3)
+            self.ax_car_freq.fill_between(f_c, p_c, color='darkviolet', alpha=0.3)
             
             self.ax_ss1_freq.set_ylabel("Power / Hz")
             self.ax_lad_freq.set_ylabel("Power / Hz")
+            self.ax_car_freq.set_ylabel("Power / Hz")
             
             # Crop X-axis to physiological frequency range (0 to 30 Hz)
             self.ax_ss1_freq.set_xlim(0, 30) 
             self.ax_lad_freq.set_xlim(0, 30)
-            self.ax_ss1_freq.set_xlabel("Frequency (Hz)")
-            self.ax_lad_freq.set_xlabel("Frequency (Hz)")
-
+            self.ax_car_freq.set_xlim(0, 30) 
+            self.ax_car_freq.set_xlabel("Frequency (Hz)")
             self.ax_ss1_freq.set_title("SS1 Spectral Analysis", y=0.8, fontsize=10)
             self.ax_lad_freq.set_title("LAD Spectral Analysis", y=0.8, fontsize=10)
+            self.ax_car_freq.set_title("Carotid Spectral Analysis", y=0.8, fontsize=10)
 
         # Final UI Updates
         # Move navigator dot
@@ -1782,7 +1831,8 @@ class SignalGUI:
             text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
             text += f"Dia Peak: {fmt(getattr(bpf, 'lad_dia_pk', None), 2)}\n"
             text += f"DS Ratio: {fmt(getattr(bpf, 'lad_ds_rat', None), 2)}\n"
-            text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n\n"
+            text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n"
+            text += f"Ret Flow: {fmt(getattr(bpf, 'retro_flow', None), 2)}\n\n" 
             text += "--- Resistance ---\n"
             text += f"CVR:      {fmt(getattr(bpf, 'cvr', None), 2)}\n"
             text += f"DCR:      {fmt(getattr(bpf, 'dcr', None), 2)}\n"
@@ -2076,13 +2126,13 @@ class CardiacFreqTools:
         if total_power == 0:
             return 0.0, 1.0, np.nan, None
 
-        # --- In-Band Power Ratio ---
+        # In-Band Power Ratio
         # Look for power specifically in the 0.5 Hz to 15.0 Hz band (HR + Harmonics)
         band_mask = (freqs >= 0.1) & (freqs <= 15.0)
         in_band_power = np.sum(psd[band_mask])
         power_ratio = in_band_power / total_power
         
-        # --- Spectral Entropy ---
+        # Spectral Entropy
         # Normalize the PSD so it sums to 1 (like a probability distribution)
         psd_norm = psd / total_power
         
@@ -2091,13 +2141,13 @@ class CardiacFreqTools:
         spec_entropy = entropy(psd_norm)
         norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
         
-        # --- Wasserstein Distance (Distribution Shift) ---
+        # Wasserstein Distance (Distribution Shift)
         #NOTE - Save for later
             #Try to see if we can do it with shannon entropy / PSD.  
             #Use wasserstein as a backup
             #IDEA - What if you use the target label to calculate the wassterstein distance for each class.  
                 #Giving us a distribution distance from the previous class over time????  Not sure that helps
-            
+
         w_dist = np.nan
         if baseline_psd_norm is not None:
             # Treat the frequencies as the "locations" and normalized PSD as the "weights"
@@ -2141,19 +2191,18 @@ class EDA(object):
         #imputate sections needing it
         # for col in self.feature_names[4:]:
         #     self.imputate("mean", col)
-        
         #Replace zeros with nan's
         self.data.iloc[:, 1:].replace(0, np.nan, inplace=True)
 
         #Display nulls
         self.print_nulls(False)
-        
+
         #Drop nulls
         self.drop_nulls(self.feature_names[5:])
 
         #Drop zero vals
         self.drop_zeros(self.feature_names[5:])
-        
+
         #Drop outliers (features, IQR range)
         self.drop_outliers(self.feature_names[5:], 10)
 
@@ -2163,7 +2212,7 @@ class EDA(object):
                 self.data.pop(col)
                 self.feature_names.pop(self.feature_names.index(col))
                 logger.info(f"removed col {col}")
-        
+
         #Get rid of these cols for modeling. 
         else:
             for col in ["psd0", "psd1", "psd2", "psd3"]:
@@ -2175,7 +2224,7 @@ class EDA(object):
         self.target = self.data.pop("shock_class")
         self.feature_names.pop(self.feature_names.index("shock_class"))
         logger.info(f"assigned target {self.target.name}")
-        
+
         #Check nulls
         self.print_nulls(False)
 
@@ -2226,21 +2275,16 @@ class EDA(object):
         Args:
             col (str | list, optional): Column or list of columns to check for zeros. Defaults to None.
         """
-        
         logger.info(f'Shape before drop {self.data.shape}')
-        
         if isinstance(col, str):
             # Keep rows where the specific column does NOT equal 0
             self.data = self.data[self.data[col] != 0]
-            
         elif isinstance(col, list):
             # Keep rows where ALL of the specified columns do NOT equal 0. (equivalent to dropping if ANY of them are 0)
             self.data = self.data[(self.data[col] != 0).all(axis=1)]
-            
         else:
             # If col is None, check the entire DataFrame
             self.data = self.data[(self.data != 0).all(axis=1)]
-            
         logger.info(f'Shape after drop {self.data.shape}')
 
     #FUNCTION drop_outliers
@@ -2258,10 +2302,8 @@ class EDA(object):
             return
 
         logger.info(f'Shape before dropping outliers: {self.data.shape}')
-        
         # Standardize input to a list
         cols_to_check = [col] if isinstance(col, str) else col
-        
         for c in cols_to_check:
             if c in self.data.columns:
                 # Calculate Q1 (25th percentile) and Q3 (75th percentile)
@@ -2279,7 +2321,6 @@ class EDA(object):
                 
                 # Apply mask
                 self.data = self.data[mask]
-                
         logger.info(f'Shape after dropping outliers: {self.data.shape}')
 
     #FUNCTION print_nulls
@@ -2816,9 +2857,6 @@ class EDA(object):
                 timer_error.start()
                 plt.show()
                 plt.close()
-
-            # ax_hist.set_xlabel(f'Distribution of {feat_1}')
-            # ax_hist.set_ylabel('Count')
 
         #If its a jointplot
         if plot_type == "jointplot":
@@ -4696,3 +4734,11 @@ if __name__ == "__main__":
 
 #Early models to try. 
 #https://computationalphysiology.github.io/circulation/examples/regazzoni_scipy.html
+
+
+#NOTES - 3/3/26
+
+#Noticing ResThor - Nov 20 is double counting.  
+    #Could be due to the sharp inflection in the p2 peak.  
+    #Might need to boost the prominence.
+    #
