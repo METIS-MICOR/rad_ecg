@@ -65,11 +65,14 @@ name | datatype | description
 |lad_dia_pk  | f4 |  Diastolic Peak Flow
 |lad_sys_pk  | f4 |  Systolic Peak Flow
 |lad_ds_rat  | f4 |  Diastolic to Systolic Peak Ratio
-|lad_dia_auc | f4 |  Diastolic Flow Volume (AUC)
+|lad_dia_auc | f4 |  Diastolic flow reversal in LAD lead (AUC of negative values)
 |cvr         | f4 |  Coronary Vascular Resistance (MAP / LAD_mean)
 |dcr         | f4 |  Diastolic Coronary Resistance (DBP / LAD_dia_mean)
 |lad_pi      | f4 |  LAD Pulsatility Index (LAD_maxflow - LAD_minflow) / LAD_mean
 |lad_acc_sl  | f4 |  Diastolic Acceleration Slope
 |flow_div    | f4 |  Carotid to LAD Flow Ratio (LAD_mean_carotid / LAD_mean)
-|retro_flow  | f4 |  Calculating flow reversal in Carotid lead (AUC of neg values)
+|retro_flow  | f4 |  Calculating flow reversal in Carotid lead (AUC of negative values)
+|sqi_power   | f4 |  Spectral Purity (In-Band Power Ratio) |
+|sqi_entropy | f4 | Spectral Entropy
+
 #todo input entropy features

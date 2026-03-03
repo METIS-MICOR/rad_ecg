@@ -112,7 +112,7 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
+        self.view_eda      :bool  = False
         self.view_pig      :bool  = False
         self.view_models   :bool  = False
         self.fs            :float = 1000     #Hz
@@ -203,7 +203,6 @@ class PigRAD:
             ('sqi_entropy', 'f4'),  #Spectral Entropy
             # ('w_dist'     , 'f4'),#Wasserstein Distance from Baseline
         ]
-        #IDEA - feature - Pulse transit time?  
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
@@ -314,7 +313,7 @@ class PigRAD:
         # Calculate the first derivative (dp/dt) of this segment
         if segment.size > 30: #was 2 for gradient
             # dpdt = np.gradient(segment)
-            #update to smooth the signal
+            #BUG - update to smooth the signal?
             dpdt = self._derivative(segment, 1)
 
         else:
@@ -359,15 +358,6 @@ class PigRAD:
         # Safely assign indices. Encode section_peak as dual index
         bpf.id = str(idx) + "_" + str(id)                  
         bpf.sbp_id = peak.item()
-        #BUG - Find peaks bases
-            # Find peaks was failing in the later stages of hem shock when the
-            # dicrotic notch gets below the diastolic valley Being that the
-            # actual peak is finding correctly, 
-            # We can just use the onset for the diastolic of the the next peak :tada:
-            # Old Code for using find_peaks heights
-            # bpf.dbp_id = s_heights["right_bases"][id].item()
-            # bpf.onset = s_heights["left_bases"][id].item() if id == 0 else s_heights["right_bases"][id - 1].item()
-
         next_peak = s_peaks[id + 1].item()
         bpf.dbp_id = self._find_sbp_info(ss1wave, next_peak)
         bpf.onset = self._find_sbp_info(ss1wave, bpf.sbp_id)
@@ -878,7 +868,8 @@ class PigRAD:
                     else:
                         # ---  Phase Metric Extraction ---
                         # Choose a target freq (e.g., 2Hz matches typical cardiac rhythm)
-                        target_f = 2.0 
+                        # Data suggests dominant frequency around 2.4.  Adjusting 
+                        target_f = 2.4
                         
                         beat_phases_mor, var_mor = freq_tool.compute_section_phase_metric(
                             ss1wave, 
@@ -1756,8 +1747,8 @@ class SignalGUI:
             self.ax_ss1_freq.set_xlabel("Frequency (Hz)")
             self.ax_lad_freq.set_xlabel("Frequency (Hz)")
 
-            self.ax_ss1_freq.set_title("SS1 Spectral Analysis", fontsize=10)
-            self.ax_lad_freq.set_title("LAD Spectral Analysis", fontsize=10)
+            self.ax_ss1_freq.set_title("SS1 Spectral Analysis", y=0.8, fontsize=10)
+            self.ax_lad_freq.set_title("LAD Spectral Analysis", y=0.8, fontsize=10)
 
         # Final UI Updates
         # Move navigator dot
@@ -1947,9 +1938,18 @@ class CardiacFreqTools:
         return wavelet
 
     def compute_section_phase_metric(self, signal:np.array, peaks:list, target_freq:float = 2.0, wavelet:str = 'morlet'):
+        """Calculates the average phase angle for each beat and phase variance for the section.
+
+        Args:
+            signal (np.array): _description_
+            peaks (list): _description_
+            target_freq (float, optional): _description_. Defaults to 2.0.
+            wavelet (str, optional): _description_. Defaults to 'morlet'.
+
+        Returns:
+            _type_: _description_
         """
-        Calculates the average phase angle for each beat and phase variance for the section.
-        """
+        
         if len(peaks) < 2:
             return [], np.nan
             
@@ -3056,7 +3056,7 @@ class FeatureEngineering(EDA):
             self.feature_names.pop(self.feature_names.index(col))
             self.feature_names.append(norm_col)
         super().sum_stats(self.feature_names[4:], "Normalized Features")
-        logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if "_delta" in x]}')
+        logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if "_d" in x]}')
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
