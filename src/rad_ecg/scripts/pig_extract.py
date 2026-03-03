@@ -100,6 +100,9 @@ class BP_Feat():
     lad_dia_pk  :float = None #Mean diastolic peak
     lad_ds_rat  :float = None #Diastolic to Systolic Peak Ratio
     lad_dia_auc :float = None #Diastolic Flow Volume (AUC)
+    #TODO - 
+        #Check flow rates have been zeroed in between like retro_flow
+        
     cvr         :float = None #Coronary Vascular Resistance (MAP / LAD_mean)
     dcr         :float = None #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
     lad_pi      :float = None #LAD Pulsatility Index
@@ -113,8 +116,8 @@ class PigRAD:
         # load data / params
         self.npz_path      :Path  = npz_path
         self.view_eda      :bool  = False
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = True
+        self.view_pig      :bool  = True
+        self.view_models   :bool  = False
         self.fs            :float = 1000    #Hz
         self.windowsize    :int   = 8       #size of section window 
         self.batch_run     :bool  = isinstance(npz_path, list)
@@ -627,7 +630,7 @@ class PigRAD:
                         dia_run = dia_pk_idx_rel / self.fs
                         bpf.lad_acc_sl = ((bpf.lad_dia_pk - lad_diastole[0]) / dia_run).item()
             # =====================================================
-            # --- Carotid Retrograde Flow & Resistance Features ---
+            # --- Carotid Retrograde Flow ---
             # =====================================================
             if getattr(bpf, 'notch', None):
                 car_diastole = carwave[notch_abs:bpf.dbp_id]
