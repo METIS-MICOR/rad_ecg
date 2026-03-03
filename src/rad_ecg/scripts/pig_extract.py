@@ -100,9 +100,6 @@ class BP_Feat():
     lad_dia_pk  :float = None #Mean diastolic peak
     lad_ds_rat  :float = None #Diastolic to Systolic Peak Ratio
     lad_dia_auc :float = None #Diastolic Flow Volume (AUC)
-    #TODO - 
-        #Check flow rates have been zeroed in between like retro_flow
-        
     cvr         :float = None #Coronary Vascular Resistance (MAP / LAD_mean)
     dcr         :float = None #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
     lad_pi      :float = None #LAD Pulsatility Index
@@ -614,6 +611,7 @@ class PigRAD:
                         bpf.lad_ds_rat = bpf.lad_dia_pk / bpf.lad_sys_pk
                      
                     # Diastolic Volume (AUC)
+                    lad_diastole_pos = np.where(lad_diastole < 0, lad_diastole, 0)
                     bpf.lad_dia_auc = self._integrate(lad_diastole)
                     
                     # Diastolic Coronary Resistance
@@ -752,7 +750,7 @@ class PigRAD:
                     sample_duration=self.windowsize
                 )
                 # self.ss1_lead = self.loader.auto_pick_lead(
-                #     target_name="SS1", 
+                #     target_name="SS1 (SP200)", 
                 #     channels=channels,
                 #     data_source=full_data, 
                 #     num_needed=1, 
