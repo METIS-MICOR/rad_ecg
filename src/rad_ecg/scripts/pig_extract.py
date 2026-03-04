@@ -68,9 +68,9 @@ try:
 except ImportError:
     CUPY_AVAILABLE = False
 
-#CLASS BP_Feat
+#CLASS Pig_Feat
 @dataclass
-class BP_Feat():
+class Pig_Feat():
     id          :str   = None #record index
     onset       :int   = None #Left trough of Systolic peak
     sbp_id      :int   = None #Sytolic Index
@@ -114,10 +114,10 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = False
-        self.view_models :bool  = True
+        self.view_pig    :bool  = True
+        self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
-        self.windowsize  :int   = 8       #size of section window 
+        self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
@@ -143,7 +143,7 @@ class PigRAD:
         # Master lists to hold data across all pigs
         self.all_avg_data :List = [] 
         self.avg_data     :List = []
-        self.bp_data      :List[BP_Feat] = []
+        self.bp_data      :List[Pig_Feat] = []
         self.gpu_devices  :list = [device.id for device in cuda.list_devices()]
         #NOTE - Turn off self.loader.auto_pick_lead to debug.  Tends to crash debugger.
         self.ecg_lead     :int = 2 #self.pick_lead("ECG")      #2 pick the ECG lead
@@ -290,6 +290,7 @@ class PigRAD:
         cutoff = highcut / nyq
         b, a = butter(order, cutoff, btype='high', analog=False)
         return filtfilt(b, a, data)
+    
     def _notch_filt(self, data:np.array, notch_freq:float=60.0, q_factor:float=30.0, fs=1000.0)->np.array:
         """Apply a Notch Filter to remove a specific frequency
 
@@ -353,7 +354,7 @@ class PigRAD:
         
         return true_onset_idx
 
-    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> BP_Feat:
+    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> Pig_Feat:
         """Extracts features for a single beat.
 
         Args:
@@ -367,9 +368,9 @@ class PigRAD:
             s_peaks (np.ndarray): _description_
 
         Returns:
-            BP_Feat(dataclass): Beat object with generated features
+            Pig_Feat(dataclass): Beat object with generated features
         """
-        bpf = BP_Feat()
+        bpf = Pig_Feat()
         # ==========================================
         # --- Pressure Features ---
         # ==========================================
@@ -811,9 +812,10 @@ class PigRAD:
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
                     full_data[channels[lead]] = self._low_pass_filt(data=full_data[channels[lead]], lowcut=40)
                     logger.info(f"{channels[lead]} lowpass filtered lowcut: 40")
+                    # logger.info(f"{channels[lead]} bandpass filtered lowcut: 0.1 highcut:40")
 
                 jobtask_proc = progress.add_task(f"{next(menwithouthats)}", total=pig_avg_data.shape[0])
-                tot_beats:list[BP_Feat] = []
+                tot_beats:list[Pig_Feat] = []
                 
                 for idx, section in enumerate(pig_avg_data):
                     start = section["start"].item()
@@ -892,7 +894,7 @@ class PigRAD:
                         # ---  Phase Metric Extraction ---
                         # Choose a target freq (e.g., 2Hz matches typical cardiac rhythm)
                         # Data suggests dominant frequency around 2.4.  Adjusting 
-                        target_f = 2.3
+                        target_f = 2.0
                         
                         beat_phases_mor, var_mor = freq_tool.compute_section_phase_metric(
                             ss1wave, 
@@ -919,7 +921,7 @@ class PigRAD:
                         else:
                             logger.warning(f"Empty slice encountered in sect {idx}")
                     
-                    ind_beats:list[BP_Feat] = []
+                    ind_beats:list[Pig_Feat] = []
 
                     #Initialize the baseline PSD for each pig
                     # baseline_psd_norm = None
@@ -1038,17 +1040,16 @@ class PigRAD:
             
             if self.view_pig:
                 pass
-                # Launch Viewer
-                #TODO - Regime Viewer update
-                    #Will need to update this. 
-
-                # RegimeViewer(
-                #     signal_data=self.full_data[self.lead].astype(np.float64),
-                #     cac_data=cac,
-                #     regime_locs=regime_locs,
-                #     m=m,
-                #     sampling_rate=self.fs,
-                #     lead=self.lead
+                # for pig in self.pig_names:
+                #     pass
+                # viewer = SignalGUI(
+                #     ss1_data = full_data[channels[self.ss1_lead]].to_numpy(), 
+                #     lad_data = full_data[channels[self.lad_lead]], 
+                #     car_data = full_data[channels[self.car_lead]],
+                #     beats = tot_beats, 
+                #     sampling_rate = self.fs,
+                #     window_size = int(self.fs * 5),  # Show 5 seconds of data at a time
+                #     pig_id = pig_id
                 # )
         else:
             console.print("[yellow]No saved data found. Running pipeline...[/]")
@@ -1463,7 +1464,7 @@ class SignalGUI:
             ss1_data (np.array): SS1 pressure signal.
             lad_data (np.array): LAD flow signal.
             car_data (np.array): Carotid flow signal. 
-            beats (list[BP_Feat]): List of extracted BP_Feat dataclasses.
+            beats (list[Pig_Feat]): List of extracted Pig_Feat dataclasses.
             sampling_rate (float): Sampling frequency (fs) in Hz.
             window_size (int): Number of samples to show in the view (e.g., 5000 = 5 seconds at 1kHz).
             pig_id (str): Pig ID for titles and file exports.
@@ -1971,7 +1972,7 @@ class CardiacFreqTools:
     #TODO - Update CardiacFreqTools with more stumpy 
         #Try extracting regime change in LAD.  Looking for inverted signals in
         #the wave form and possibly we can extract those. 
-        
+
     #TODO - Investigate wavelet transform to remove baseline wander. 
         #You're already using a CWT for pulse analysis, 
         #Use it to deconstruct the levels and reassemble the signal
@@ -2210,6 +2211,7 @@ class EDA(object):
         #imputate sections needing it
         # for col in self.feature_names[4:]:
         #     self.imputate("mean", col)
+        
         #Replace zeros with nan's
         self.data.iloc[:, 1:].replace(0, np.nan, inplace=True)
 
