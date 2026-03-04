@@ -99,7 +99,8 @@ class BP_Feat():
     lad_sys_pk  :float = None #Mean systolic peak
     lad_dia_pk  :float = None #Mean diastolic peak
     lad_ds_rat  :float = None #Diastolic to Systolic Peak Ratio
-    lad_dia_auc :float = None #Diastolic Flow Volume (AUC)
+    lad_dia_net :float = None #Diastolic Net Flow Volume (AUC)
+    lad_dia_neg :float = None #Diastolic Negative Flow Volume (AUC)
     cvr         :float = None #Coronary Vascular Resistance (MAP / LAD_mean)
     dcr         :float = None #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
     lad_pi      :float = None #LAD Pulsatility Index
@@ -111,13 +112,13 @@ class BP_Feat():
 class PigRAD:
     def __init__(self, npz_path):
         # load data / params
-        self.npz_path      :Path  = npz_path
-        self.view_eda      :bool  = True
-        self.view_pig      :bool  = False
-        self.view_models   :bool  = False
-        self.fs            :float = 1000     #Hz
-        self.windowsize    :int   = 10       #size of section window 
-        self.batch_run     :bool  = isinstance(npz_path, list)
+        self.npz_path    :Path  = npz_path
+        self.view_eda    :bool  = False
+        self.view_pig    :bool  = False
+        self.view_models :bool  = True
+        self.fs          :float = 1000     #Hz
+        self.windowsize  :int   = 8       #size of section window 
+        self.batch_run   :bool  = isinstance(npz_path, list)
         # Multiple file pathing
         if self.batch_run:
             # Grab the parent directory of the first file in the batch list
@@ -180,7 +181,8 @@ class PigRAD:
             ('lad_dia_pk' , 'f4'),  #Diastolic Peak Flow
             ('lad_sys_pk' , 'f4'),  #Systolic Peak Flow
             ('lad_ds_rat' , 'f4'),  #Diastolic to Systolic Peak Ratio
-            ('lad_dia_auc', 'f4'),  #Diastolic Flow Volume (AUC)
+            ('lad_dia_net', 'f4'),  #Diastolic Net Flow Volume (AUC)
+            ('lad_dia_neg', 'f4'),  #Diastolic Negative Flow Volume (AUC)
             ('cvr'        , 'f4'),  #Coronary Vascular Resistance (MAP / LAD_mean)
             ('dcr'        , 'f4'),  #Diastolic Coronary Resistance (DBP / LAD_dia_mean)
             ('lad_pi'     , 'f4'),  #LAD Pulsatility Index
@@ -255,12 +257,12 @@ class PigRAD:
         b, a = butter(order, [low, high], btype='band')
         return filtfilt(b, a, data)
 
-    def _low_pass_filt(self, data:np.array, lowcut:float=5, fs=1000.0, order:int=4)->np.array:
+    def _low_pass_filt(self, data:np.array, lowcut:float=40, fs=1000.0, order:int=4)->np.array:
         """Apply Low pass filter
 
         Args:
             data (np.array): Signal to filter
-            lowcut (float, optional): lowcut frequency. Defaults to 5.
+            lowcut (float, optional): lowcut frequency. Defaults to 40.
             fs (float, optional): sampling rate. Defaults to 1000.0.
             order (int, optional): Order of the filter. Defaults to 4.
 
@@ -605,6 +607,10 @@ class PigRAD:
                 lad_diastole = ladwave[notch_abs:bpf.dbp_id]
                 #Assign LAD peaks for systole and diastole
                 if lad_systole.size > 0 and lad_diastole.size > 0:
+                    #BUG - lad_sys_pk 
+                        #sometimes catches the downslope after the systole
+                        #adjust it to find the largest peak (1st deriv)
+                    
                     bpf.lad_sys_pk = np.max(lad_systole).item()
                     bpf.lad_dia_pk = np.max(lad_diastole).item()
                     
@@ -612,9 +618,10 @@ class PigRAD:
                     if abs(bpf.lad_sys_pk) > eps:
                         bpf.lad_ds_rat = bpf.lad_dia_pk / bpf.lad_sys_pk
                      
-                    # Diastolic Volume (AUC)
+                    # Diastolic Volume (AUC) (Net and Negative)
+                    bpf.lad_dia_net = self._integrate(lad_diastole)
                     lad_diastole_neg = np.where(lad_diastole < 0, lad_diastole, 0)
-                    bpf.lad_dia_auc = np.abs(self._integrate(lad_diastole_neg))
+                    bpf.lad_dia_neg = np.abs(self._integrate(lad_diastole_neg))
                     
                     # Diastolic Coronary Resistance
                     lad_dia_mean = np.mean(lad_diastole).item()
@@ -831,14 +838,14 @@ class PigRAD:
                     carwave = full_data[channels[self.car_lead]][start:end]
 
                     #New feature
-                    #TODO - Develop a feature routine that can evaluate if we have a biological signal. 
-                        #IDEA - Welch's STFT for signal majority in the 0.5Hz to 15Hz band
-                        #IDEA - Shannon Entropy
+                    #[x] Develop a feature routine that can evaluate if we have a biological signal. 
+                        #[x] - Welch's STFT for signal majority in the 0.5Hz to 15Hz band
+                        #[x] - Shannon Entropy
                         #IDEA - Wasserstein Distribution shift. 
                             #This didn't really work
                     
                     # ---Signal Quality & Baseline Check ---
-                    power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(ss1wave)
+                    power_ratio, spec_entropy, _ = freq_tool.evaluate_signal(ss1wave)
                     # power_ratio, spec_entropy, w_dist, current_psd_norm = freq_tool.evaluate_signal(
                     #     ss1wave, baseline_psd_norm=baseline_psd_norm
                     # )
@@ -885,7 +892,7 @@ class PigRAD:
                         # ---  Phase Metric Extraction ---
                         # Choose a target freq (e.g., 2Hz matches typical cardiac rhythm)
                         # Data suggests dominant frequency around 2.4.  Adjusting 
-                        target_f = 2.4
+                        target_f = 2.3
                         
                         beat_phases_mor, var_mor = freq_tool.compute_section_phase_metric(
                             ss1wave, 
@@ -962,7 +969,8 @@ class PigRAD:
                     pig_avg_data["lad_dia_pk"][idx]  = self._yabig_meanie([r.lad_dia_pk for r in ind_beats])
                     pig_avg_data["lad_sys_pk"][idx]  = self._yabig_meanie([r.lad_sys_pk for r in ind_beats])
                     pig_avg_data["lad_ds_rat"][idx]  = self._yabig_meanie([r.lad_ds_rat for r in ind_beats])
-                    pig_avg_data["lad_dia_auc"][idx] = self._yabig_meanie([r.lad_dia_auc for r in ind_beats])
+                    pig_avg_data["lad_dia_net"][idx] = self._yabig_meanie([r.lad_dia_net for r in ind_beats])
+                    pig_avg_data["lad_dia_neg"][idx] = self._yabig_meanie([r.lad_dia_neg for r in ind_beats])
                     pig_avg_data["cvr"][idx]         = self._yabig_meanie([r.cvr for r in ind_beats])
                     pig_avg_data["dcr"][idx]         = self._yabig_meanie([r.dcr for r in ind_beats])
                     pig_avg_data["lad_pi"][idx]      = self._yabig_meanie([r.lad_pi for r in ind_beats])
@@ -1099,27 +1107,36 @@ class PigRAD:
                 #bias a model if one variable is especially different from pig to pig. 
                 #Which means we have to make normalize the variables to be subject
                 #specific.  So instead of real values we use delta's from a
-                #5 minute baseline as our inputs.  
+                #5 minute baseline as our inputs.
+
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
 
             #Remove unwanted features
             removecols = [
-                "aix", "lad_mean", "cvr", 
-                "flow_div", "lad_pi", "ap_MAP", "shock_gap"
-                #"f0", "f1", "f2", "f3", "var_mor", "var_cgau", 
+                "aix", "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
+                "shock_gap", #"lad_dia_neg", "lad_dia_net",
+                "f0", "f1", "f2", "f3", 
+                # "var_mor", "var_cgau", 
             ]
+
             for col in removecols:
                 if col in colsofinterest:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "SBP", "DBP", "true_MAP", "lad_mean", "dcr",
-                "cvr", "sys_sl", "p1", "p2", "p3", "f0", "f1", "f2", "f3",
-                "lad_dia_pk", "lad_sys_pk", "lad_acc_sl", "p1_p2", "p1_p3",
-                "pul_wid", "sqi_power","sqi_entropy", "dia_sl", "ri", "dni",
-                "lad_dia_auc", "lad_ds_rat","var_mor", "var_cgau", "retro_flow"
+                "HR", "SBP", "DBP", "true_MAP", "dni", "ri", "dcr", 
+                "sys_sl", "dia_sl", "p1", "p2", "p3", "p1_p2", "p1_p3", "lad_dia_pk", "lad_sys_pk", 
+                "lad_acc_sl", "pul_wid", "lad_dia_net",
             ]
+
+            # allcols
+            # HR, SBP, DBP, EBV, true_MAP, ap_MAP, shock_gap, dni, sys_sl,
+            # dia_sl, ri, pul_wid, p1, p2, p3, p1_p2, p1_p3, aix, lad_mean,
+            # lad_dia_pk, lad_sys_pk, lad_ds_rat, lad_dia_net, lad_dia_neg, cvr,
+            # dcr, lad_pi, lad_acc_sl, flow_div, retro_flow, f0, f1, f2, f3,
+            # var_mor, var_cgau, sqi_power, sqi_entropy 
+            # psd0, psd1, psd2, psd3, #removed in data cleaning
 
             engin.normalize_subjects(norm_features)
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1]) if engin.data.columns[x] not in removecols]
@@ -1402,7 +1419,7 @@ class SignalDataLoader:
                 continue
                 
             # Quality Test
-            power_ratio, spec_entropy, _, _ = freq_tool.evaluate_signal(sig_sample)
+            power_ratio, spec_entropy, _ = freq_tool.evaluate_signal(sig_sample)
             cand['power_ratio'] = power_ratio
             cand['entropy'] = spec_entropy
             cand['quality_score'] = power_ratio + (1.0 - spec_entropy)
@@ -1504,8 +1521,8 @@ class SignalGUI:
         # Right Panel: Side Controls & Live Metrics Readout
         self.gs_side = gridspec.GridSpecFromSubplotSpec(
             7, 1, subplot_spec=self.gs_main[1], 
-            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4], 
-            hspace=0.4
+            height_ratios=[0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 4.5], 
+            hspace=0.3
         )
         self.setup_controls()
 
@@ -1831,7 +1848,8 @@ class SignalGUI:
             text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
             text += f"Dia Peak: {fmt(getattr(bpf, 'lad_dia_pk', None), 2)}\n"
             text += f"DS Ratio: {fmt(getattr(bpf, 'lad_ds_rat', None), 2)}\n"
-            text += f"Dia AUC:  {fmt(getattr(bpf, 'lad_dia_auc', None), 2)}\n"
+            text += f"Dia Net:  {fmt(getattr(bpf, 'lad_dia_net', None), 2)}\n"
+            text += f"Dia Neg:  {fmt(getattr(bpf, 'lad_dia_neg', None), 2)}\n"
             text += f"Ret Flow: {fmt(getattr(bpf, 'retro_flow', None), 2)}\n\n" 
             text += "--- Resistance ---\n"
             text += f"CVR:      {fmt(getattr(bpf, 'cvr', None), 2)}\n"
@@ -1953,6 +1971,11 @@ class CardiacFreqTools:
     #TODO - Update CardiacFreqTools with more stumpy 
         #Try extracting regime change in LAD.  Looking for inverted signals in
         #the wave form and possibly we can extract those. 
+        
+    #TODO - Investigate wavelet transform to remove baseline wander. 
+        #You're already using a CWT for pulse analysis, 
+        #Use it to deconstruct the levels and reassemble the signal
+        #without the wander. 
 
     def get_wavelet(self, wavelet_type:str, center_freq:float):
         """Generates the requested wavelet kernel
@@ -2128,7 +2151,7 @@ class CardiacFreqTools:
 
         # In-Band Power Ratio
         # Look for power specifically in the 0.5 Hz to 15.0 Hz band (HR + Harmonics)
-        band_mask = (freqs >= 0.1) & (freqs <= 15.0)
+        band_mask = (freqs >= 0.5) & (freqs <= 15.0) 
         in_band_power = np.sum(psd[band_mask])
         power_ratio = in_band_power / total_power
         
@@ -2142,18 +2165,14 @@ class CardiacFreqTools:
         norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
         
         # Wasserstein Distance (Distribution Shift)
-        #NOTE - Save for later
-            #Try to see if we can do it with shannon entropy / PSD.  
-            #Use wasserstein as a backup
-            #IDEA - What if you use the target label to calculate the wassterstein distance for each class.  
-                #Giving us a distribution distance from the previous class over time????  Not sure that helps
+        #TODO - Wasserstein
+            #Not using this anymore.  remove in next iteration
+        # w_dist = np.nan
+        # if baseline_psd_norm is not None:
+        #     # Treat the frequencies as the "locations" and normalized PSD as the "weights"
+        #     w_dist = wasserstein_distance(freqs, freqs, u_weights=psd_norm, v_weights=baseline_psd_norm)
 
-        w_dist = np.nan
-        if baseline_psd_norm is not None:
-            # Treat the frequencies as the "locations" and normalized PSD as the "weights"
-            w_dist = wasserstein_distance(freqs, freqs, u_weights=psd_norm, v_weights=baseline_psd_norm)
-
-        return power_ratio, norm_spec_entropy, w_dist, psd_norm
+        return power_ratio, norm_spec_entropy, psd_norm
 
 #CLASS EDA
 class EDA(object):
@@ -3081,7 +3100,7 @@ class FeatureEngineering(EDA):
                 else:
                     #If you can't find a BL mask.  Fall back to the first 10% of
                     #the data to build your baseline.
-                    sub_indices = self.data[pig].index
+                    sub_indices = self.data[self.data["pig_id"]==pig].index
                     fallback_cutoff = max(1, len(sub_indices) // 10)
                     baseline_ind = sub_indices[:fallback_cutoff]
                     baseline_m = self.data.loc[baseline_ind, col].mean()
@@ -3090,8 +3109,8 @@ class FeatureEngineering(EDA):
                 vals = self.data.loc[sub_mask, col]
                 self.data.loc[sub_mask, norm_col] = (vals - baseline_m) / (abs(baseline_m) + 1e-6) #tiny shift so no divide by zero errors
 
-            self.data.drop([col], axis=1, inplace=True)
-            self.feature_names.pop(self.feature_names.index(col))
+            # self.data.drop([col], axis=1, inplace=True)
+            # self.feature_names.pop(self.feature_names.index(col))
             self.feature_names.append(norm_col)
         super().sum_stats(self.feature_names[4:], "Normalized Features")
         logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if "_d" in x]}')
@@ -4741,4 +4760,14 @@ if __name__ == "__main__":
 #Noticing ResThor - Nov 20 is double counting.  
     #Could be due to the sharp inflection in the p2 peak.  
     #Might need to boost the prominence.
-    #
+    #Boosted prominence from 30 to 40
+#Bandpass
+    #Bandpassing was aliasing the integral because we weren't letting in low signal power during the later stages of hem shock.  Great catchy by Jack!
+    #Solved with a low pass filter with a 40hz cutoff
+#Modeling
+    #results plummetted 12 % 
+    #I think more errors are getting through on certain subjects
+    #increase inband power 0.95 to 96
+    #lower band freq from 0.1 to 0.01
+
+
