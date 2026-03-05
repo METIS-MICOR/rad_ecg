@@ -55,9 +55,10 @@ from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold, GroupShu
 from sklearn.model_selection import GridSearchCV, LeaveOneGroupOut, ShuffleSplit, StratifiedShuffleSplit
 # from sklearn.decomposition import PCA
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.linear_model import LinearRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
-from sklearn.svm import SVC
+from sklearn.svm import SVC, LinearSVC
 from xgboost import XGBClassifier
 import xgboost as xgb
 
@@ -1105,18 +1106,19 @@ class PigRAD:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
             # engin.engineer("aix", True, False, "BoxC")
-            # engin.engineer("psd0", True, False, "BoxC")
-            # engin.engineer("psd1", True, False, "BoxC")
-            # engin.engineer("psd2", True, False, "BoxC")
-            # engin.engineer("psd3", True, False, "BoxC")
+            # engin.engineer("psd0", True, False, "log")
+            # engin.engineer("psd1", True, False, "log")
+            # engin.engineer("psd2", True, False, "log")
+            # engin.engineer("psd3", True, False, "log")
+
             #[x] - Normalization
                 #Normally in ML we're dealing with cross sectional data. Each row is an
                 #independent unrelated event.  In Longitudinal, subject-grouped data, 
                 #these absolute numbers across pigs can be bad predictors and easily
                 #bias a model if one variable is especially different from pig to pig. 
                 #Which means we have to make normalize the variables to be subject
-                #specific.  So instead of real values we use delta's from a
-                #5 minute baseline as our inputs.
+                #specific.  So along with the real values,  we use delta's from a
+                #5 minute baseline.  Giving the model more to learn from. 
 
             #reassign interest cols after transform
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
@@ -1124,9 +1126,7 @@ class PigRAD:
             #Remove unwanted features
             removecols = [
                 "aix", "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
-                "shock_gap", #"lad_dia_neg", "lad_dia_net",
-                "f0", "f1", "f2", "f3", 
-                # "var_mor", "var_cgau", 
+                "shock_gap", "p2", "p3", "f0", "f1", "f2", "f3", 
             ]
 
             for col in removecols:
@@ -1134,9 +1134,9 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "SBP", "DBP", "true_MAP", "dni", "ri", "dcr", 
-                "sys_sl", "dia_sl", "p1", "p2", "p3", "p1_p2", "p1_p3", "lad_dia_pk", "lad_sys_pk", 
-                "lad_acc_sl", "pul_wid", "lad_dia_net",
+                "HR", "SBP", "DBP", "true_MAP", "dni", "ri", "dcr", "sys_sl",
+                "dia_sl", "p1", "p2", "p3", "p1_p2", "p1_p3", "lad_dia_pk",
+                "lad_sys_pk", "lad_acc_sl", "pul_wid", "lad_dia_net", "lad_dia_neg"
             ]
 
             # allcols
@@ -1146,9 +1146,14 @@ class PigRAD:
             # dcr, lad_pi, lad_acc_sl, flow_div, retro_flow, f0, f1, f2, f3,
             # var_mor, var_cgau, sqi_power, sqi_entropy 
             # psd0, psd1, psd2, psd3, #removed in data cleaning
+            
 
+            #Create a delta from the first 5 minute baseline as a feature. 
             engin.normalize_subjects(norm_features)
+
+            #Secure columns we want to model with            
             colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1]) if engin.data.columns[x] not in removecols]
+
             #Scale your variables to the same scale.  Necessary for most machine learning applications. 
             #available sklearn scalers
             #s_scale : StandardScaler
@@ -1181,7 +1186,10 @@ class PigRAD:
             
             #split the training data #splits: test 25%, train 75% 
             [dp.data_prep(model, 0.25) for model in modellist]
-            
+
+            #Check VIF on SVM
+            dp.check_vif(features=colsofinterest, model_name="svm")
+
             #Load the ModelTraining Class
             console.print("[green]training models...[/]")
             modeltraining = ModelTraining(dp)
@@ -2306,7 +2314,7 @@ class EDA(object):
 
         """
         logger.info(f'Shape before drop {self.data.shape}')
-        criticals = ["HR", "SBP", "DBP", "true_MAP", "pul_wid"]
+        criticals = ["HR", "SBP", "DBP", "pul_wid"]
         # drops rows where zeros would be physically impossible
         self.data = self.data[(self.data[criticals] != 0).all(axis=1)]
         logger.info(f'Shape after drop {self.data.shape}')
@@ -3119,6 +3127,8 @@ class FeatureEngineering(EDA):
             self.feature_names.append(norm_col)
         super().sum_stats(self.feature_names[4:], "Normalized Features")
         logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if x.endswith("_d")]}')
+    
+
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
@@ -3304,6 +3314,70 @@ class DataPrep(object):
         if self.cross_val:
             logger.info(f'Cross Validation:{self.cross_val}')
 
+    #FUNCTION Check Variance of Inflation Factor (VIF)
+    def check_vif(self, features:list, threshold:float=10.0, model_name:str=None):
+        """
+        Checks VIF. If model_name is provided, it checks the scaled X_train data.
+        Otherwise, it checks the raw unscaled data.
+        """
+        # 1. Grab the correct data and ensure it's a DataFrame
+        if model_name and model_name in self._traind:
+            # Reconstruct the DataFrame from the scaled NumPy array
+            X_train_arr = self._traind[model_name]["X_train"]
+            df = pd.DataFrame(X_train_arr, columns=features)
+            console.log(f"Running VIF on scaled training data for: {model_name}")
+        else:
+            # Fallback to the raw, unscaled data
+            df = self.data[features].copy()
+            console.log("Running VIF on raw, unscaled data")
+
+        # Update features list in case constant columns were dropped
+        current_features = df.columns
+        
+        vif_res = []
+        model = LinearRegression()
+        
+        # Calculate VIF
+        for feature in current_features:
+            y = df[feature]
+            X = df.drop(columns=[feature])
+            model.fit(X, y)
+            r_squared = model.score(X, y)
+            
+            if r_squared > 0.99999:
+                vif = np.inf
+            else:
+                vif = 1.0 / (1.0 - r_squared)
+            vif_res.append({'Feature': feature, 'VIF': vif})
+        
+        vif_df = pd.DataFrame(vif_res)
+        vif_df = vif_df.sort_values(by="VIF", ascending=False).reset_index(drop=True)
+        vif_df["Drop_Rec"] = vif_df["VIF"] > threshold
+        
+        # 4. Build the Rich Table
+        table = Table(title="Top 10 VIF Scores", style="on black")
+        table.add_column("Measure Name", style="white", justify="right")
+        table.add_column("VIF Score", justify="center")
+
+        for _, row in vif_df.head(10).iterrows():
+            col_name = row["Feature"]
+            vif_val = row["VIF"]
+            if vif_val == np.inf or vif_val >= 10.0:
+                color = "red"
+            elif vif_val >= 5.0:
+                color = "dark_orange"
+            else:
+                color = "green"
+                
+            if vif_val == np.inf:
+                vif_str = f"[{color}]INF[/{color}]"
+            else:
+                vif_str = f"[{color}]{vif_val:.2f}[/{color}]"
+            
+            table.add_row(col_name, vif_str)
+            
+        console.print(table)
+
     #FUNCTION dataprep
     def data_prep(
             self, 
@@ -3442,7 +3516,7 @@ class DataPrep(object):
             #Fit/transform the scaler only on the training data
             self._traind[model_name]["X_train"] = scaler.fit_transform(self._traind[model_name]["X_train"])
             
-            # Apply the scaling parameters to the test set (DO NOT FIT AGAIN)
+            # Apply the scaling parameters to the test set (don't fit it again)
             self._traind[model_name]["X_test"] = scaler.transform(self._traind[model_name]["X_test"])
             
             # (Optional) If you need the full 'X' array scaled for other reasons, scale it now 
@@ -3529,7 +3603,7 @@ class ModelTraining(object):
                     "n_jobs":None,                      #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
                     "warm_start":False,                 #bool | False
-                    "class_weight":"balanced"            #Treat target as ordinal
+                    "class_weight":"balanced"           #Treat target as ordinal
                 },
                 "grid_srch_params":{
                     "n_estimators":range(5, 200, 10),
@@ -3572,6 +3646,46 @@ class ModelTraining(object):
                     "weights":["uniform", "distance"],
                     "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
                     "leaf_size":range(5, 50),             
+                }
+            },
+            "linsvm":{
+                #Notes. 
+                "model_name":"OneVsRestClassifier(SVM)  ",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
+                #https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
+                "base_params":{
+                    "penalty":"l2",
+                    "loss": "hinge",
+                    "dual": "auto",
+                    "C": 1.0,
+                    "tol": 0.0001,
+                    "multi_class":"ovr",
+                    "fit_intercept":True,
+                    "intercept_scaling":1.0,
+                    "class_weight":None,
+                    "random_state":None,
+                    "max_iter":1000
+                },
+                "init_params":{
+                    "penalty":"l2",
+                    "loss": "hinge",
+                    "dual": "auto",
+                    "C": 1.0,
+                    "tol": 0.0001,
+                    "multi_class":"ovr",
+                    "fit_intercept":True,
+                    "intercept_scaling":1.0,
+                    "class_weight":None,
+                    "random_state":None,
+                    "max_iter":10_000
+                },
+                "grid_srch_params":{
+                    "C":np.arange(0, 1.1, 0.1),
+                    "kernel":["linear", "poly", "rbf", "sigmoid", "precomputed"],
+                    "n":np.arange(1000, 10000, 500)
                 }
             },
             "svm":{
@@ -3617,6 +3731,7 @@ class ModelTraining(object):
                 #https://xgboost.readthedocs.io/en/stable/parameter.html
                 "base_params":{
                     "booster":"gbtree",
+                    "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0,
                     "objective":"multi:softmax",
@@ -3626,11 +3741,13 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
+                    "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0,
                     "objective":"multi:softmax",
-                    "max_depth":6,
-                    "learning_rate": 0.3,
+                    "max_depth":10,
+                    "learning_rate": 0.1,
+                    "colsample_bytree": 0.8,
                     "num_class":5,
                 },
                 "grid_srch_params":{
@@ -3678,7 +3795,7 @@ class ModelTraining(object):
                 kernel = SVC(**params)
                 model = OneVsRestClassifier(
                     estimator=kernel,
-                    n_jobs=-1
+                    n_jobs=None #Change to -1 if you want to smash all the processors
                 )
                 return model
             case 'rfc':
