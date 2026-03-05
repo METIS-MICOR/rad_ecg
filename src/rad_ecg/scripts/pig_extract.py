@@ -1206,14 +1206,14 @@ class PigRAD:
                 modeltraining.validate(model)
                 time.sleep(1)
             
-            modeltraining.show_results(modellist, sort_des=False) 
             forest = ['rfc', 'xgboost']
             #Looking at feature importances
             for tree in forest: #Lol
                 feats = modeltraining._models[tree].feature_importances_
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
-
+            
+            modeltraining.show_results(modellist, sort_des=False) 
             # console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html", theme=export_theme)
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
 
@@ -3789,14 +3789,14 @@ class ModelTraining(object):
         marker = f"__INJECT_PLOT_{fig_key}__"
         console.print(marker, style="conceal") # Invisible to the terminal
     
-#FUNCTION finalize report
-    def finalize_report(self, html_path: str):
+    #FUNCTION finalize report
+    def finalize_report(self, html_path:str):
         """
         Exports the rich console to HTML, then injects all stashed matplotlib plots
         exactly where their markers were placed.
         """
 
-        #define black theme
+        # Define the pure black theme
         pure_black = export_theme
 
         #Save the chronological terminal output
@@ -3810,7 +3810,9 @@ class ModelTraining(object):
         for fig_key, data in self.report_figs.items():
             fig = data["fig"]
             title = data["title"]
-            align = data.get("align", "left")
+            
+            # Default to center now to match your new desired layout
+            align = data.get("align", "center") 
             
             #Convert figure to base64
             buf = io.BytesIO()
@@ -3822,16 +3824,18 @@ class ModelTraining(object):
             # Determine the CSS styling based on the alignment choice
             if align == "left":
                 # float: left allows the rich tables/text to flow inline to the right of the image
-                div_style = "float: left; margin-right: 30px; margin-bottom: 20px; width: 45%;"
+                # clear: both forces this plot to drop below any PREVIOUS plots, resetting the layout!
+                div_style = "float: left; margin-right: 30px; margin-bottom: 20px; width: 45%; clear: both;"
             else:
-                # Standard center alignment, no text wrapping
-                div_style = "text-align: center; margin-top: 1rem; margin-bottom: 2rem; clear: both;"
+                # UPDATED: display: block and width: 100% physically prevents anything 
+                # from sitting next to the image. It forces a strict vertical stack.
+                div_style = "display: block; width: 100%; text-align: center; margin-top: 2rem; margin-bottom: 2rem; clear: both;"
 
-            #Build the dark-mode HTML image tag with dynamic CSS
+            #Build the dark-mode HTML image tag
             img_tag = f"""
             <div style="{div_style}">
                 <h3 style="color: #00ff00; font-family: monospace; margin-bottom: 5px;">{title}</h3>
-                <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; border: 1px solid #444; border-radius: 4px;">
+                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px; display: inline-block;">
             </div>
             """
             
@@ -4218,7 +4222,7 @@ class ModelTraining(object):
                     aucs[cls].append(auc(fpr, tpr))
                     
             # Set up the plot
-            fig, ax = plt.subplots(figsize=(10, 8))
+            fig, ax = plt.subplots(figsize=(10, 7))
             color_cmap = plt.get_cmap('Paired', n_classes) 
             
             # Plot Mean ROC and standard deviation for each class
@@ -4452,18 +4456,13 @@ class ModelTraining(object):
             #Call regular holdout scoring function
             scores = no_cv_scoring(y_pred, cat_bool, table)
             table.add_row("Test holdout", f"{self.split:.0%}", end_section=True)
-        
 
         #Add the model parameters to the table
         table.add_row("Params:", "", end_section=True)
         [table.add_row(k, str(v)) for k, v in params.items()]
-
         #Print them to the console
         logger.info(f'{model_name}: model results')
         console.print(table)
-
-        #TODO.  Add in prec/recall chart as found here. 
-        #https://scikit-learn.org/stable/auto_examples/miscellaneous/plot_display_object_visualization.html#sphx-glr-auto-examples-miscellaneous-plot-display-object-visualization-py
 
     #FUNCTION show_results
     def show_results(self, modellist:list, sort_des:bool=False):
