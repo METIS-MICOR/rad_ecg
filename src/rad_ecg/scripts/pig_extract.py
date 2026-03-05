@@ -3599,7 +3599,7 @@ class ModelTraining(object):
                     "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_estimators":100,                 #int | 100		
+                    "n_estimators":500,                 #int | 100		
                     "criterion":"gini",                 #str | gini
                     "max_depth":20,                   #int
                     "min_samples_split":2,              #int | 2
@@ -3821,22 +3821,14 @@ class ModelTraining(object):
             img_base64 = base64.b64encode(buf.read()).decode('utf-8')
             buf.close()
 
-            # Determine the CSS styling based on the alignment choice
-            if align == "left":
-                # float: left allows the rich tables/text to flow inline to the right of the image
-                # clear: both forces this plot to drop below any PREVIOUS plots, resetting the layout!
-                div_style = "float: left; margin-right: 30px; margin-bottom: 20px; width: 45%; clear: both;"
-            else:
-                # UPDATED: display: block and width: 100% physically prevents anything 
-                # from sitting next to the image. It forces a strict vertical stack.
-                div_style = "display: block; width: 100%; text-align: center; margin-top: 2rem; margin-bottom: 2rem; clear: both;"
-
             #Build the dark-mode HTML image tag
             img_tag = f"""
-            <div style="{div_style}">
+            <br clear="all">
+            <div style="display: block; width: 100%; text-align: center; margin: 2rem 0; clear: both;">
                 <h3 style="color: #00ff00; font-family: monospace; margin-bottom: 5px;">{title}</h3>
-                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px; display: inline-block;">
+                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px; display: block; margin: 0 auto;">
             </div>
+            <br clear="all">
             """
             
             # The exact marker string we printed earlier
@@ -4222,7 +4214,7 @@ class ModelTraining(object):
                     aucs[cls].append(auc(fpr, tpr))
                     
             # Set up the plot
-            fig, ax = plt.subplots(figsize=(10, 7))
+            fig, ax = plt.subplots(figsize=(10, 8))
             color_cmap = plt.get_cmap('Paired', n_classes) 
             
             # Plot Mean ROC and standard deviation for each class
