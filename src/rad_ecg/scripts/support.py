@@ -19,6 +19,7 @@ from rich.progress import (
     TimeElapsedColumn)
 from rich.console import Console
 from rich.logging import RichHandler
+from rich.terminal_theme import TerminalTheme
 from lib_ebm.pyebmreader import ebmreader
 
 ################################# Logger functions ####################################
@@ -115,7 +116,20 @@ def get_time():
 DATE_JSON = get_time().strftime("%m-%d-%Y_%H-%M-%S")
 console = Console(color_system="auto", stderr=True, record=True)
 # logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log") 
-
+export_theme = TerminalTheme(
+    (0, 0, 0),         # Background: Pure Black
+    (255, 255, 255),   # Foreground: White text
+    # The standard ANSI palette (black, red, green, yellow, blue, magenta, cyan, white)
+    [
+        (0, 0, 0), (128, 0, 0), (0, 128, 0), (128, 128, 0),
+        (0, 0, 128), (128, 0, 128), (0, 128, 128), (192, 192, 192)
+    ],
+    # The 'bright' ANSI palette
+    [
+        (128, 128, 128), (255, 0, 0), (0, 255, 0), (255, 255, 0),
+        (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255)
+    ]
+)
 # Determine if we are in the Main Process or a Worker Process
 if multiprocessing.current_process().name == "MainProcess":
     # MAIN PROCESS: Calculate time and create the log file

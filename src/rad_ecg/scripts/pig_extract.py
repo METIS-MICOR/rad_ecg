@@ -33,7 +33,8 @@ from scipy.stats import entropy, wasserstein_distance, pearsonr, probplot, boxco
 ########################### Custom imports ###############################
 from utils import segment_ECG
 from setup_globals import walk_directory
-from support import logger, console, log_time, DATE_JSON
+from support import logger, console, log_time
+from support import export_theme, DATE_JSON
 
 ########################### Sklearn metric / scaling imports ###############################
 from shap import TreeExplainer
@@ -1208,7 +1209,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
 
-            console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
+            console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html", theme=export_theme)
             #Gridsearch
             # modeltraining._grid_search("rfc", 10)
             #Ensemble?
