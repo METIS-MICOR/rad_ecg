@@ -114,8 +114,8 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = True
-        self.view_models :bool  = False
+        self.view_pig    :bool  = False
+        self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -354,7 +354,7 @@ class PigRAD:
         
         return true_onset_idx
 
-    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_heights:dict, s_peaks:np.ndarray) -> Pig_Feat:
+    def _process_single_beat(self, id:int, idx:int, peak:int, ss1wave:np.ndarray, carwave:np.ndarray, ladwave:np.ndarray, s_peaks:np.ndarray) -> Pig_Feat:
         """Extracts features for a single beat.
 
         Args:
@@ -581,8 +581,8 @@ class PigRAD:
         sub_lad = ladwave[bpf.onset:bpf.dbp_id]
         sub_car_full = carwave[bpf.onset:bpf.dbp_id]
         
-        # Define a physiological epsilon (e.g., 0.5 mL/min) to prevent exploding denominators
-        eps = 0.5
+        # Define a physiological epsilon (e.g., 0.15 mL/min) to prevent exploding denominators
+        eps = 0.15
         
         if sub_lad.size > 0:
             bpf.lad_mean = np.mean(sub_lad).item()
@@ -637,6 +637,9 @@ class PigRAD:
                     if dia_pk_idx_rel > min_run_samples:
                         dia_run = dia_pk_idx_rel / self.fs
                         bpf.lad_acc_sl = ((bpf.lad_dia_pk - lad_diastole[0]) / dia_run).item()
+            else:
+                logger.warning("No notch found for LAD calcs")
+                
             # =====================================================
             # --- Carotid Retrograde Flow ---
             # =====================================================
@@ -644,6 +647,8 @@ class PigRAD:
                 car_diastole = carwave[notch_abs:bpf.dbp_id]
                 retroflow = np.where(car_diastole < 0, car_diastole, 0)
                 bpf.retro_flow = np.abs(self._integrate(retroflow))
+            else:
+                logger.warning("No notch found for retro calc")
 
         return bpf
  
@@ -744,21 +749,22 @@ class PigRAD:
                 full_data = record["data"]
                 channels = record["channels"]
                 logger.info(f"channels {channels}")
+
                 #Auto select leads via Levenstein distance + In Band Power + Shannon Entropy for the window size of the chunk
-                # self.ecg_lead = self.loader.auto_pick_lead(
-                #     target_name="ECG",
-                #     channels=channels,
-                #     data_source=full_data, 
-                #     num_needed=1, 
-                #     sample_duration=self.windowsize
-                # )
-                # self.lad_lead = self.loader.auto_pick_lead(
-                #     target_name="LAD", 
-                #     channels=channels,
-                #     data_source=full_data, 
-                #     num_needed=1, 
-                #     sample_duration=self.windowsize
-                # )
+                self.ecg_lead = self.loader.auto_pick_lead(
+                    target_name="ECG",
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
+                self.lad_lead = self.loader.auto_pick_lead(
+                    target_name="LAD", 
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
                 # self.ss1_lead = self.loader.auto_pick_lead(
                 #     target_name="SS1 (SP200)", 
                 #     channels=channels,
@@ -766,13 +772,13 @@ class PigRAD:
                 #     num_needed=1, 
                 #     sample_duration=self.windowsize
                 # )
-                # self.car_lead = self.loader.auto_pick_lead(
-                #     target_name="Carotid", 
-                #     channels=channels,
-                #     data_source=full_data, 
-                #     num_needed=1, 
-                #     sample_duration=self.windowsize
-                # )
+                self.car_lead = self.loader.auto_pick_lead(
+                    target_name="Carotid", 
+                    channels=channels,
+                    data_source=full_data, 
+                    num_needed=1, 
+                    sample_duration=self.windowsize
+                )
                 #Section signals
                 sections     :np.array = segment_ECG(full_data[channels[self.ecg_lead]], self.fs, self.windowsize)
                 pig_avg_data :np.array = np.zeros(sections.shape[0], dtype=self.avg_dtypes)
@@ -812,7 +818,10 @@ class PigRAD:
                 for lead in [self.lad_lead, self.car_lead, self.ecg_lead]:
                     full_data[channels[lead]] = self._low_pass_filt(data=full_data[channels[lead]], lowcut=40)
                     logger.info(f"{channels[lead]} lowpass filtered lowcut: 40")
-                    # logger.info(f"{channels[lead]} bandpass filtered lowcut: 0.1 highcut:40")
+                
+                # ss1_band_full = self._bandpass_filt(data=full_data[channels[self.ss1_lead]])
+
+                logger.info(f"{channels[lead]} bandpass filtered lowcut: 0.1 highcut:40")
 
                 jobtask_proc = progress.add_task(f"{next(menwithouthats)}", total=pig_avg_data.shape[0])
                 tot_beats:list[Pig_Feat] = []
@@ -865,7 +874,7 @@ class PigRAD:
                     prom_night = (np.percentile(ss1wave, 95) - np.percentile(ss1wave, 5)).item()
                     # logger.debug(f"prom: {prom_night*30:.2f}")
                     # first find systolic peaks in SS1
-                    s_peaks, s_heights = find_peaks(
+                    s_peaks, _ = find_peaks(
                         x = ss1wave,
                         prominence = prom_night * 0.40,      #Was .30 but getting double counts
                         height = np.percentile(ss1wave, 35), #Dropped from 50 to 35%
@@ -913,7 +922,7 @@ class PigRAD:
                         pig_avg_data["var_mor"][idx] = var_mor
                         pig_avg_data["var_cgau"][idx] = var_cgau
 
-                        # ---  HR Calculation ---
+                        # MEAS HR Calculation
                         RR_diffs = np.diff(s_peaks)
                         HR = np.round((60 / (RR_diffs / self.fs)), 2)
                         if HR.size > 0:
@@ -925,9 +934,8 @@ class PigRAD:
 
                     #Initialize the baseline PSD for each pig
                     # baseline_psd_norm = None
-
                     for id, (peak, ph_m, ph_c) in enumerate(zip(s_peaks[:-1], beat_phases_mor, beat_phases_cgau)):
-                        beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, ladwave, s_heights, s_peaks)
+                        beat_feat = self._process_single_beat(id, idx, peak, ss1wave, carwave, ladwave, s_peaks) #s_heights,
                         if beat_feat is not None:
                             # Assign the individual beat phases here
                             beat_feat.ph_mor = ph_m
@@ -2212,20 +2220,23 @@ class EDA(object):
         # for col in self.feature_names[4:]:
         #     self.imputate("mean", col)
         
-        #Replace zeros with nan's
-        self.data.iloc[:, 1:].replace(0, np.nan, inplace=True)
-
         #Display nulls
         self.print_nulls(False)
+
+        #remap target nan's
+        self.data['shock_class'] = self.data['shock_class'].replace(["UNKNOWN", "nan", ""], np.nan)
 
         #Drop nulls
         self.drop_nulls(self.feature_names[5:])
 
-        #Drop zero vals
-        self.drop_zeros(self.feature_names[5:])
+        #Replace zeros with nan's
+        # self.data.iloc[:, 1:].replace(0, np.nan, inplace=True)
+
+        #Drop zero vals from columns that can't have em
+        self.drop_phys_zeros()
 
         #Drop outliers (features, IQR range)
-        self.drop_outliers(self.feature_names[5:], 10)
+        # self.drop_outliers(self.feature_names[5:], 20)
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
@@ -2279,33 +2290,25 @@ class EDA(object):
         
         logger.info(f'Shape before drop {self.data.shape}')
         if isinstance(col, str):
-            self.data.dropna(subset=[col], how="any", inplace=True)
+            self.data.dropna(axis = 0, subset=[col], how="any", inplace=True)
+
         elif isinstance(col, list):
-            self.data.dropna(subset=col, how="any", inplace=True)
+            self.data.dropna(axis = 0, subset=col, how="any", inplace=True)
+
         else:
             self.data.dropna(axis=0, subset=self.data, how='any', inplace=True)
         logger.info(f'Shape after drop {self.data.shape}')
     
     #FUNCTION drop_zeros
-    def drop_zeros(self, col: str | list = None):
+    def drop_phys_zeros(self):
         """Zero Dropping routine.
-        If a target column is provided, it drops rows where that column is 0.  
-        If a list is provided, it drops rows where ANY of those columns are 0.  
-        If no target provided, it drops rows where ANY column is 0. 
+        Goes through and removes zeros from any columns where we can't have them.
 
-        Args:
-            col (str | list, optional): Column or list of columns to check for zeros. Defaults to None.
         """
         logger.info(f'Shape before drop {self.data.shape}')
-        if isinstance(col, str):
-            # Keep rows where the specific column does NOT equal 0
-            self.data = self.data[self.data[col] != 0]
-        elif isinstance(col, list):
-            # Keep rows where ALL of the specified columns do NOT equal 0. (equivalent to dropping if ANY of them are 0)
-            self.data = self.data[(self.data[col] != 0).all(axis=1)]
-        else:
-            # If col is None, check the entire DataFrame
-            self.data = self.data[(self.data != 0).all(axis=1)]
+        criticals = ["HR", "SBP", "DBP", "true_MAP", "pul_wid"]
+        # drops rows where zeros would be physically impossible
+        self.data = self.data[(self.data[criticals] != 0).all(axis=1)]
         logger.info(f'Shape after drop {self.data.shape}')
 
     #FUNCTION drop_outliers
@@ -3115,7 +3118,7 @@ class FeatureEngineering(EDA):
             # self.feature_names.pop(self.feature_names.index(col))
             self.feature_names.append(norm_col)
         super().sum_stats(self.feature_names[4:], "Normalized Features")
-        logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if "_d" in x]}')
+        logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if x.endswith("_d")]}')
 
     #FUNCTION engineer
     def engineer(self, features:list, transform:bool, display:bool, trans:str):
