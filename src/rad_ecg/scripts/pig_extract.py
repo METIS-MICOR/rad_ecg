@@ -1,5 +1,7 @@
+import io
 import time
 import shap
+import base64
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -121,6 +123,7 @@ class PigRAD:
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
+
         # Multiple file pathing
         if self.batch_run:
             # Grab the parent directory of the first file in the batch list
@@ -207,6 +210,8 @@ class PigRAD:
             ('sqi_entropy', 'f4'),  #Spectral Entropy
             # ('w_dist'     , 'f4'),#Wasserstein Distance from Baseline
         ]
+
+    
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
@@ -1127,8 +1132,8 @@ class PigRAD:
             #Remove unwanted features
             removecols = [
                 "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
-                "shock_gap", "p1", "p2", "p3", "pul_wid", "lad_dia_pk", "f0",
-                "f1", "f2", "f3", "SBP", "DBP", "true_MAP", "var_cgau", "var_mor",
+                "shock_gap", "f0", "f1", "f2", "f3", "pul_wid", "lad_dia_pk",
+                "SBP", "DBP", "true_MAP", "var_cgau", "var_mor",
             ]
 
             for col in removecols:
@@ -1137,7 +1142,7 @@ class PigRAD:
 
             norm_features = [
                 "HR", "dcr", "cvr", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
-                "true_MAP", #"var_cgau", "var_mor",
+                "true_MAP", "pul_wid",  #"var_cgau", "var_mor",
             ]
 
             # allcols
@@ -1209,7 +1214,9 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
 
-            console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html", theme=export_theme)
+            # console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html", theme=export_theme)
+            modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
+
             #Gridsearch
             # modeltraining._grid_search("rfc", 10)
             #Ensemble?
@@ -3565,6 +3572,7 @@ class ModelTraining(object):
         self.CV_func = None
         self.view_models = dataprep.view_models
         self.class_weights = {}
+        self.report_figs = {}
 
         #MEAS Model params
         self._model_params = {
@@ -3764,6 +3772,70 @@ class ModelTraining(object):
                 }
             }
         }
+
+    #FUNCTION stash_plot
+    def stash_plot(self, fig_key:str, fig, title:str = ""):
+        """
+        Saves a figure to memory and prints an injection marker to the rich console.
+        """
+        # Save the figure object and its title
+        self.report_figs[fig_key] = {
+            "fig": fig,
+            "title": title
+        }
+        # Print the exact marker text. Use standard formatting so rich
+        # doesn't chop the string up with CSS spans in the HTML.
+        marker = f"__INJECT_PLOT_{fig_key}__"
+        console.print(marker, style="black on black") # Invisible to the terminal
+    
+    #FUNCTION finalize report
+    def finalize_report(self, html_path: str):
+        """
+        Exports the rich console to HTML, then injects all stashed matplotlib plots
+        exactly where their markers were placed.
+        """
+
+        # efine the pure black theme
+        pure_black = export_theme
+
+        #Save the chronological terminal output
+        console.save_html(html_path, theme=pure_black)
+
+        #Read the HTML back into memory
+        with open(html_path, "r", encoding="utf-8") as f:
+            html_content = f.read()
+
+        #Loop through stashed figures, encode them, and replace their markers
+        for fig_key, data in self.report_figs.items():
+            fig = data["fig"]
+            title = data["title"]
+            
+            #Convert figure to base64
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', bbox_inches='tight', facecolor=fig.get_facecolor())
+            buf.seek(0)
+            img_base64 = base64.b64encode(buf.read()).decode('utf-8')
+            buf.close()
+
+            #Build the dark-mode HTML image tag
+            img_tag = f"""
+            <div style="text-align: center; margin-top: 1rem; margin-bottom: 2rem;">
+                <h3 style="color: #00ff00; font-family: monospace;">{title}</h3>
+                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px;">
+            </div>
+            """
+            
+            # The exact marker string we printed earlier
+            marker = f"__INJECT_PLOT_{fig_key}__"
+            
+            # Replace the marker in the HTML
+            html_content = html_content.replace(marker, img_tag)
+
+        #Write the final injected HTML back
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
+            
+        logger.info(f"Final interactive report generated with {len(self.report_figs)} plots: {html_path}")
 
     #FUNCTION get_data
     def get_data(self, model_name:str):
@@ -3985,6 +4057,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_CM.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model_name}_CM",
+                        fig,
+                        title=f"{model_name.upper()} Confusion Matrix"
+                    )
                 timer_error = fig.figure.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig.figure)
@@ -4177,6 +4254,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_AUCROC.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model_name}_AUCROC",
+                        fig,
+                        title=f"Cross-Validated ROC-AUC (OvR) - {model_name.upper()}"
+                    )
                 timer_error = fig.figure.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig.figure)
@@ -4443,6 +4525,11 @@ class ModelTraining(object):
         if self.view_models:
             if self.fp_base:
                 fig.savefig(PurePath(self.fp_base, Path(f"{model}_feat.png")), dpi=300)
+                self.stash_plot(
+                    f"{model}_feat",
+                    fig,
+                    title=f"{model} Top 20 feature importance"
+                )                
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4492,6 +4579,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model}_shap_bar",
+                        fig,
+                        title=f"{model} SHAP Feature Importance (Bar)"
+                    )                       
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4507,6 +4599,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_violin.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model}_shap_violin",
+                        fig,
+                        title=f"{model} Violin of Feature Importance"
+                    )
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4521,6 +4618,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_beeswarm.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model}_shap_beeswarm",
+                        fig,
+                        title=f"{model} SHAP Beeswarm Summary"
+                    )
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4535,6 +4637,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_heatmap.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model}_shap_heatmap",
+                        fig,
+                        title=f"{model} SHAP Heatmap"
+                    )
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4551,6 +4658,11 @@ class ModelTraining(object):
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_scatter.png")), dpi=300)
+                    self.stash_plot(
+                        f"{model}_shap_scatter",
+                        fig,
+                        title=f"{model} SHAP Scatter/Dependence"
+                    )
                 timer_error = fig.canvas.new_timer(interval = 3000)
                 timer_error.single_shot = True
                 timer_cid = timer_error.add_callback(plt.close, fig)
@@ -4576,6 +4688,11 @@ class ModelTraining(object):
                 if self.view_models:                    
                     if self.fp_base:
                         fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_waterfall.png")), dpi=300)
+                        self.stash_plot(
+                            f"{model}_shap_waterfall",
+                            fig,
+                            title=f"{model} Waterfall Plot (Instance 0)"
+                        )
                     timer_error = fig.canvas.new_timer(interval = 3000)
                     timer_error.single_shot = True
                     timer_cid = timer_error.add_callback(plt.close, fig)
