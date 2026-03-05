@@ -33,7 +33,7 @@ from scipy.stats import entropy, wasserstein_distance, pearsonr, probplot, boxco
 ########################### Custom imports ###############################
 from utils import segment_ECG
 from setup_globals import walk_directory
-from support import logger, console, log_time, NumpyArrayEncoder
+from support import logger, console, log_time, DATE_JSON
 
 ########################### Sklearn metric / scaling imports ###############################
 from shap import TreeExplainer
@@ -1125,9 +1125,9 @@ class PigRAD:
 
             #Remove unwanted features
             removecols = [
-                "aix", "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
-                "shock_gap", "p1", "p2", "p3", "f0", "f1", "f2", "f3", 
-                "var_cgau", "var_mor", "SBP", "DBP", 
+                "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
+                "shock_gap", "p1", "p2", "p3", "pul_wid", "lad_dia_pk", "f0",
+                "f1", "f2", "f3", "SBP", "DBP", "true_MAP", "var_cgau", "var_mor",
             ]
 
             for col in removecols:
@@ -1135,10 +1135,8 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "dni", "ri", "dcr", "sys_sl",
-                "dia_sl", "p1_p2", "p1_p3", "lad_dia_pk",
-                "lad_sys_pk", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
-                "sqi_entropy", "sqi_power" #"var_cgau", "var_mor",
+                "HR", "dcr", "cvr", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
+                "true_MAP", #"var_cgau", "var_mor",
             ]
 
             # allcols
@@ -1210,6 +1208,7 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
 
+            console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
             #Gridsearch
             # modeltraining._grid_search("rfc", 10)
             #Ensemble?
@@ -3742,15 +3741,15 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "n_estimators": 500,
+                    "n_estimators": 800,
                     "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0,
                     "objective":"reg:squarederror",
-                    "max_depth":4,
+                    "max_depth":3,
                     "learning_rate": 0.05,
-                    "colsample_bytree": 0.8,
-                    "subsample": 0.8, 
+                    "colsample_bytree": 0.75,
+                    "subsample": 0.75, 
                     "num_class":5,
                 },
                 "grid_srch_params":{
