@@ -119,7 +119,7 @@ class PigRAD:
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
         self.view_pig    :bool  = False
-        self.view_models :bool  = False
+        self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -3774,28 +3774,29 @@ class ModelTraining(object):
         }
 
     #FUNCTION stash_plot
-    def stash_plot(self, fig_key:str, fig, title:str = ""):
+    def stash_plot(self, fig_key:str, fig, title:str = "", align:str = "left"):
         """
         Saves a figure to memory and prints an injection marker to the rich console.
         """
         # Save the figure object and its title
         self.report_figs[fig_key] = {
             "fig": fig,
-            "title": title
+            "title": title, 
+            "align": align
         }
         # Print the exact marker text. Use standard formatting so rich
         # doesn't chop the string up with CSS spans in the HTML.
         marker = f"__INJECT_PLOT_{fig_key}__"
-        console.print(marker, style="black on black") # Invisible to the terminal
+        console.print(marker, style="conceal") # Invisible to the terminal
     
-    #FUNCTION finalize report
+#FUNCTION finalize report
     def finalize_report(self, html_path: str):
         """
         Exports the rich console to HTML, then injects all stashed matplotlib plots
         exactly where their markers were placed.
         """
 
-        # efine the pure black theme
+        #define black theme
         pure_black = export_theme
 
         #Save the chronological terminal output
@@ -3809,6 +3810,7 @@ class ModelTraining(object):
         for fig_key, data in self.report_figs.items():
             fig = data["fig"]
             title = data["title"]
+            align = data.get("align", "left")
             
             #Convert figure to base64
             buf = io.BytesIO()
@@ -3817,11 +3819,19 @@ class ModelTraining(object):
             img_base64 = base64.b64encode(buf.read()).decode('utf-8')
             buf.close()
 
-            #Build the dark-mode HTML image tag
+            # Determine the CSS styling based on the alignment choice
+            if align == "left":
+                # float: left allows the rich tables/text to flow inline to the right of the image
+                div_style = "float: left; margin-right: 30px; margin-bottom: 20px; width: 45%;"
+            else:
+                # Standard center alignment, no text wrapping
+                div_style = "text-align: center; margin-top: 1rem; margin-bottom: 2rem; clear: both;"
+
+            #Build the dark-mode HTML image tag with dynamic CSS
             img_tag = f"""
-            <div style="text-align: center; margin-top: 1rem; margin-bottom: 2rem;">
-                <h3 style="color: #00ff00; font-family: monospace;">{title}</h3>
-                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px;">
+            <div style="{div_style}">
+                <h3 style="color: #00ff00; font-family: monospace; margin-bottom: 5px;">{title}</h3>
+                <img src="data:image/png;base64,{img_base64}" style="max-width: 100%; border: 1px solid #444; border-radius: 4px;">
             </div>
             """
             
