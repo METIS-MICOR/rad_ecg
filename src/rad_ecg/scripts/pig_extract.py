@@ -116,7 +116,7 @@ class PigRAD:
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
         self.view_pig    :bool  = False
-        self.view_models :bool  = True
+        self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -1126,7 +1126,8 @@ class PigRAD:
             #Remove unwanted features
             removecols = [
                 "aix", "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
-                "shock_gap", "p2", "p3", "f0", "f1", "f2", "f3", 
+                "shock_gap", "p1", "p2", "p3", "f0", "f1", "f2", "f3", 
+                "var_cgau", "var_mor", "SBP", "DBP", 
             ]
 
             for col in removecols:
@@ -1134,9 +1135,10 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "SBP", "DBP", "true_MAP", "dni", "ri", "dcr", "sys_sl",
-                "dia_sl", "p1", "p2", "p3", "p1_p2", "p1_p3", "lad_dia_pk",
-                "lad_sys_pk", "lad_acc_sl", "pul_wid", "lad_dia_net", "lad_dia_neg"
+                "HR", "dni", "ri", "dcr", "sys_sl",
+                "dia_sl", "p1_p2", "p1_p3", "lad_dia_pk",
+                "lad_sys_pk", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
+                "sqi_entropy", "sqi_power" #"var_cgau", "var_mor",
             ]
 
             # allcols
@@ -1146,7 +1148,6 @@ class PigRAD:
             # dcr, lad_pi, lad_acc_sl, flow_div, retro_flow, f0, f1, f2, f3,
             # var_mor, var_cgau, sqi_power, sqi_entropy 
             # psd0, psd1, psd2, psd3, #removed in data cleaning
-            
 
             #Create a delta from the first 5 minute baseline as a feature. 
             engin.normalize_subjects(norm_features)
@@ -1161,7 +1162,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "p_scale"
+            scaler = "q_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold           : KFold Validation
@@ -3592,9 +3593,9 @@ class ModelTraining(object):
                 "init_params":{
                     "n_estimators":100,                 #int | 100		
                     "criterion":"gini",                 #str | gini
-                    "max_depth":None,                   #int
+                    "max_depth":20,                   #int
                     "min_samples_split":2,              #int | 2
-                    "min_samples_leaf":1,               #int | 1
+                    "min_samples_leaf":5,               #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
                     "max_features":10,                  #str | "sqft"
                     "max_leaf_nodes":None,              #int | None
@@ -3603,7 +3604,7 @@ class ModelTraining(object):
                     "n_jobs":None,                      #int | None
                     "random_state":42,                  #int | Answer to everything in the universe
                     "warm_start":False,                 #bool | False
-                    "class_weight":"balanced"           #Treat target as ordinal
+                    "class_weight":"balanced_subsample" 
                 },
                 "grid_srch_params":{
                     "n_estimators":range(5, 200, 10),
@@ -3708,10 +3709,10 @@ class ModelTraining(object):
                     "class_weight":"balanced"           #Treat target as ordinal
                 },
                 "init_params":{
-                    "C":0.8,						
-                    "kernel":"poly",		       #str
+                    "C":0.1,						
+                    "kernel":"rbf",		       #str
                     "degree":3,                #str
-                    "gamma":"scale",
+                    "gamma":"auto",
                     "max_iter":10000,
                     "decision_function_shape":"ovr",
                     "random_state":42,
@@ -3741,13 +3742,15 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
+                    "n_estimators": 500,
                     "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0,
-                    "objective":"multi:softmax",
-                    "max_depth":10,
-                    "learning_rate": 0.1,
+                    "objective":"reg:squarederror",
+                    "max_depth":4,
+                    "learning_rate": 0.05,
                     "colsample_bytree": 0.8,
+                    "subsample": 0.8, 
                     "num_class":5,
                 },
                 "grid_srch_params":{
