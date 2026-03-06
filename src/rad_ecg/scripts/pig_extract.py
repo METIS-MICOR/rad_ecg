@@ -1204,8 +1204,9 @@ class PigRAD:
                 modeltraining.fit(model)
                 modeltraining.predict(model)
                 modeltraining.validate(model)
+                modeltraining.clear_layout()
                 time.sleep(1)
-            
+                
             forest = ['rfc', 'xgboost']
             #Looking at feature importances
             for tree in forest: #Lol
@@ -3772,7 +3773,12 @@ class ModelTraining(object):
                 }
             }
         }
-
+    
+    #FUNCTION clear layout
+    def clear_layout(self):
+        """Prints a hidden marker to break the side-by-side layout before the next model starts."""
+        console.print("__CLEAR_LAYOUT__", style="conceal")
+    
     #FUNCTION stash_plot
     def stash_plot(self, fig_key:str, fig, title:str = "", align:str = "left"):
         """
@@ -3821,23 +3827,22 @@ class ModelTraining(object):
             img_base64 = base64.b64encode(buf.read()).decode('utf-8')
             buf.close()
 
-            #Build the dark-mode HTML image tag
             img_tag = f"""
             <br clear="all">
-            <div style="display: block; width: 100%; text-align: center; margin: 2rem 0; clear: both;">
+            <div style="display: block; width: 100%; text-align: left; margin: 2rem 0; clear: both;">
                 <h3 style="color: #00ff00; font-family: monospace; margin-bottom: 5px;">{title}</h3>
-                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px; display: block; margin: 0 auto;">
+                <img src="data:image/png;base64,{img_base64}" style="max-width: 90%; border: 1px solid #444; border-radius: 4px; display: block; margin-left: 0;">
             </div>
             <br clear="all">
             """
             
-            # The exact marker string we printed earlier
             marker = f"__INJECT_PLOT_{fig_key}__"
-            
-            # Replace the marker in the HTML
             html_content = html_content.replace(marker, img_tag)
 
-        #Write the final injected HTML back
+        # after the loop, replace the layout clears!
+        html_content = html_content.replace("__CLEAR_LAYOUT__", "<br clear='all'>\n<hr style='border-color: #333; margin: 2rem 0;'>")
+        
+        # Write the final injected HTML back
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html_content)
             
