@@ -1123,13 +1123,16 @@ class PigRAD:
             #BoxC: Box Cox - Good for only pos val
             #YeoJ: Yeo-Johnson - Good for pos and neg val
             # Ex:
-            # for feature in  ["psd0", "psd1", "psd2", "psd3"]:
+            # for feature in ["sqi_power", "sqi_entropy"]:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
-            # engin.engineer("aix", True, False, "BoxC")
-            # engin.engineer("psd0", True, False, "log")
-            # engin.engineer("psd1", True, False, "log")
-            # engin.engineer("psd2", True, False, "log")
+            
+            engin.engineer("aix", True, False, "BoxC")
+            engin.engineer("cvr", True, False, "YeoJ")
+            engin.engineer("dcr", True, False, "YeoJ")
+            engin.engineer("lad_acc_sl", True, False, "BoxC")
+            engin.engineer("sqi_power", True, False, "YeoJ")
+            engin.engineer("sqi_entropy", True, False, "YeoJ")
             # engin.engineer("psd3", True, False, "log")
 
             #[x] - Normalization
@@ -1157,7 +1160,7 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "lad_acc_sl", "lad_dia_net", "lad_dia_neg", "var_cgau",
+                "lad_dia_net", "lad_dia_neg", "var_cgau",
             ]
 
             # allcols
@@ -1209,10 +1212,10 @@ class PigRAD:
 
             #Check VIF on SVM
             dp.check_vif(features=colsofinterest, model_name="svm")
-            console.print(f"[green]Begin training with this target {modeltraining.target_names} and inputs: {colsofinterest}...[/]")
-
+            console.print(f"[green]begin model training...[/]")
+            console.print(f"[magenta]target: {dp.target.name}..[/]")
+            console.print(f"[orange]inputs: {colsofinterest}...[/]")
             #Load the ModelTraining Class
-            console.print("[green]training models...[/]")
             modeltraining = ModelTraining(dp)
             for model in modellist:
                 console.print(f"training [green]{model}...[/]")
@@ -2272,7 +2275,7 @@ class EDA(object):
         self.drop_phys_zeros()
 
         #Drop outliers (features, IQR range)
-        # self.drop_outliers(self.feature_names[5:], 20)
+        self.drop_outliers(self.feature_names[5:], 20)
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
