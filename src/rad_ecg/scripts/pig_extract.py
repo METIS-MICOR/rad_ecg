@@ -1151,8 +1151,7 @@ class PigRAD:
             removecols = [
                 "flow_div", "lad_pi", "ap_MAP",
                 "shock_gap", "f0", "f1", "f2", "f3", "pul_wid", "lad_dia_pk",
-                "var_cgau", "var_mor", "true_MAP", "p1", "p2",
-                "p3", "sqi_power", "sqi_entropy" 
+                "true_MAP", "p1", "p2", "p3", "SBP", "DBP",
             ]
 
             for col in removecols:
@@ -1160,7 +1159,7 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "lad_dia_net", "lad_dia_neg", "var_cgau",
+                "SBP", "DBP", "HR", "lad_dia_net", "lad_dia_neg",
             ]
 
             # allcols
@@ -1213,8 +1212,8 @@ class PigRAD:
             #Check VIF on SVM
             dp.check_vif(features=colsofinterest, model_name="svm")
             console.print(f"[green]begin model training...[/]")
-            console.print(f"[magenta]target: {dp.target.name}..[/]")
-            console.print(f"[orange]inputs: {colsofinterest}...[/]")
+            console.print(f"[magenta]target: {dp.target.name}...[/]")
+            console.print(f"[lightred]inputs: {colsofinterest}...[/]")
             #Load the ModelTraining Class
             modeltraining = ModelTraining(dp)
             for model in modellist:
@@ -2275,7 +2274,7 @@ class EDA(object):
         self.drop_phys_zeros()
 
         #Drop outliers (features, IQR range)
-        self.drop_outliers(self.feature_names[5:], 20)
+        # self.drop_outliers(self.feature_names[5:], 20)
 
         #Drop col used to make target, and any cols we don't want.  PSD definitely not
         if not self.view_eda:
@@ -2345,7 +2344,7 @@ class EDA(object):
 
         """
         logger.info(f'Shape before drop {self.data.shape}')
-        criticals = ["HR", "SBP", "DBP", "pul_wid"]
+        criticals = ["HR", "pul_wid"]
         # drops rows where zeros would be physically impossible
         self.data = self.data[(self.data[criticals] != 0).all(axis=1)]
         logger.info(f'Shape after drop {self.data.shape}')
