@@ -135,7 +135,7 @@ class PigRAD:
         self.view_pig    :bool  = False
         self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
-        self.windowsize  :int   = 10        #size of section window 
+        self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
 
         # Multiple file pathing
@@ -1133,7 +1133,6 @@ class PigRAD:
             engin.engineer("lad_acc_sl", True, False, "BoxC")
             engin.engineer("sqi_power", True, False, "YeoJ")
             engin.engineer("sqi_entropy", True, False, "YeoJ")
-            # engin.engineer("psd3", True, False, "log")
 
             #[x] - Normalization
                 #Normally in ML we're dealing with cross sectional data. Each row is an
@@ -1151,7 +1150,7 @@ class PigRAD:
             removecols = [
                 "flow_div", "lad_pi", "ap_MAP",
                 "shock_gap", "f0", "f1", "f2", "f3", "pul_wid", "lad_dia_pk",
-                "true_MAP", "p1", "p2", "p3", "SBP", "DBP",
+                "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "var_cgau", "var_mor"
             ]
 
             for col in removecols:
@@ -1160,6 +1159,7 @@ class PigRAD:
 
             norm_features = [
                 "SBP", "DBP", "HR", "lad_dia_net", "lad_dia_neg",
+                "var_cgau", "var_mor"
             ]
 
             # allcols
@@ -1213,7 +1213,7 @@ class PigRAD:
             dp.check_vif(features=colsofinterest, model_name="svm")
             console.print(f"[green]begin model training...[/]")
             console.print(f"[magenta]target: {dp.target.name}...[/]")
-            console.print(f"[lightred]inputs: {colsofinterest}...[/]")
+            console.print(f"[yellow]inputs: {colsofinterest}...[/]")
             #Load the ModelTraining Class
             modeltraining = ModelTraining(dp)
             for model in modellist:
@@ -1236,17 +1236,18 @@ class PigRAD:
             # modeltraining._grid_search("rfc", 10)
 
             #Ensemble models
-            # console.print("[green]training ensemble...[/]")
-            # #Store / use rfc indices
-            # modeltraining._traind["ensemble"] = modeltraining._traind["rfc"]
+            console.print("[green]training ensemble...[/]")
+            #Store / use rfc indices
+            modeltraining._traind["ensemble"] = modeltraining._traind["rfc"]
             
-            # # Fit and validate it using your existing methods
-            # modeltraining.get_data("ensemble")
-            # modeltraining.fit("ensemble")
-            # modeltraining.predict("ensemble")
-            # modeltraining.validate("ensemble")
-            # # Add it to the list so show_results prints it out
-            # modellist.append("ensemble")
+            # Fit and validate it using your existing methods
+            modeltraining.get_data("ensemble")
+            modeltraining.fit("ensemble")
+            modeltraining.predict("ensemble")
+            modeltraining.validate("ensemble")
+            modeltraining.clear_layout()
+            # Add it to the list so show_results prints it out
+            modellist.append("ensemble")
             modeltraining.show_results(modellist, sort_des=False)
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
             console.print("[green]model training complete...[/]")
@@ -2244,6 +2245,7 @@ class EDA(object):
         self.target:pd.Series = None
         self.target_name:str = "shock_class"
         self.target_names:list = ["BL", "C1", "C2", "C3", "C4"]
+        self.report_figs:dict = {}
         self.rev_target_dict:dict = {
             0:"BL",
             1:"C1",
@@ -2251,7 +2253,22 @@ class EDA(object):
             3:"C3",
             4:"C4"
         }
-
+    # #FUNCTION stash_plot
+    # def stash_plot(self, fig_key:str, fig, title:str = "", align:str = "left"):
+    #     """
+    #     Saves a figure to memory and prints an injection marker to the rich console.
+    #     """
+    #     # Save the figure object and its title
+    #     self.report_figs[fig_key] = {
+    #         "fig": fig,
+    #         "title": title, 
+    #         "align": align
+    #     }
+    #     # Print the exact marker text. Use standard formatting so rich
+    #     # doesn't chop the string up with CSS spans in the HTML.
+    #     marker = f"__INJECT_PLOT_{fig_key}__"
+    #     console.print(marker, style="conceal") # Invisible to the terminal
+    
     #FUNCTION clean_data
     def clean_data(self):
         #imputate sections needing it
@@ -2276,19 +2293,15 @@ class EDA(object):
         #Drop outliers (features, IQR range)
         # self.drop_outliers(self.feature_names[5:], 20)
 
-        #Drop col used to make target, and any cols we don't want.  PSD definitely not
-        if not self.view_eda:
-            for col in ["EBV", "psd0", "psd1", "psd2", "psd3"]:
-                self.data.pop(col)
-                self.feature_names.pop(self.feature_names.index(col))
-                logger.info(f"removed col {col}")
+        col_rem = ["psd0", "psd1", "psd2", "psd3"]
+        if self.view_models:
+            col_rem.append("EBV")
 
-        #Get rid of these cols for modeling. 
-        else:
-            for col in ["psd0", "psd1", "psd2", "psd3"]:
-                self.data.pop(col)
-                self.feature_names.pop(self.feature_names.index(col))
-                logger.info(f"removed col {col}")
+        #Drop col used to make target, and any cols we don't want.  PSD definitely not
+        for col in col_rem:
+            self.data.pop(col)
+            self.feature_names.pop(self.feature_names.index(col))
+            logger.info(f"removed col {col}")
 
         #Drop the target column.
         self.target = self.data.pop("shock_class")
@@ -2786,6 +2799,11 @@ class EDA(object):
             plt.ylabel(f'{feat_2}')
             if self.fp_base:
                 fig.savefig(Path(f"{self.fp_base + title}.png"), dpi=300)
+                # self.stash_plot(
+                #         f"{feat_1}_scatter",
+                #         fig,
+                #         title=title
+                # )
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig)
@@ -2839,6 +2857,11 @@ class EDA(object):
             ax_box.set_xlabel('')
             if self.fp_base:
                 fig.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
+                # self.stash_plot(
+                #         f"{feat_1}_hist",
+                #         fig,
+                #         title=title
+                # )
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig)
@@ -2978,7 +3001,11 @@ class EDA(object):
             jplot.figure.subplots_adjust(top=0.95)
             if self.fp_base:
                 jplot.savefig(PurePath(self.fp_base, Path(f"{title}.png")), dpi=300)
-
+                # self.stash_plot(
+                #         f"{feat_1}_jplot",
+                #         jplot,
+                #         title=title
+                # )
             timer_error = jplot.figure.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, jplot.figure)
@@ -3000,7 +3027,7 @@ class FeatureEngineering(EDA):
             self.rev_target_dict = eda.rev_target_dict
             self.fp_base = eda.fp_base
             self.view_models = eda.view_models
-
+            self.report_figs = eda.report_figs
         else:
             super().__init__(self)
             EDA.clean_data(self)
@@ -3329,6 +3356,7 @@ class DataPrep(object):
             self.rev_target_dict = engin.rev_target_dict
             self.fp_base = engin.fp_base
             self.view_models = engin.view_models
+            self.report_figs = engin.report_figs
 
         else:
             EDA.__init__(self) 
@@ -3594,7 +3622,7 @@ class ModelTraining(object):
         self.CV_func = None
         self.view_models = dataprep.view_models
         self.class_weights = {}
-        self.report_figs = {}
+        self.report_figs = dataprep.report_figs
 
         #MEAS Model params
         self._model_params = {
@@ -3777,10 +3805,10 @@ class ModelTraining(object):
                     "device":"cpu",
                     "gamma":0,
                     "objective":"reg:squarederror",
-                    "max_depth":3,
+                    "max_depth":4,
                     "learning_rate": 0.05,
-                    "colsample_bytree": 0.75,
-                    "subsample": 0.75, 
+                    "colsample_bytree": 0.80,
+                    "subsample": 0.80, 
                     "num_class":5,
                 },
                 "grid_srch_params":{
