@@ -1108,7 +1108,8 @@ class PigRAD:
                     eda.eda_plot("jointplot", "EBV", feature, eda.target)
                 #Plot the heatmap
                 eda.corr_heatmap(sel_cols=sel_cols)
-                exit()
+                if not self.view_models:
+                    exit()
 
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
@@ -1156,8 +1157,7 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "SBP", "DBP", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
-                "var_cgau",
+                "lad_acc_sl", "lad_dia_net", "lad_dia_neg", "var_cgau",
             ]
 
             # allcols
@@ -1209,6 +1209,7 @@ class PigRAD:
 
             #Check VIF on SVM
             dp.check_vif(features=colsofinterest, model_name="svm")
+            console.print(f"[green]Begin training with this target {modeltraining.target_names} and inputs: {colsofinterest}...[/]")
 
             #Load the ModelTraining Class
             console.print("[green]training models...[/]")
@@ -1233,22 +1234,20 @@ class PigRAD:
             # modeltraining._grid_search("rfc", 10)
 
             #Ensemble models
-            console.print("[green]training ensemble...[/]")
-
-            #Store / use rfc indices
-            modeltraining._traind["ensemble"] = modeltraining._traind["rfc"]
+            # console.print("[green]training ensemble...[/]")
+            # #Store / use rfc indices
+            # modeltraining._traind["ensemble"] = modeltraining._traind["rfc"]
             
-            # Fit and validate it using your existing methods
-            modeltraining.get_data("ensemble")
-            modeltraining.fit("ensemble")
-            modeltraining.predict("ensemble")
-            modeltraining.validate("ensemble")
-
-            # Add it to the list so show_results prints it out
-            modellist.append("ensemble")
-            console.print("[green]model training complete...[/]")
+            # # Fit and validate it using your existing methods
+            # modeltraining.get_data("ensemble")
+            # modeltraining.fit("ensemble")
+            # modeltraining.predict("ensemble")
+            # modeltraining.validate("ensemble")
+            # # Add it to the list so show_results prints it out
+            # modellist.append("ensemble")
             modeltraining.show_results(modellist, sort_des=False)
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
+            console.print("[green]model training complete...[/]")
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
