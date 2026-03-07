@@ -112,6 +112,20 @@ class Pig_Feat():
     flow_div    :float = None #Carotid Mean to LAD Flow Mean Ratio 
     retro_flow  :float = None #Retrograde flow of Carotid (AUC of negative flow)
 
+    #IDEA - Possible feature of length of slope of systolic peak.  As the slope becomes less steep, 
+        #myocardial performance goes down. 
+    #IDEA - How quickly did they get to that heart rate.  Look at heart rate velocity change.
+    #IDEA - Abstract Title
+        #Novel noise insensitive classification pipeline for battlefield critical illness prediction.  
+        #hemmorhagic shock
+
+    #IDEA - Data cleanliness
+        # Try different signal filtering and how it affects the ROC curves.  
+        # Proving how important it is to be analyzing clean, untroubled signals
+    #IDEA - Weight Watchers. 
+        #Build model tracking application that can view how your models are progressing over time. 
+        #Have it build from the log file and the term output. 
+
 #CLASS PigRad
 class PigRAD:
     def __init__(self, npz_path):
@@ -121,7 +135,7 @@ class PigRAD:
         self.view_pig    :bool  = False
         self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
-        self.windowsize  :int   = 8        #size of section window 
+        self.windowsize  :int   = 10        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
 
         # Multiple file pathing
@@ -210,8 +224,6 @@ class PigRAD:
             ('sqi_entropy', 'f4'),  #Spectral Entropy
             # ('w_dist'     , 'f4'),#Wasserstein Distance from Baseline
         ]
-
-    
 
     def _derivative(self, signal:np.array, deriv:int=0)->tuple:
         """Calculates smoothed 0, 1st, and 2nd derivative using scipy's Savitzky-Golay filter.
@@ -400,11 +412,12 @@ class PigRAD:
         bpf.DBP = ss1wave[bpf.dbp_id].item()
         bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
         #TODO - Update pulse width to dicrotic notch height
+            #current pul_wid is directly correlated with hr because duh
 
         # Systolic Slope
         sys_run = (bpf.sbp_id - bpf.onset) / self.fs
         bpf.sys_sl = ((bpf.SBP - ss1wave[bpf.onset]) / sys_run).item() if sys_run > 0 else None
-        #TODO - Ask Mark if we should upgrade this to DP/dt 
+        #TODO - Ask Mark if we should upgrade this to dP/dt 
             #Could get that return from _find_sbp_info
 
         # Slices
@@ -1040,11 +1053,12 @@ class PigRAD:
         # self.save_results()
         # console.print("[bold green]Features saved[/]")
 
+    @log_time
     def run_pipeline(self):
         """Checks for existing save files. If found, loads them to save computation time.
         If not found, runs the feature creation and modeling pipeline
         """
-        # 1. Check if files exist
+        # Check if files exist
         if self.fp_save.exists():
             console.print(f"[green]Found saved files for {self.lead}. Loading...[/]")
             
@@ -1099,7 +1113,7 @@ class PigRAD:
             console.print("[green]engineering features...[/]")
             engin = FeatureEngineering(eda)
             #select modeling columns of interest
-            colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
+            # colsofinterest = [engin.data.columns[x] for x in range(4, engin.data.shape[1])]
             #Engineer your features here. available transforms below
             #log:  Log Transform
             #recip:Reciprocal
@@ -1131,9 +1145,10 @@ class PigRAD:
 
             #Remove unwanted features
             removecols = [
-                "lad_mean", "cvr", "flow_div", "lad_pi", "ap_MAP",
+                "flow_div", "lad_pi", "ap_MAP",
                 "shock_gap", "f0", "f1", "f2", "f3", "pul_wid", "lad_dia_pk",
-                "SBP", "DBP", "true_MAP", "var_cgau", "var_mor",
+                "var_cgau", "var_mor", "true_MAP", "p1", "p2",
+                "p3", "sqi_power", "sqi_entropy" 
             ]
 
             for col in removecols:
@@ -1141,8 +1156,8 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "HR", "dcr", "cvr", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
-                "true_MAP", "pul_wid",  #"var_cgau", "var_mor",
+                "SBP", "DBP", "lad_acc_sl", "lad_dia_net", "lad_dia_neg",
+                "var_cgau",
             ]
 
             # allcols
@@ -1166,7 +1181,7 @@ class PigRAD:
             #r_scale : RobustScaler
             #q_scale : QuantileTransformer
             #p_scale : PowerTransformer
-            scaler = "q_scale"
+            scaler = "p_scale"
 
             #Next choose your cross validation scheme. Input `None` for no cross validation
             #kfold           : KFold Validation
@@ -1185,7 +1200,7 @@ class PigRAD:
             #'rfc':RandomForestClassifier
             #'xgboost':XGBoostClassfier
             #'kneigh': KNeighborsClassifier
-            console.print("[green]prepping data for training...[/]")
+            console.print(f"[green]prepping data for training/scaling: {scaler} and cross_val: {cross_val}...[/]")
             dp = DataPrep(colsofinterest, scaler, cross_val, engin)
             modellist = ['svm', 'rfc', 'xgboost', 'kneigh']
             
@@ -1214,21 +1229,26 @@ class PigRAD:
                 modeltraining.plot_feats(tree, colsofinterest, feats)
                 modeltraining.SHAP(tree, colsofinterest)
             
-            modeltraining.show_results(modellist, sort_des=False) 
-            # console.save_html(path=f"src/rad_ecg/data/logs/{DATE_JSON}_term.html", theme=export_theme)
-            modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
-
-            #Gridsearch
+            #Gridsearch models
             # modeltraining._grid_search("rfc", 10)
-            #Ensemble?
-            # ensemble = VotingClassifier(
-            #     estimators=[
-            #         ('knn', modeltraining._models['knn']), 
-            #         ('xgb', modeltraining._models['xgb']), 
-            #         ('rf', modeltraining._models['rfc'])
-            #     ],
-            #     voting='soft' # Uses predicted probabilities rather than hard labels
-            # )
+
+            #Ensemble models
+            console.print("[green]training ensemble...[/]")
+
+            #Store / use rfc indices
+            modeltraining._traind["ensemble"] = modeltraining._traind["rfc"]
+            
+            # Fit and validate it using your existing methods
+            modeltraining.get_data("ensemble")
+            modeltraining.fit("ensemble")
+            modeltraining.predict("ensemble")
+            modeltraining.validate("ensemble")
+
+            # Add it to the list so show_results prints it out
+            modellist.append("ensemble")
+            console.print("[green]model training complete...[/]")
+            modeltraining.show_results(modellist, sort_des=False)
+            modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
@@ -3771,6 +3791,19 @@ class ModelTraining(object):
                     "max_depth": np.arange(0, 10, 1),
                     "n_estimators": np.arange(0, 500, 50),      # number of trees
                 }
+            },
+            "ensemble":{
+                "model_name":"VotingClassifier  ",
+                "model_type":"classification",
+                "scoring_metric":"accuracy",
+                #link to params
+                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.VotingClassifier.html
+                "base_params":{
+                },
+                "init_params":{
+                },
+                "grid_srch_params":{
+                }
             }
         }
     
@@ -3877,22 +3910,31 @@ class ModelTraining(object):
         params = self._model_params[model_name]['init_params']
         ####################  classification Models ##################### 
         match model_name:
-            case 'svm':
+            case "svm":
                 kernel = SVC(**params)
                 model = OneVsRestClassifier(
                     estimator=kernel,
                     n_jobs=None #Change to -1 if you want to smash all the processors
                 )
                 return model
-            case 'rfc':
+            case "rfc":
                 return RandomForestClassifier(**params)
-            case 'xgboost':
+            case "xgboost":
                 #Due to xgboost not having a class parameter.  We have to save it and feed it into the fit function.... THANKS
                 self.class_weights = compute_sample_weight("balanced", y=self._traind[model_name]["y_train"])
                 return XGBClassifier(**params)
-            case 'kneigh':
+            case "kneigh":
                 return KNeighborsClassifier(**params)
-
+            case "ensemble":
+                return VotingClassifier(
+                    estimators=[
+                        ("kneigh", self._models["kneigh"]), 
+                        ("xgboost", self._models["xgboost"]), 
+                        ("rfc", self._models["rfc"])
+                    ],
+                voting="soft" # Uses predicted probabilities rather than hard labels
+                )
+            
     #FUNCTION models fit
     @log_time
     def fit(self, model_name:str):
@@ -3906,7 +3948,7 @@ class ModelTraining(object):
             
         """
         #MEAS Model training \ Param loading
-        ####################  Model Load  ##############################		
+        ####################  Model Load  ##############################
         self.model = ModelTraining.load_model(self, model_name)
 
         ####################  Fitting  ##############################
@@ -4418,6 +4460,8 @@ class ModelTraining(object):
             if cat_bool:
                 self._performance[self.category_value][model_name][metric.upper()] = scores
             else:
+                if model_name not in self._performance.keys():
+                    self._performance[model_name] = {}
                 self._performance[model_name][metric.upper()] = (scores.mean(), scores.std())
 
             #Add them to the table. 
@@ -4927,7 +4971,6 @@ def load_choices(fp:str, batch_process:bool=False):
         return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
 
 # --- Entry Point ---
-@log_time
 def main():
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     batch_process:bool = True
