@@ -88,6 +88,7 @@ class Pig_Feat():
     shock_gap   :float = None #Diff of trueMAP and apMAP
     dni         :float = None #dicrotic Notch Index
     sys_sl      :float = None #systolic slope
+    sys_sl_len  :float = None #Len of systolic slope
     dia_sl      :float = None #diastolic slope
     ri          :float = None #resistive index
     pul_wid     :float = None #pulse width 
@@ -122,6 +123,7 @@ class Pig_Feat():
     #IDEA - Data cleanliness
         # Try different signal filtering and how it affects the ROC curves.  
         # Proving how important it is to be analyzing clean, untroubled signals
+
     #IDEA - Weight Watchers. 
         #Build model tracking application that can view how your models are progressing over time. 
         #Have it build from the log file and the term output. 
@@ -186,6 +188,7 @@ class PigRAD:
             ('shock_gap'  , 'f4'),  #Difference between true and approximate MAP
             ('dni'        , 'f4'),  #Dichrotic Notch Index
             ('sys_sl'     , 'f4'),  #Systolic slope
+            ('sys_sl_len' , 'f4'),  #Length of systolic slope
             ('dia_sl'     , 'f4'),  #Diastolic slope
             ('ri'         , 'f4'),  #Resistive index
             ('pul_wid'    , 'f4'),  #Pulse width 
@@ -410,13 +413,13 @@ class PigRAD:
         # Pressures & Pulse Width
         bpf.SBP = ss1wave[bpf.sbp_id].item()
         bpf.DBP = ss1wave[bpf.dbp_id].item()
-        bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
-        #TODO - Update pulse width to dicrotic notch height
-            #current pul_wid is directly correlated with hr because duh
+        # bpf.pul_wid = (bpf.dbp_id - bpf.onset) / self.fs
 
-        # Systolic Slope
+        # Systolic Slope and slope length
         sys_run = (bpf.sbp_id - bpf.onset) / self.fs
         bpf.sys_sl = ((bpf.SBP - ss1wave[bpf.onset]) / sys_run).item() if sys_run > 0 else None
+        bpf.sys_sl_len = sys_run
+
         #TODO - Ask Mark if we should upgrade this to dP/dt 
             #Could get that return from _find_sbp_info
 
@@ -468,6 +471,8 @@ class PigRAD:
         # Diastolic Slope
         if getattr(bpf, 'notch', None):
             notch_abs = bpf.sbp_id + bpf.notch_id
+            #Calc pulse width at FWHM
+            bpf.pul_wid = self.calc_FWHM(bpf, ss1wave, notch_abs)
             y_dia = ss1wave[notch_abs:bpf.dbp_id]
             # Linregress requires at least 2 points
             if y_dia.size > 2: 
@@ -688,6 +693,33 @@ class PigRAD:
             return None  # Avoid division by zero
         ri = (psv - edv) / psv
         return ri.item()
+    
+    def calc_FWHM(self, bpf:Pig_Feat, pressure:np.array, notch_idx:int) -> float:
+        """Calculates the width of the systolic peak in SS1 using FWHM (Full Width Half Maximum).  Standard DSP calc
+
+        Args:
+            bpf (Pig_Feat): dataclass with current beat information
+            pressure (np.array): ss1 pressure stream for section
+            notch_idx (int): Absolute index of dicrotic notch
+
+        Returns:
+            true_systolic_width_sec (float): Returns the width at FWHM
+        """
+        systolic_amp = bpf.SBP - pressure[bpf.onset]
+        threshold = pressure[bpf.onset] + (systolic_amp * 0.5)
+        upstroke = pressure[bpf.onset : bpf.sbp_id]
+        downstroke = pressure[bpf.sbp_id: notch_idx]
+
+        # Interpolate using array indices instead of time
+        upstroke_idx = np.arange(bpf.onset, bpf.sbp_id)
+        downstroke_idx = np.arange(bpf.sbp_id, notch_idx)
+
+        idx_left = np.interp(threshold, upstroke, upstroke_idx)
+        idx_right = np.interp(threshold, downstroke[::-1], downstroke_idx[::-1])
+        # Divide by frequency to convert into seconds
+        true_systolic_width_sec = (idx_right - idx_left) / self.fs
+
+        return true_systolic_width_sec
     
     def section_extract(self):
         """This is the main section for signal processing and feature creation. Updates the self.avg_data object
@@ -985,6 +1017,7 @@ class PigRAD:
                     pig_avg_data["ap_MAP"][idx]      = self._yabig_meanie([r.ap_MAP for r in ind_beats])
                     pig_avg_data["shock_gap"][idx]   = self._yabig_meanie([r.shock_gap for r in ind_beats])
                     pig_avg_data["sys_sl"][idx]      = self._yabig_meanie([r.sys_sl for r in ind_beats])
+                    pig_avg_data["sys_sl_len"][idx]  = self._yabig_meanie([r.sys_sl_len for r in ind_beats])
                     pig_avg_data["dia_sl"][idx]      = self._yabig_meanie([r.dia_sl for r in ind_beats])
                     pig_avg_data["ri"][idx]          = self._yabig_meanie([r.ri for r in ind_beats])
                     pig_avg_data["pul_wid"][idx]     = self._yabig_meanie([r.pul_wid for r in ind_beats])
@@ -1148,9 +1181,9 @@ class PigRAD:
 
             #Remove unwanted features
             removecols = [
-                "flow_div", "lad_pi", "ap_MAP",
-                "shock_gap", "f0", "f1", "f2", "f3", "pul_wid", "lad_dia_pk",
-                "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "var_cgau", "var_mor"
+                "flow_div", "lad_pi", "ap_MAP", "pul_wid",
+                "shock_gap", "f0", "f1", "f2", "f3", "lad_dia_pk",
+                "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "lad_mean"
             ]
 
             for col in removecols:
@@ -1159,11 +1192,11 @@ class PigRAD:
 
             norm_features = [
                 "SBP", "DBP", "HR", "lad_dia_net", "lad_dia_neg",
-                "var_cgau", "var_mor"
+                "lad_mean", "pul_wid",
             ]
 
             # allcols
-            # HR, SBP, DBP, EBV, true_MAP, ap_MAP, shock_gap, dni, sys_sl,
+            # HR, SBP, DBP, EBV, true_MAP, ap_MAP, shock_gap, dni, sys_sl, sys_sl_len,
             # dia_sl, ri, pul_wid, p1, p2, p3, p1_p2, p1_p3, aix, lad_mean,
             # lad_dia_pk, lad_sys_pk, lad_ds_rat, lad_dia_net, lad_dia_neg, cvr,
             # dcr, lad_pi, lad_acc_sl, flow_div, retro_flow, f0, f1, f2, f3,
