@@ -38,9 +38,9 @@ from setup_globals import walk_directory
 from support import logger, console, log_time
 from support import export_theme, DATE_JSON
 
-########################### Sklearn metric / scaling imports ###############################
+########################### Sklearn shap metric / scaling imports ########
 from shap import TreeExplainer
-from sklearn.base import BaseEstimator
+from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
@@ -65,13 +65,6 @@ from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.svm import SVC, LinearSVC
 from xgboost import XGBClassifier
 import xgboost as xgb
-
-########################### For GPU acceleration on XGBoost #########################
-try:
-    import cupy as cp
-    CUPY_AVAILABLE = True
-except ImportError:
-    CUPY_AVAILABLE = False
 
 #CLASS Pig_Feat
 @dataclass
@@ -1282,8 +1275,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            # console.print("[green]launch gridsearch...[/]")
-            # modeltraining._grid_search("rfc", 10)
+            console.print("[green]launch gridsearch...[/]")
+            modeltraining._grid_search("rfc")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3981,14 +3974,32 @@ class ModelTraining(object):
             case "kneigh":
                 model_step =  KNeighborsClassifier(**params)
             case "ensemble":
+                from sklearn.base import clone
+                def unwrap_model(m_name):
+                    if m_name not in self._models:
+                        return None
+                    
+                    pipe = self._models[m_name]
+                    core_est = pipe.named_steps['model']
+                    
+                    # Unwrap MultiGPU if it is wrapping the base model
+                    if getattr(core_est, "__class__", None).__name__ == "MultiGPU":
+                        core_est = core_est.estimator
+                        
+                    # Return a fresh, unfitted copy of the raw algorithm
+                    return clone(core_est)
+                
                 model_step =  VotingClassifier(
                     estimators=[
-                        ("kneigh", self._models["kneigh"]), 
-                        ("xgboost", self._models["xgboost"]), 
-                        ("rfc", self._models["rfc"])
+                        ("kneigh", unwrap_model(self._models["kneigh"])), 
+                        ("xgboost", unwrap_model(self._models["xgboost"])), 
+                        ("rfc", unwrap_model(self._models["rfc"]))
                     ],
                 voting="soft" # Uses predicted probabilities rather than hard labels
                 )
+        if self.gpu_devices:
+            model_step = MultiGPU(model_step, self.gpu_devices)
+
         pipeline = Pipeline([
             ("scaler", scaler_step),
             ("model", model_step)
@@ -4313,7 +4324,7 @@ class ModelTraining(object):
                 # Setup fit parameters for this specific fold
                 fit_kwargs = {}
                 if full_weights is not None:
-                    # CRITICAL: Slice the weights to match the length of the training fold!
+                    # Slice the weights to match the length of the training fold!
                     fit_kwargs["model__sample_weight"] = full_weights[train_ix]
 
                 # Fit the model on the training fold, safely passing the sliced weights
@@ -4476,7 +4487,7 @@ class ModelTraining(object):
                 return None
 
         #FUNCTION With Cross Validation
-        def cv_scoring(y_pred:np.array, cat_bool:bool, model:str, table)->float:
+        def cv_scoring(y_pred:np.array, cat_bool:bool, model_name:str, table)->float:
             """_summary_
 
             Args:
@@ -4900,7 +4911,7 @@ class ModelTraining(object):
 
     #FUNCTION _grid_search
     @log_time
-    def _grid_search(self, model_name: str, folds: int):
+    def _grid_search(self, model_name: str, folds: int = 10):
         console.print(f'{model_name} grid search initiated')
         # base_clf = self._models[model_name]
         pipeline = self.load_model(model_name)
@@ -4919,13 +4930,8 @@ class ModelTraining(object):
             # 1 worker per GPU. You can multiply this (e.g., num_gpus * 2) 
             # if your models are small and fit in VRAM concurrently.
             n_workers = num_gpus 
-            # Wrap the classifier so each worker gets its own GPU
-            base_clf = pipeline.named_steps['model']
-            w_clf = MultiGPU(base_clf, self.gpu_devices)
-            # Put the wrapped model back into the pipeline
-            pipeline.steps[-1] = ('model', w_clf)
 
-            # Prefix the param grid keys because of the wrapper
+            # params to penetrate MultiGPU: model__estimator__param
             params = {f"model__estimator__{k}": v for k, v in params.items()}
         else:
             n_workers = -1 # Fall back to all CPUs if no GPUs
@@ -4975,7 +4981,7 @@ class ModelTraining(object):
         with progress:
             task = progress.add_task("Fitting Model", total=1)
             # --- Blanket warning suppression for missing class ---
-            import warnings
+            import warnings 
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
                 
@@ -5019,20 +5025,18 @@ class ModelTraining(object):
         return grid
 
 #CLASS Multi GPU routing
-class MultiGPU(BaseEstimator):
+class MultiGPU(BaseEstimator, ClassifierMixin):
     """
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
     Routes GPU parameters to supported models (XGBoost) and falls back 
-    to CPU for standard sklearn models. Features CuPy interception for 
-    zero-copy XGBoost data transfers, including sample weights.
+    to CPU for standard sklearn models. Let's XGBoost handle memory transfers natively.
     """
     def __init__(self, estimator, gpu_devices):
         self.estimator = estimator
         self.gpu_devices = gpu_devices
-        self.gpu_id = None # Track which GPU this worker is using
+        self.gpu_id = None 
 
     def fit(self, X, y, **kwargs):
-        # Determine which joblib worker process we are in
         ident = multiprocessing.current_process()._identity
         worker_id = ident[0] - 1 if ident else 0
         
@@ -5040,81 +5044,57 @@ class MultiGPU(BaseEstimator):
             gpu_idx = worker_id % len(self.gpu_devices)
             self.gpu_id = self.gpu_devices[gpu_idx]
             
-            # Handle XGBoost directly
+            # Route XGBoost parameters
             if isinstance(self.estimator, xgb.XGBClassifier):
                 self.estimator.set_params(device=f"cuda:{self.gpu_id}")
                 
-                # Move data and any array kwargs (like sample_weight) to this specific GPU
-                if CUPY_AVAILABLE:
-                    with cp.cuda.Device(self.gpu_id):
-                        X_gpu = cp.asarray(X)
-                        y_gpu = cp.asarray(y)
-                        
-                        # Process kwargs to ensure weights move to GPU too
-                        gpu_kwargs = {}
-                        for k, v in kwargs.items():
-                            if isinstance(v, (np.ndarray, list)):
-                                gpu_kwargs[k] = cp.asarray(v)
-                            else:
-                                gpu_kwargs[k] = v
-                                
-                        self.estimator.fit(X_gpu, y_gpu, **gpu_kwargs)
-                        self.is_fitted_ = True
-                        return self
-                
-            # Handle OneVsRestClassifier (For SVMs)
             elif isinstance(self.estimator, OneVsRestClassifier):
                 base_est = self.estimator.estimator
                 if isinstance(base_est, xgb.XGBClassifier):
                     base_est.set_params(device=f"cuda:{self.gpu_id}")
                     self.estimator.estimator = base_est
-                    # Note: don't pass CuPy arrays to OneVsRestClassifier. It crashes on GPU arrays.
             
-            # Handle VotingClassifier Ensembles
             elif getattr(self.estimator, "__class__", None).__name__ == "VotingClassifier":
-                # Look through the un-fitted estimators list: [("name", model), ...]
                 for name, est in self.estimator.estimators:
                     if isinstance(est, xgb.XGBClassifier):
-                        # Route just the XGBoost portion to the correct GPU
                         est.set_params(device=f"cuda:{self.gpu_id}")
-                # CRITICAL: Do NOT use CuPy here. Random Forest and KNN require 
-                # standard CPU NumPy arrays. Let XGBoost handle its own data transfer.
             
-            # Handle Scikit-Learn CPU Models (RF, KNN)
             elif isinstance(self.estimator, (RandomForestClassifier, KNeighborsClassifier)):
                 if hasattr(self.estimator, 'n_jobs'):
                     self.estimator.set_params(n_jobs=1)
 
-        # Fallback for CPU models, or if CuPy isn't installed
-        self.estimator.fit(X, y, **kwargs)
-        self.is_fitted_ = True
+        # Pass standard NumPy arrays. XGBoost will safely transfer them to the assigned GPU natively!
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Falling back to prediction using DMatrix.*")
+            self.estimator.fit(X, y, **kwargs)
+            
+        self.is_fitted_ = True 
         return self
 
     def predict(self, X):
-        # Move prediction data to GPU, then pull results back to CPU
-        if CUPY_AVAILABLE and self.gpu_id is not None and isinstance(self.estimator, xgb.XGBClassifier):
-            with cp.cuda.Device(self.gpu_id):
-                X_gpu = cp.asarray(X)
-                preds = self.estimator.predict(X_gpu)
-                return cp.asnumpy(preds) # Send back to CPU for sklearn's scorer
-                
-        return self.estimator.predict(X)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Falling back to prediction using DMatrix.*")
+            return self.estimator.predict(X)
         
     def predict_proba(self, X):
-        # Move prediction data to GPU, then pull results back to CPU
-        if CUPY_AVAILABLE and self.gpu_id is not None and isinstance(self.estimator, xgb.XGBClassifier):
-            with cp.cuda.Device(self.gpu_id):
-                X_gpu = cp.asarray(X)
-                preds = self.estimator.predict_proba(X_gpu)
-                return cp.asnumpy(preds) # Send back to CPU for sklearn's scorer
-                
-        return self.estimator.predict_proba(X)
-        
-    def score(self, X, y):
-        return self.estimator.score(X, y)
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Falling back to prediction using DMatrix.*")
+            return self.estimator.predict_proba(X)
+
+    def decision_function(self, X):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Falling back to prediction using DMatrix.*")
+            return self.estimator.decision_function(X)
+
+    def score(self, X, y, sample_weight=None):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*Falling back to prediction using DMatrix.*")
+            # If sample_weight is provided, route it down to the scorer
+            if sample_weight is not None:
+                return self.estimator.score(X, y, sample_weight=sample_weight)
+            return self.estimator.score(X, y)
         
     def __getattr__(self, name):
-        # Delegate any other attribute lookups (like feature_importances_) to the base estimator
         return getattr(self.estimator, name)
     
     
