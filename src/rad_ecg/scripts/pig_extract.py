@@ -2,6 +2,7 @@ import io
 import time
 import shap
 import base64
+import warnings
 import numpy as np
 import pandas as pd
 import seaborn as sns
