@@ -41,6 +41,7 @@ from support import export_theme, DATE_JSON
 ########################### Sklearn metric / scaling imports ###############################
 from shap import TreeExplainer
 from sklearn.base import BaseEstimator
+from sklearn.pipeline import Pipeline
 from sklearn.metrics import mean_absolute_error as MAE
 from sklearn.metrics import accuracy_score as ACC_SC
 from sklearn.metrics import log_loss as LOG_LOSS
@@ -48,7 +49,7 @@ from sklearn.metrics import mean_squared_error as MSE
 from sklearn.metrics import r2_score as RSQUARED
 from sklearn.metrics import roc_curve, auc
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import cross_validate, train_test_split
+from sklearn.model_selection import cross_validate, train_test_split, cross_val_predict
 from sklearn.metrics import balanced_accuracy_score, f1_score, matthews_corrcoef, make_scorer
 from sklearn.preprocessing import RobustScaler, StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer
 from sklearn.utils.class_weight import compute_sample_weight
@@ -1261,12 +1262,9 @@ class PigRAD:
             forest = ['rfc', 'xgboost']
             #Looking at feature importances
             for tree in forest: #Lol
-                feats = modeltraining._models[tree].feature_importances_
-                modeltraining.plot_feats(tree, colsofinterest, feats)
+                modeltraining.plot_feats(tree, colsofinterest)
                 modeltraining.SHAP(tree, colsofinterest)
             
-            #Gridsearch models
-            # modeltraining._grid_search("rfc", 10)
 
             #Ensemble models
             console.print("[green]training ensemble...[/]")
@@ -1282,6 +1280,12 @@ class PigRAD:
             # Add it to the list so show_results prints it out
             modellist.append("ensemble")
             modeltraining.show_results(modellist, sort_des=False)
+
+            #Gridsearch models
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("rfc", 10)
+            
+            #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
             console.print("[green]model training complete...[/]")
 
@@ -3217,7 +3221,6 @@ class FeatureEngineering(EDA):
             self.feature_names.append(norm_col)
         super().sum_stats(self.feature_names[4:], "Normalized Features")
         logger.info(f'Columns normalized {[x for x in self.feature_names[4:] if x.endswith("_d")]}')
-    
 
 
     #FUNCTION engineer
@@ -3524,48 +3527,21 @@ class DataPrep(object):
                 switch_dict = {y:x for x, y in self.rev_target_dict.items()}
                 self._traind[model_name]["y"] = self.target.map(switch_dict).to_numpy()
             else:
-                self._traind[model_name]["y"] = self.target
+                self._traind[model_name]["y"] = self.target.to_numpy()
 
-        #FUNCTION scalers
-        #Models that don't need scaling
-            #Tree-based algo's
-            #Lda, NB 
-
-        #Tips on choosing Scalers below
-        #StandardScaler(with_mean=True)
-            #https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html#sklearn.preprocessing.StandardScaler
-            #Assumes normal distribution.  If not, needs a transformation to
-            #a normal dist then, standardscaler.
-            #sensitive to outliers. 
-        
-        #MinMaxScaler(feature_range=(0, 1))
-            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html#sklearn.preprocessing.MinMaxScaler
-            # sensitive to outliers. 
-            
-        #RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True)
-            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.RobustScaler.html#sklearn.preprocessing.RobustScaler
-            # Use this one if you've got outliers that you can't remove. (or alot of them)
-            # Scales by quantile ranges
-
-        #QuantileTransformer()
-            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.QuantileTransformer.html#
-            # Scales by transforming to a normal or uniform distribution
-            # Nonlinear transformation, so it could distort correlations. 
-            # Also known as a rankscaler. 
-
-        #PowerTransformer()
-            #https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html#sklearn.preprocessing.PowerTransformer
-            #parametric, monotonic transformation to fit a Gaussian Distribution
-            #finds optimal scaling, for stabalizing variance and skewness. 
-            #Supports box-cox (strictly positive) and yeo-johnson transforms (pos and neg values)
 
         # MEAS Test Train Split
         if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
-            # Test train split Group-aware outer split
-            gss = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
-            
+            # if self.cross_val == "groupshuffle":
+                # Test train split Group-aware outer split
+            splitter = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
+            # elif self.cross_val == "leaveonegroupout":
+            #     splitter = LeaveOneGroupOut()
+            # elif self.cross_val == "groupkfold":
+            #     splitter = GroupKFold(n_splits=10)
+
             # Get the indices for train and test based on groups
-            train_idx, test_idx = next(gss.split(
+            train_idx, test_idx = next(splitter.split(
                 self._traind[model_name]["X"], 
                 self._traind[model_name]["y"], 
                 groups=self.groups)
@@ -3590,32 +3566,6 @@ class DataPrep(object):
             self._traind[model_name]["y_train"] = y_train 
             self._traind[model_name]["X_test"] = X_test
             self._traind[model_name]["y_test"] = y_test
-
-        # Scale the Data 
-        if isinstance(self.scaler, str):
-            scaler_dict = {
-                "r_scale":RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
-                "s_scale":StandardScaler(), 
-                "m_scale":MinMaxScaler(feature_range=(0, 1)),
-                "p_scale":PowerTransformer(method='yeo-johnson', standardize=True),
-                "q_scale":QuantileTransformer(output_distribution='normal', random_state=42)
-            }
-            scaler = scaler_dict.get(self.scaler)
-            if not scaler:
-                raise ValueError(f"Scaler not loaded, check before continuing")
-            
-            #Fit/transform the scaler only on the training data
-            self._traind[model_name]["X_train"] = scaler.fit_transform(self._traind[model_name]["X_train"])
-            
-            # Apply the scaling parameters to the test set (don't fit it again)
-            self._traind[model_name]["X_test"] = scaler.transform(self._traind[model_name]["X_test"])
-            
-            # (Optional) If you need the full 'X' array scaled for other reasons, scale it now 
-            # using the rules learned from the training set, though usually X_train/X_test is enough.
-            # self._traind[model_name]["X"] = scaler.transform(self._traind[model_name]["X"])
-            
-            self.scaled = True
-            logger.info(f"{model_name}'s data has been scaled with {scaler.__class__.__name__}")
 
 #CLASS Model Training
 class ModelTraining(object):
@@ -3646,6 +3596,7 @@ class ModelTraining(object):
         self.category_value = dataprep.category_value
         self.feature_names = dataprep.feature_names
         self.split = dataprep.split
+        self.scaler = dataprep.scaler
         self.groups_train = dataprep.groups
         self.target_names = dataprep.target_names
         self.gpu_devices = dataprep.gpu_devices
@@ -3699,9 +3650,9 @@ class ModelTraining(object):
                 },
                 "grid_srch_params":{
                     "n_estimators":range(5, 200, 10),
-                    "criterion":["gini", "entropy", "log_loss"],
-                    "min_samples_split":range(5, 50),            
-                    "min_samples_leaf":range(5, 50),             
+                    "criterion":["gini", "entropy"],
+                    "min_samples_split":range(5, 50, 5),            
+                    # "min_samples_leaf":range(5, 50),             
                     # "max_features":["sqrt", "log2", None]
                 }
             },
@@ -3969,8 +3920,50 @@ class ModelTraining(object):
         Returns:
             model: Model ready for training
         """			
+        #FUNCTION scalers
+        #Models that don't need scaling
+            #Tree-based algo's
+            #Lda, NB 
+
+        #Tips on choosing Scalers below
+        #StandardScaler(with_mean=True)
+            #https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.StandardScaler.html#sklearn.preprocessing.StandardScaler
+            #Assumes normal distribution.  If not, needs a transformation to
+            #a normal dist then, standardscaler.
+            #sensitive to outliers. 
+        
+        #MinMaxScaler(feature_range=(0, 1))
+            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html#sklearn.preprocessing.MinMaxScaler
+            # sensitive to outliers. 
+            
+        #RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True)
+            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.RobustScaler.html#sklearn.preprocessing.RobustScaler
+            # Use this one if you've got outliers that you can't remove. (or alot of them)
+            # Scales by quantile ranges
+
+        #QuantileTransformer()
+            # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.QuantileTransformer.html#
+            # Scales by transforming to a normal or uniform distribution
+            # Nonlinear transformation, so it could distort correlations. 
+            # Also known as a rankscaler. 
+
+        #PowerTransformer()
+            #https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.PowerTransformer.html#sklearn.preprocessing.PowerTransformer
+            #parametric, monotonic transformation to fit a Gaussian Distribution
+            #finds optimal scaling, for stabalizing variance and skewness. 
+            #Supports box-cox (strictly positive) and yeo-johnson transforms (pos and neg values)
+        
+        scaler_dict = {
+            "r_scale": RobustScaler(quantile_range=(0.25, 0.75), with_scaling=True),
+            "s_scale": StandardScaler(), 
+            "m_scale": MinMaxScaler(feature_range=(0, 1)),
+            "p_scale": PowerTransformer(method='yeo-johnson', standardize=True),
+            "q_scale": QuantileTransformer(output_distribution='normal', random_state=42)
+        }
+        scaler_step = scaler_dict.get(self.scaler, "passthrough")
         params = self._model_params[model_name]['init_params']
-        ####################  classification Models ##################### 
+        
+        ###############  load classification model ##################### 
         match model_name:
             case "svm":
                 kernel = SVC(**params)
@@ -3978,17 +3971,17 @@ class ModelTraining(object):
                     estimator=kernel,
                     n_jobs=None #Change to -1 if you want to smash all the processors
                 )
-                return model
+                model_step =  model
             case "rfc":
-                return RandomForestClassifier(**params)
+                model_step =  RandomForestClassifier(**params)
             case "xgboost":
                 #Due to xgboost not having a class parameter.  We have to save it and feed it into the fit function.... THANKS
                 self.class_weights = compute_sample_weight("balanced", y=self._traind[model_name]["y_train"])
-                return XGBClassifier(**params)
+                model_step =  XGBClassifier(**params)
             case "kneigh":
-                return KNeighborsClassifier(**params)
+                model_step =  KNeighborsClassifier(**params)
             case "ensemble":
-                return VotingClassifier(
+                model_step =  VotingClassifier(
                     estimators=[
                         ("kneigh", self._models["kneigh"]), 
                         ("xgboost", self._models["xgboost"]), 
@@ -3996,6 +3989,14 @@ class ModelTraining(object):
                     ],
                 voting="soft" # Uses predicted probabilities rather than hard labels
                 )
+        pipeline = Pipeline([
+            ("scaler", scaler_step),
+            ("model", model_step)
+        ])
+        self.scaled = True
+        logger.info(f"{model_name.__class__.__name__}'s pipeline made and scaled with {scaler_step.__class__.__name__}")
+
+        return pipeline
             
     #FUNCTION models fit
     @log_time
@@ -4030,7 +4031,10 @@ class ModelTraining(object):
         with progress:
             task = progress.add_task("Fitting Model", total=1)
             if model_name == "xgboost":
-                self.model.fit(self.X_train, self.y_train, sample_weight=self.class_weights)
+                self.model.fit(
+                    self.X_train, 
+                    self.y_train, 
+                    model__sample_weight=self.class_weights)
             else:    
                 self.model.fit(self.X_train, self.y_train)
             progress.update(task, advance=1)
@@ -4277,8 +4281,8 @@ class ModelTraining(object):
 
             logger.info(f"Generating CV ROC AUC curves for {model_name}...")
             
-            # Re-initialize model and CV splitter
-            freshmodel = ModelTraining.load_model(self, model_name)
+            # Load model
+            freshmodel = self.load_model(model_name)
             CV_func = load_cross_val(self.cross_val) 
             
             # Set up the common X-axis (False Positive Rate) for interpolation
@@ -4294,11 +4298,27 @@ class ModelTraining(object):
             y_data = self.y_train
             groups_data = self.groups_train
             
+            cv_kwargs = {}
+            if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
+                cv_kwargs["groups"] = groups_data
+            
+            # Pre-calculate full sample weights for XGBoost
+            full_weights = None
+            if model_name == "xgboost":
+                full_weights = compute_sample_weight("balanced", y=y_data)
+            
             # Iterate through the CV folds
-            #BUG - had to hardcode the group here 
-            for fold, (train_ix, test_ix) in enumerate(CV_func.split(X_data, y_data, groups=groups_data)):
-                # Fit the model on the training fold
-                freshmodel.fit(X_data[train_ix], y_data[train_ix])
+            for fold, (train_ix, test_ix) in enumerate(CV_func.split(X_data, y_data, **cv_kwargs)):
+                
+                # Setup fit parameters for this specific fold
+                fit_kwargs = {}
+                if full_weights is not None:
+                    # CRITICAL: Slice the weights to match the length of the training fold!
+                    fit_kwargs["model__sample_weight"] = full_weights[train_ix]
+
+                # Fit the model on the training fold, safely passing the sliced weights
+                freshmodel.fit(X_data[train_ix], y_data[train_ix], **fit_kwargs)
+                
                 # Predict probabilities on the testing fold
                 probas_ = freshmodel.predict_proba(X_data[test_ix])
                 
@@ -4310,7 +4330,7 @@ class ModelTraining(object):
                     # Check if there are actually any positive samples for this class in this fold
                     if np.sum(y_test_bin) == 0:
                         logger.warning(f"Fold {fold}: Class '{self.target_names[cls]}' missing from test set. Skipping ROC for this fold.")
-                        continue # Skip to the next class
+                        continue 
                     
                     # Calculate ROC metrics
                     fpr, tpr, _ = roc_curve(y_test_bin, probas_[:, cls])
@@ -4383,17 +4403,17 @@ class ModelTraining(object):
                 plt.close()
 
         #FUNCTION classification summary
-        def classification_summary(model_name:str, y_pred:np.array, cv_class:str=False):
+        def classification_summary(model_name:str, y_true:np.array, y_pred:np.array, cv_class:str=False):
         #######################Confusion Matrix and classification report##########################
             labels = self.target_names
-            no_proba = ["svm", ""]
+            no_proba = ["svm", "linsvm", "ensemble"]
 
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
-            custom_confusion_matrix(self.y_test, y_pred, display_labels=labels, model_name=model_name)
+            custom_confusion_matrix(y_true, y_pred, display_labels=labels, model_name=model_name)
             #Call classification report
             logger.info(f'{model_name} classification report')
-            make_cls_report(self.y_test, y_pred, display_labels=labels)
+            make_cls_report(y_true, y_pred, display_labels=labels)
             
             #Generate ROC curves for non CV runs. 
             if not cv_class:
@@ -4414,7 +4434,10 @@ class ModelTraining(object):
                 # "rsquared": RSQUARED(self.y_test, y_pred),
                 #classification
                 "accuracy": ACC_SC(self.y_test, y_pred),
-                "logloss" : LOG_LOSS(self.y_test, y_pred),
+                # "logloss" : LOG_LOSS(self.y_test, y_pred), 
+                # #Bug, logloss needs probabilities not predictions.
+                    #y_prob = self._models[model_name].predict_proba(self.X_test)
+
                 "balanced_accuracy": balanced_accuracy_score(self.y_test, y_pred),
                 "f1_weighted": f1_score(self.y_test, y_pred, average='weighted'),
                 "f1_macro": f1_score(self.y_test, y_pred, average='macro'),
@@ -4439,13 +4462,13 @@ class ModelTraining(object):
                     self._performance[self.category_value][model_name][metric.upper()] = scoring_dict[metric]
                     scores = self._performance[self.category_value][model_name][metric.upper()]
                     table.add_column(f'{scores:^.2%}', justify="center", style="white on blue")
-                    
-                else:	
+
+                else:
                     self._performance[model_name][metric.upper()] = scoring_dict[metric]
                     scores = self._performance[model_name][metric.upper()]
                     table.add_column(f'{scores:^.2%}', justify="center", style="white on blue")
                     
-                classification_summary(model_name, y_pred)
+                classification_summary(model_name, self.y_test, y_pred, cv_class=False)
                 return scores
             
             else:
@@ -4466,59 +4489,50 @@ class ModelTraining(object):
                 float: _description_
             """
 
-            def generate_cv_predictions(freshmodel, CV_func, X_data:np.array, y_data:np.array, groups_data:np.array):#-> Tuple[list, list]
-                actual_t = np.array([])
-                predicted_t = np.array([])
-                #BUG - Had to hardcode groups into the split.  REFACTOR eventually
-                for train_ix, test_ix in CV_func.split(X = X_data, y = y_data, groups=groups_data):
-                    train_X, train_y, test_X, test_y = X_data[train_ix], y_data[train_ix], X_data[test_ix], y_data[test_ix]
-                    freshmodel.fit(train_X, train_y)
-                    predicted_labels = freshmodel.predict(test_X)
-                    predicted_t = np.append(predicted_t, predicted_labels)
-                    actual_t = np.append(actual_t, test_y)
-
-                return predicted_t, actual_t
-
             #Load a fresh untrained model and score it.
-            freshmodel = ModelTraining.load_model(self, model_name)
-
+            freshmodel = self.load_model(model_name)
             #Load Cross Validation
             CV_func = load_cross_val(self.cross_val)
 
             #Validate
+            cv_kwargs = {}
             if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
-                scores = cross_validate(
-                    freshmodel, self.X_train, self.y_train, 
-                    groups=self.groups_train, cv=CV_func
-                )["test_score"]
-            else:
-                scores = cross_validate(
-                    freshmodel, self.X_train, self.y_train, cv=CV_func
-                )["test_score"]
+               cv_kwargs["groups"] = self.groups_train
             
-            #reload model untrained model for cross_validation predictions
-            freshmodel = ModelTraining.load_model(self, model_name)
-
-            #Load Cross Validation
-            CV_func = load_cross_val(self.cross_val)
-
-            #Generate new predictions based on cross validated data.
-            #BUG - Had to hardcode groups into the cv preds.  REFACTOR eventually
-            y_pred, y_target = generate_cv_predictions(
-                freshmodel, CV_func, self.X_train, self.y_train, self.groups_train
-            )
+            # Generate pipeline fit params for XGBoost
+            fit_params = {}
+            if model_name == "xgboost":
+                # Ensure weights are calculated
+                weights = compute_sample_weight("balanced", y=self.y_train)
+                fit_params["model__sample_weight"] = weights
+            
+            # Get CV scores
+            scores = cross_validate(
+                freshmodel, 
+                self.X_train, 
+                self.y_train, 
+                cv=CV_func, 
+                params=fit_params,
+                **cv_kwargs
+            )["test_score"]
+            
+            # Get CV Out-of-Fold Predictions
+            # handles the Pipeline scaling per fold automatically.
+            cv_predictions = cross_val_predict(
+                freshmodel, 
+                self.X_train, 
+                self.y_train, 
+                cv=CV_func, 
+                params=fit_params,
+                **cv_kwargs
+            )                        
 
             #Store them in the modeltraining object
-            self._predictions[model_name] = y_pred
-            self.y_test = y_target
-        
-            #IDEA
-                #Do we want a permutation test at the end of cross validation to
-                #see if the distributions changed? aka did the model find any
-                #real relation to the inputs
-
-                #? Two fold inner and outer CV? Make a custom scorer??
-
+            if cat_bool:
+                self._predictions[self.category_value][model_name] = cv_predictions
+            else:
+                self._predictions[model_name] = cv_predictions
+            
             if cat_bool:
                 self._performance[self.category_value][model_name][metric.upper()] = scores
             else:
@@ -4531,16 +4545,25 @@ class ModelTraining(object):
             
             if self.task == "classification":
                 logger.info(f'{model_name}: Calculating model summary')
-                classification_summary(model_name, y_pred, True)
+                classification_summary(model_name, self.y_train, cv_predictions, True)
                 
             return scores.mean()
+            #IDEA
+                #Do we want a permutation test at the end of cross validation to
+                #see if the distributions changed? aka did the model find any
+                #real relation to the inputs
+
 
         ###################### METRIC CENTRAL ##################################################
         metric = self._model_params[model_name]["scoring_metric"]
         #Grab the model parameters used.
         params = {k:v for k, v in self.model.get_params().items()}
         #Make a results table
-        table = Table(title = str(self.model.__class__).split(" ")[1].split(".")[-1].rstrip(">'"), header_style="white on blue")
+        actual_estimator = self.model.named_steps['model']
+        if getattr(actual_estimator, "__class__", None).__name__ == "MultiGPU":
+            actual_estimator = actual_estimator.estimator
+
+        table = Table(title=actual_estimator.__class__.__name__, header_style="white on blue")
         table.add_column(metric.upper(), justify="right", style="white on blue")
 
         #Grab predictions
@@ -4610,7 +4633,7 @@ class ModelTraining(object):
         console.print(table)
 
     #FUNCTION importance plot
-    def plot_feats(self, model:str, features:list, imps:list):
+    def plot_feats(self, model_name:str, features:list):
         def onSpacebar(event):
             """When plotting, hit the spacebar if keep the chart from closing. 
 
@@ -4621,6 +4644,43 @@ class ModelTraining(object):
                 timer_error.stop()
                 timer_error.remove_callback(timer_cid)
                 logger.warning(f'Timer stopped')
+        pipeline = self._models.get(model_name)
+        if not pipeline:
+            logger.error(f"Model {model_name} not found")
+            return
+        
+        #Extract the actual model step from the pipeline
+        actual_model = pipeline.named_steps['model']
+        if getattr(actual_model, "__class__", None).__name__ == "MultiGPU":
+            actual_model = actual_model.estimator        
+        
+        imps = None
+
+        # Safely extract importances based on algorithm type
+        if hasattr(actual_model, 'feature_importances_'):
+            imps = actual_model.feature_importances_
+        elif hasattr(actual_model, 'coef_'):
+            # For linear models like LinearSVC
+            imps = np.abs(actual_model.coef_[0]) 
+        
+        # For VotingClassifier
+        elif getattr(actual_model, "__class__", None).__name__ == "VotingClassifier":
+            # Extract and average importances from the ensemble's sub-models
+            est_imps = []
+            # .estimators_ (with the underscore) contains the actual FITTED models
+            for est in actual_model.estimators_:
+                if hasattr(est, 'feature_importances_'):
+                    est_imps.append(est.feature_importances_)
+                    
+            if len(est_imps) > 0:
+                # Average the importances across the supporting models
+                imps = np.mean(est_imps, axis=0)
+            else:
+                logger.warning(f"No sub-estimators in {model_name} support feature importances (e.g., all KNN).")
+                return
+        else:
+            logger.warning(f"Feature importances not available for {model_name}.")
+            return
         
         fig, ax = plt.subplots(nrows=1, ncols=1, figsize = (10, 8))
         feat_imp = sorted(zip(features, imps), key=lambda x: -x[1])[:20]
@@ -4631,16 +4691,16 @@ class ModelTraining(object):
             width=dfeats["Imp"],
         )
         ax.invert_yaxis()
-        plt.title(f"{model} Top 20 feature importance", fontsize=14)
+        plt.title(f"{model_name} Top 20 feature importance", fontsize=14)
         plt.xlabel("Feature Importance")
         plt.ylabel("Feature Name")
         if self.view_models:
             if self.fp_base:
-                fig.savefig(PurePath(self.fp_base, Path(f"{model}_feat.png")), dpi=300)
+                fig.savefig(PurePath(self.fp_base, Path(f"{model_name}_feat.png")), dpi=300)
                 self.stash_plot(
-                    f"{model}_feat",
+                    f"{model_name}_feat",
                     fig,
-                    title=f"{model} Top 20 feature importance"
+                    title=f"{model_name} Top 20 feature importance"
                 )                
             timer_error = fig.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
@@ -4668,24 +4728,49 @@ class ModelTraining(object):
                 timer_error.remove_callback(timer_cid)
                 logger.warning(f'Timer stopped')
 
-        #Variable definition
+        # Variable definition
         plots_to_show = ["bar",] #"waterfall", "violin"
-        X_train = self._traind[model]["X_train"]
-        fitted_model = self._models[model]
+        
+        # Grab the pipeline
+        pipeline = self._models.get(model)
+        if not pipeline:
+            logger.error(f"Model {model} not found in pipeline.")
+            return
 
-        #Load the trained model into the tree explainer
-        tree_explainer = shap.TreeExplainer(fitted_model)
+        # Extract scaler and transform the raw X_train
+        scaler = pipeline.named_steps['scaler']
+        raw_X_train = self._traind[model]["X_train"]
         
-        # Generate the Explanation object (modern API)
-        # This replaces the need for raw shap_values in most modern plots
-        explanation = tree_explainer(X_train, self._predictions[model])
+        if scaler != "passthrough":
+            X_train_scaled = scaler.transform(raw_X_train)
+        else:
+            X_train_scaled = raw_X_train
+            
+        # 3. Extract the model step
+        actual_model = pipeline.named_steps['model']
         
-        # Fallback raw values (legacy) for plots that haven't migrated yet
-        shap_values_raw = tree_explainer.shap_values(X_train, self._predictions[model])
+        # 4. Unwrap MultiGPU if it is wrapping the model
+        if getattr(actual_model, "__class__", None).__name__ == "MultiGPU":
+            actual_model = actual_model.estimator
+
+        # 5. Gatekeeper: TreeExplainer crashes on non-tree models (like SVM or KNN)
+        if getattr(actual_model, "__class__", None).__name__ not in ["RandomForestClassifier", "XGBClassifier"]:
+            logger.warning(f"Model {model} ({actual_model.__class__.__name__}) is not supported by TreeExplainer. Skipping SHAP.")
+            return
+
+        # Load the UNWRAPPED trained model into the tree explainer
+        tree_explainer = shap.TreeExplainer(actual_model)
+        
+        # Generate the Explanation object using the SCALED data
+        explanation = tree_explainer(X_train_scaled)
+        
+        # Fallback raw values using the SCALED data
+        shap_values_raw = tree_explainer.shap_values(X_train_scaled)
 
         if "bar" in plots_to_show:
             fig = plt.figure()
-            shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="bar", show=False)
+            # Notice we pass X_train_scaled here so the dimensions match the shap values perfectly
+            shap.summary_plot(shap_values_raw, X_train_scaled, feature_names=features, plot_type="bar", show=False)
             fig.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
             fig.figure.subplots_adjust(top=0.95)
             if self.view_models:
@@ -4705,8 +4790,7 @@ class ModelTraining(object):
 
         if "violin" in plots_to_show:
             fig = plt.figure()
-            # Summary plot still uses raw values for violin type
-            shap.summary_plot(shap_values_raw, X_train, feature_names=features, plot_type="violin", color="coolwarm", show=False)
+            shap.summary_plot(shap_values_raw, X_train_scaled, feature_names=features, plot_type="violin", color="coolwarm", show=False)
             fig.figure.suptitle(f"{model} Violin of Feature Importance", size=12)
             if self.view_models:
                 if self.fp_base:
@@ -4782,14 +4866,12 @@ class ModelTraining(object):
                 timer_error.start()
                 plt.show()
 
-
         if "waterfall" in plots_to_show:
             try:
                 fig = plt.figure()
                 # Check if the explanation object is 3D (Multi-class/Multi-output)
                 if len(explanation.shape) == 3:
                     # explanation[instance_index, feature_slice, class_index]
-                    # We'll plot the explanation for the 1st observation (0), all features (:), and the 1st class (0)
                     target_class = 0 
                     shap.plots.waterfall(explanation[0, :, target_class], show=False)
                     fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0, Class {target_class})", size=12)
@@ -4797,6 +4879,7 @@ class ModelTraining(object):
                     # Standard 2D explanation (Binary classification or Regression)
                     shap.plots.waterfall(explanation[0], show=False)
                     fig.figure.suptitle(f"{model} Waterfall Plot (Instance 0)", size=12)
+                
                 if self.view_models:                    
                     if self.fp_base:
                         fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_waterfall.png")), dpi=300)
@@ -4812,7 +4895,6 @@ class ModelTraining(object):
                     timer_error.start()
                     plt.show()
 
-                
             except Exception as e:
                 logger.warning(f"Waterfall plot failed: {e}")
 
@@ -4820,23 +4902,36 @@ class ModelTraining(object):
     @log_time
     def _grid_search(self, model_name: str, folds: int):
         console.print(f'{model_name} grid search initiated')
-        base_clf = self._models[model_name]
+        # base_clf = self._models[model_name]
+        pipeline = self.load_model(model_name)
         params = self._model_params[model_name]["grid_srch_params"]
         metric = self._model_params[model_name]["scoring_metric"]
 
         # Determine GPU availability and worker count
         num_gpus = len(self.gpu_devices)
+        # Pre-calculate sample weights if XGBoost
+        fit_params = {}
+        if model_name == "xgboost":
+            weights = compute_sample_weight("balanced", y=self.y_train)
+            fit_params["model__sample_weight"] = weights
+        
         if num_gpus > 0:
             # 1 worker per GPU. You can multiply this (e.g., num_gpus * 2) 
             # if your models are small and fit in VRAM concurrently.
             n_workers = num_gpus 
             # Wrap the classifier so each worker gets its own GPU
-            clf = MultiGPU(base_clf, self.gpu_devices)
+            base_clf = pipeline.named_steps['model']
+            w_clf = MultiGPU(base_clf, self.gpu_devices)
+            # Put the wrapped model back into the pipeline
+            pipeline.steps[-1] = ('model', w_clf)
+
             # Prefix the param grid keys because of the wrapper
-            params = {f"estimator__{k}": v for k, v in params.items()}
+            params = {f"model__estimator__{k}": v for k, v in params.items()}
         else:
             n_workers = -1 # Fall back to all CPUs if no GPUs
-            clf = base_clf
+            # Prefix the param grid keys: model__param
+            params = {f"model__{k}": v for k, v in params.items()}
+
         # Define all the metrics you want to track during the search
         scoring_dict = {
             "accuracy": make_scorer(ACC_SC),
@@ -4858,7 +4953,7 @@ class ModelTraining(object):
             cv_strategy = folds # Fall back to standard integer for KFold/StratifiedKFold
 
         grid = GridSearchCV(
-            clf, 
+            pipeline, 
             n_jobs=n_workers, 
             param_grid=params, 
             cv=cv_strategy, 
@@ -4885,7 +4980,7 @@ class ModelTraining(object):
                 warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
                 
                 if self.cross_val in group_splitters:
-                    grid.fit(self.X_train, self.y_train, groups=self.groups_train)
+                    grid.fit(self.X_train, self.y_train, groups=self.groups_train, **fit_params)
                 else:
                     grid.fit(self.X_train, self.y_train)
                 
@@ -4918,7 +5013,7 @@ class ModelTraining(object):
                     savef.write(f"  - {metric_name}: {other_score:.2%}\n")
             
             # Strip 'estimator__' from the saved best params for readability
-            clean_params = {k.replace('estimator__', ''): v for k, v in grid.best_params_.items()}
+            clean_params = {k.replace('model__', '').replace('estimator__', ''): v for k, v in grid.best_params_.items()}
             savef.write(f"\nParameters:\n{clean_params}\n")
 
         return grid
@@ -4929,7 +5024,7 @@ class MultiGPU(BaseEstimator):
     Wraps an estimator to assign it to a specific GPU based on the joblib worker ID.
     Routes GPU parameters to supported models (XGBoost) and falls back 
     to CPU for standard sklearn models. Features CuPy interception for 
-    zero-copy XGBoost data transfers.
+    zero-copy XGBoost data transfers, including sample weights.
     """
     def __init__(self, estimator, gpu_devices):
         self.estimator = estimator
@@ -4949,12 +5044,22 @@ class MultiGPU(BaseEstimator):
             if isinstance(self.estimator, xgb.XGBClassifier):
                 self.estimator.set_params(device=f"cuda:{self.gpu_id}")
                 
-                # Move data to this specific GPU
+                # Move data and any array kwargs (like sample_weight) to this specific GPU
                 if CUPY_AVAILABLE:
                     with cp.cuda.Device(self.gpu_id):
                         X_gpu = cp.asarray(X)
                         y_gpu = cp.asarray(y)
-                        self.estimator.fit(X_gpu, y_gpu, **kwargs)
+                        
+                        # Process kwargs to ensure weights move to GPU too
+                        gpu_kwargs = {}
+                        for k, v in kwargs.items():
+                            if isinstance(v, (np.ndarray, list)):
+                                gpu_kwargs[k] = cp.asarray(v)
+                            else:
+                                gpu_kwargs[k] = v
+                                
+                        self.estimator.fit(X_gpu, y_gpu, **gpu_kwargs)
+                        self.is_fitted_ = True
                         return self
                 
             # Handle OneVsRestClassifier (For SVMs)
@@ -4963,15 +5068,26 @@ class MultiGPU(BaseEstimator):
                 if isinstance(base_est, xgb.XGBClassifier):
                     base_est.set_params(device=f"cuda:{self.gpu_id}")
                     self.estimator.estimator = base_est
-                    # Note: don't pass CuPy arrays to OneVsRestClassifier because will crash on GPU arrays.
-
+                    # Note: don't pass CuPy arrays to OneVsRestClassifier. It crashes on GPU arrays.
+            
+            # Handle VotingClassifier Ensembles
+            elif getattr(self.estimator, "__class__", None).__name__ == "VotingClassifier":
+                # Look through the un-fitted estimators list: [("name", model), ...]
+                for name, est in self.estimator.estimators:
+                    if isinstance(est, xgb.XGBClassifier):
+                        # Route just the XGBoost portion to the correct GPU
+                        est.set_params(device=f"cuda:{self.gpu_id}")
+                # CRITICAL: Do NOT use CuPy here. Random Forest and KNN require 
+                # standard CPU NumPy arrays. Let XGBoost handle its own data transfer.
+            
             # Handle Scikit-Learn CPU Models (RF, KNN)
             elif isinstance(self.estimator, (RandomForestClassifier, KNeighborsClassifier)):
                 if hasattr(self.estimator, 'n_jobs'):
                     self.estimator.set_params(n_jobs=1)
 
-        # Fallback for CPU models or if CuPy isn't installed
+        # Fallback for CPU models, or if CuPy isn't installed
         self.estimator.fit(X, y, **kwargs)
+        self.is_fitted_ = True
         return self
 
     def predict(self, X):
@@ -4998,7 +5114,9 @@ class MultiGPU(BaseEstimator):
         return self.estimator.score(X, y)
         
     def __getattr__(self, name):
+        # Delegate any other attribute lookups (like feature_importances_) to the base estimator
         return getattr(self.estimator, name)
+    
     
 def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
