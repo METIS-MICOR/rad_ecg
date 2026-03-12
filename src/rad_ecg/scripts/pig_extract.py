@@ -3627,11 +3627,11 @@ class ModelTraining(object):
                     "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_estimators":500,                 #int | 100		
-                    "criterion":"gini",                 #str | gini
-                    "max_depth":20,                   #int
+                    "n_estimators":15,                  #int | 100		
+                    "criterion":"entropy",              #str | gini
+                    "max_depth":20,                     #int
                     "min_samples_split":2,              #int | 2
-                    "min_samples_leaf":5,               #int | 1
+                    "min_samples_leaf":25,               #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
                     "max_features":10,                  #str | "sqft"
                     "max_leaf_nodes":None,              #int | None
@@ -3643,10 +3643,11 @@ class ModelTraining(object):
                     "class_weight":"balanced_subsample" 
                 },
                 "grid_srch_params":{
-                    "n_estimators":range(5, 200, 10),
-                    "criterion":["gini", "entropy"],
-                    "min_samples_split":range(5, 50, 5),            
-                    # "min_samples_leaf":range(5, 50),             
+                    "n_estimators":range(5, 400, 10),
+                    # "criterion":["gini", "entropy"],
+                    "max_depth":range(5, 50, 5),
+                    "min_samples_split":range(2, 50, 2),            
+                    "min_samples_leaf":range(2, 50, 2),             
                     # "max_features":["sqrt", "log2", None]
                 }
             },
@@ -3977,10 +3978,8 @@ class ModelTraining(object):
             case "ensemble":
                 from sklearn.base import clone
                 def unwrap_model(m_name):
-                    if m_name not in self._models:
-                        return None
-                    
-                    pipe = self._models[m_name]
+                    # Generate a fresh pipeline 
+                    pipe = self.load_model(m_name)
                     core_est = pipe.named_steps['model']
                     
                     # Unwrap MultiGPU if it is wrapping the base model
@@ -3992,9 +3991,9 @@ class ModelTraining(object):
                 
                 model_step =  VotingClassifier(
                     estimators=[
-                        ("kneigh", unwrap_model(self._models["kneigh"])), 
-                        ("xgboost", unwrap_model(self._models["xgboost"])), 
-                        ("rfc", unwrap_model(self._models["rfc"]))
+                        ("kneigh", unwrap_model("kneigh")), 
+                        ("xgboost", unwrap_model("xgboost")), 
+                        ("rfc", unwrap_model("rfc"))
                     ],
                 voting="soft" # Uses predicted probabilities rather than hard labels
                 )
