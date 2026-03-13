@@ -1276,8 +1276,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("rfc")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("rfc")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
