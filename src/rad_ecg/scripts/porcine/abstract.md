@@ -28,7 +28,7 @@ Only one abstract should be submitted per presenter.
 
 Limit of 1,500 characters (including spaces, not including title/affiliations). 
 Provide a brief title using Title Case**
-**Title Case: Capitalize the first word and all major words (nouns, pronouns, adjectives, verbs, adverbs). Do not use capital letters for prepositions, articles, or conjunctions unless one is the first word.)
+**Title Case: Capitalize the first word and all major words (nouns, pronouns, adjectives, verbs, adverbs). Do not use capital letters for prepositions, articles, or conjunctions unless one is the first word.
 
 Author(s):
 Type first name, last name, and middle initial in Title Case.

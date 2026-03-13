@@ -108,29 +108,14 @@ class Pig_Feat():
     flow_div    :float = None #Carotid Mean to LAD Flow Mean Ratio 
     retro_flow  :float = None #Retrograde flow of Carotid (AUC of negative flow)
 
-    #IDEA - Possible feature of length of slope of systolic peak.  As the slope becomes less steep, 
-        #myocardial performance goes down. 
-    #IDEA - How quickly did they get to that heart rate.  Look at heart rate velocity change.
-    #IDEA - Abstract Title
-        #Novel noise insensitive classification pipeline for battlefield critical illness prediction.  
-        #hemmorhagic shock
-
-    #IDEA - Data cleanliness
-        # Try different signal filtering and how it affects the ROC curves.  
-        # Proving how important it is to be analyzing clean, untroubled signals
-
-    #IDEA - Weight Watchers. 
-        #Build model tracking application that can view how your models are progressing over time. 
-        #Have it build from the log file and the term output. 
-
 #CLASS PigRad
 class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = False
-        self.view_models :bool  = True
+        self.view_pig    :bool  = True
+        self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -2345,7 +2330,6 @@ class EDA(object):
     #FUNCTION Imputation
     def imputate(self, imptype:str, col:str):
         """Function for imputing missing data.  
-        Will be adding others in the future. 
 
         Args:
             imptype (str): Type of imputation you want
@@ -3528,7 +3512,9 @@ class DataPrep(object):
         if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
             # if self.cross_val == "groupshuffle":
                 # Test train split Group-aware outer split
+            #Split out percentage group for test set (pre-crossvalidation)
             splitter = GroupShuffleSplit(n_splits=1, test_size=split, random_state=42)
+            
             # elif self.cross_val == "leaveonegroupout":
             #     splitter = LeaveOneGroupOut()
             # elif self.cross_val == "groupkfold":
@@ -4006,7 +3992,7 @@ class ModelTraining(object):
             ("model", model_step)
         ])
         self.scaled = True
-        logger.info(f"{model_name.__class__.__name__}'s pipeline made and scaled with {scaler_step.__class__.__name__}")
+        logger.info(f"{model_step.__class__.__name__}'s pipeline made and scaled with {scaler_step.__class__.__name__}")
 
         return pipeline
             
@@ -4259,7 +4245,7 @@ class ModelTraining(object):
                 # 	multi_class = "ovr",
                 # 	labels = cls
                 # )
-                plt.plot(
+                ax.plot(
                     fpr[cls], 
                     tpr[cls], 
                     linestyle="--",
@@ -4267,9 +4253,9 @@ class ModelTraining(object):
                     label = f"ROC curve for {self.target_names[cls]} vs rest AUC:{auc_s[cls]:.2f}" 
                 )
 
-            plt.plot([0, 1], [0, 1], "k--", label="ROC curve for chance level (AUC = 0.5)")
-            plt.title(f'{model.upper()} ROC Curve')
-            plt.legend(loc="lower right")
+            ax.plot([0, 1], [0, 1], "k--", label="ROC curve for chance level (AUC = 0.5)")
+            ax.set_title(f'{model.upper()} ROC Curve')
+            ax.legend(loc="lower right")
             timer_error = fig.figure.canvas.new_timer(interval = 3000)
             timer_error.single_shot = True
             timer_cid = timer_error.add_callback(plt.close, fig.figure)
@@ -5214,7 +5200,7 @@ if __name__ == "__main__":
     #Might need to boost the prominence.
     #Boosted prominence from 30 to 40
 #Bandpass
-    #Bandpassing was aliasing the integral because we weren't letting in low signal power during the later stages of hem shock.  Great catchy by Jack!
+    #Bandpassing was aliasing the integral because we weren't letting in low signal power during the later stages of hem shock.  Great catch by Jack!
     #Solved with a low pass filter with a 40hz cutoff
 #Modeling
     #results plummetted 12 % 
@@ -5222,4 +5208,17 @@ if __name__ == "__main__":
     #increase inband power 0.95 to 96
     #lower band freq from 0.1 to 0.01
 
+#NOTES - 3/10/26
 
+    #IDEA - Possible feature of length of slope of systolic peak.  As the slope becomes less steep, 
+        #myocardial performance goes down. 
+
+    #IDEA - How quickly did they get to that heart rate.  Look at heart rate velocity change.
+
+    #IDEA - Data cleanliness
+        # Try different signal filtering and how it affects the ROC curves.  
+        # Proving how important it is to be analyzing clean, untroubled signals
+
+    #IDEA - Weight Watchers. 
+        #Build model tracking application that can view how your models are progressing over time. 
+        #Have it build from the log file and the term output. 
