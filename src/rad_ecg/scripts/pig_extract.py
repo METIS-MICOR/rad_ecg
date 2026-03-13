@@ -3751,6 +3751,7 @@ class ModelTraining(object):
                     "degree":3,                #str
                     "gamma":"auto",
                     "max_iter":10000,
+                    "probability": True,
                     "decision_function_shape":"ovr",
                     "random_state":42,
                     "class_weight":"balanced"           #Treat target as ordinal
@@ -3783,7 +3784,7 @@ class ModelTraining(object):
                     "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0,
-                    "objective":"reg:squarederror",
+                    "objective":"multi:softprob",
                     "max_depth":4,
                     "learning_rate": 0.05,
                     "colsample_bytree": 0.80,
@@ -3791,13 +3792,13 @@ class ModelTraining(object):
                     "num_class":5,
                 },
                 "grid_srch_params":{
-                    "learning_rate":np.arange(0, 1.1, 0.1),
-                    # "min_child_weight": np.arange(0, 10),
-                    "gamma": np.arange(0, 5, 0.5),
-                    # "subsample": np.arange(0.6, 1.0, 0.2),
-                    # "colsample_bytree": np.arange(0.6, 1.0, 0.2),
-                    "max_depth": np.arange(0, 10, 1),
-                    "n_estimators": np.arange(0, 500, 50),      # number of trees
+                    "max_depth": [2, 3, 4, 5], 
+                    "min_child_weight": [1, 3, 5],
+                    "learning_rate": [0.01, 0.05, 0.1, 0.2],
+                    "n_estimators": [50, 100, 200, 300], 
+                    "subsample": [0.6, 0.8, 1.0],         # Prevents overfitting to specific rows
+                    "colsample_bytree": [0.6, 0.8, 1.0],  # Prevents overfitting to correlated pressure features
+                    "gamma": [0, 0.1, 0.5, 1.0]           # Minimum loss reduction required to split
                 }
             },
             "ensemble":{
@@ -4209,7 +4210,7 @@ class ModelTraining(object):
                 target_names=display_labels,
                 zero_division=False
             )
-            #BUG - Unrepresented classes throw a div by zero error.  Look into this later. 
+
             body = report.split("\n\n")
             header = body[0]
             rows = [body[x].split("\n") for x in range(1, len(body))]
@@ -4417,7 +4418,7 @@ class ModelTraining(object):
         def classification_summary(model_name:str, y_true:np.array, y_pred:np.array, cv_class:str=False):
         #######################Confusion Matrix and classification report##########################
             labels = self.target_names
-            no_proba = ["svm", "linsvm", "ensemble"]
+            no_proba = [ "linsvm", "ensemble"] #"svm",
 
             #Call confusion matrix
             logger.info(f'{model_name} confusion matrix')
@@ -4522,9 +4523,9 @@ class ModelTraining(object):
                 freshmodel, 
                 self.X_train, 
                 self.y_train, 
-                cv=CV_func, 
+                cv=CV_func,
                 params=fit_params,
-                **cv_kwargs
+                **cv_kwargs,
             )["test_score"]
             
             # Get CV Out-of-Fold Predictions
