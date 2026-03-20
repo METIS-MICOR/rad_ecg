@@ -67,6 +67,7 @@ from sklearn.svm import SVC, LinearSVC
 from xgboost import XGBClassifier
 import xgboost as xgb
 
+
 #CLASS Pig_Feat
 @dataclass
 class Pig_Feat():
@@ -114,8 +115,8 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = True
-        self.view_models :bool  = False
+        self.view_pig    :bool  = False
+        self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 8        #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -693,9 +694,9 @@ class PigRAD:
         # Interpolate using array indices instead of time
         upstroke_idx = np.arange(bpf.onset, bpf.sbp_id)
         downstroke_idx = np.arange(bpf.sbp_id, notch_idx)
-
         idx_left = np.interp(threshold, upstroke, upstroke_idx)
         idx_right = np.interp(threshold, downstroke[::-1], downstroke_idx[::-1])
+
         # Divide by frequency to convert into seconds
         true_systolic_width_sec = (idx_right - idx_left) / self.fs
 
@@ -1147,7 +1148,7 @@ class PigRAD:
             engin.engineer("sqi_power", True, False, "YeoJ")
             engin.engineer("sqi_entropy", True, False, "YeoJ")
 
-            #[x] - Normalization
+            # Normalization
                 #Normally in ML we're dealing with cross sectional data. Each row is an
                 #independent unrelated event.  In Longitudinal, subject-grouped data, 
                 #these absolute numbers across pigs can be bad predictors and easily
@@ -1261,8 +1262,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -1445,7 +1446,7 @@ class SignalDataLoader:
         freq_tool = CardiacFreqTools(fs=self.fs) 
         candidates = []
         
-        # 1. Filter by Name (Levenshtein + Substring Boost)
+        # Filter by Name (Levenshtein + Substring Boost)
         for idx, channel in enumerate(channels):
             sim_score = self.levenshtein_ratio(target_name.lower(), channel.lower())
             
@@ -1462,7 +1463,7 @@ class SignalDataLoader:
         candidates = sorted(candidates, key=lambda x: x['sim_score'], reverse=True)
         top_candidates = candidates[:num_needed + 1]
         
-        # 2. Rank by Signal Quality
+        # Rank by Signal Quality
         valid_leads = []
         for cand in top_candidates:
             chan_name = cand['name']
@@ -1491,7 +1492,7 @@ class SignalDataLoader:
             
         valid_leads = sorted(valid_leads, key=lambda x: x['quality_score'], reverse=True)
         
-        # 3. Rich Output UI
+        # Rich Output UI
         selected_indices = []
         
         for i in range(min(num_needed, len(valid_leads))):
@@ -1903,10 +1904,10 @@ class SignalGUI:
         else:
             text += "[CENTER BEAT]\n"
             text += "--- Hemodynamics ---\n"
-            text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 1)}\n"
-            text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 1)}\n"
-            text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 1)}\n"
-            text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 1)}\n\n"
+            text += f"SBP:      {fmt(getattr(bpf, 'SBP', None), 0)}\n"
+            text += f"DBP:      {fmt(getattr(bpf, 'DBP', None), 0)}\n"
+            text += f"true_MAP: {fmt(getattr(bpf, 'true_MAP', None), 0)}\n"
+            text += f"pul_Wid:  {fmt(getattr(bpf, 'pul_wid', None), 2)}\n\n"
             text += "--- Coronary Flow ---\n"
             text += f"Mean LAD: {fmt(getattr(bpf, 'lad_mean', None), 2)}\n"
             text += f"Sys Peak: {fmt(getattr(bpf, 'lad_sys_pk', None), 2)}\n"
@@ -2180,7 +2181,7 @@ class CardiacFreqTools:
         #Sort peaks by PSD amplitude in descending order
         sorted_peak_indices = peaks_idx[np.argsort(mean_psd[peaks_idx])][::-1]
         
-        #Extract top 4 peaks (Fundamental + 3 "harmonics")
+        #Extract top 4 peaks (Fundamental + 3 harmonics)
         top_indices = sorted_peak_indices[:4]
         top_f = freq_list[top_indices]
         top_psd = mean_psd[top_indices]
@@ -4744,14 +4745,14 @@ class ModelTraining(object):
         else:
             X_train_scaled = raw_X_train
             
-        # 3. Extract the model step
+        # Extract the model step
         actual_model = pipeline.named_steps['model']
         
-        # 4. Unwrap MultiGPU if it is wrapping the model
+        # Unwrap MultiGPU if it is wrapping the model
         if getattr(actual_model, "__class__", None).__name__ == "MultiGPU":
             actual_model = actual_model.estimator
 
-        # 5. Gatekeeper: TreeExplainer crashes on non-tree models (like SVM or KNN)
+        # Gatekeeper: TreeExplainer crashes on non-tree models (like SVM or KNN)
         if getattr(actual_model, "__class__", None).__name__ not in ["RandomForestClassifier", "XGBClassifier"]:
             logger.warning(f"Model {model} ({actual_model.__class__.__name__}) is not supported by TreeExplainer. Skipping SHAP.")
             return
@@ -5083,7 +5084,6 @@ class MultiGPU(BaseEstimator, ClassifierMixin):
         
     def __getattr__(self, name):
         return getattr(self.estimator, name)
-    
     
 def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
