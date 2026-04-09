@@ -7,7 +7,7 @@ import subprocess
 from google.cloud import storage
 from support import logger, console
 from pathlib import PurePath, Path
-from rich import print
+from rich import print as pprint
 from rich.tree import Tree
 from rich.text import Text
 from rich.filesize import decimal
@@ -302,7 +302,7 @@ def launch_tui(configs:dict):
             guide_style="bold bright_blue",
         )
         walk_directory(Path(directory), tree)
-        print(tree)
+        pprint(tree)
         
     question = "What file would you like to load?\n"
     file_choice = console.input(f"{question}")
@@ -365,3 +365,35 @@ def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
 
             tree.add(Text(f'{idx} ', "blue") + text_filename) # + Text(icon)
         idx += 1
+#FUNCTION Walk Directory
+def load_choices(fp:str, batch_process:bool=False):
+    """Loads whatever file you pick
+
+    Args:
+        fp (str): file path
+        batch_process (bool): whether we're loading all the files
+
+    Raises:
+        ValueError: If you don't give it a numeric selection in single select, it errors
+
+    Returns:
+        files (list|str): File(s) we want to load
+    """    
+    try:
+        tree = Tree(f":open_file_folder: [link file://{fp}]{fp}", guide_style="bold bright_blue")
+        walk_directory(Path(fp), tree)
+        pprint(tree)
+
+    except Exception as e:
+        logger.warning(f"{e}")
+    
+    if not batch_process:
+        question = "What file would you like to load?\n"
+        file_choice = console.input(f"{question}")
+        if file_choice.isnumeric():
+            files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+            return files[int(file_choice)]
+        else:
+            raise ValueError("Invalid choice")
+    else:
+        return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())

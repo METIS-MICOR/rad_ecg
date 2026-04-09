@@ -96,7 +96,6 @@ class Pig_Feat():
     aix         :float = None #Augmentation Index (AIx)
     ph_mor      :float = None #Mean Phase Angle (Morlet)
     ph_cgau     :float = None #Mean Phase Angle (Cgau1)
-    
     lad_mean    :float = None #Mean Flow
     lad_sys_pk  :float = None #Mean systolic peak
     lad_dia_pk  :float = None #Mean diastolic peak
