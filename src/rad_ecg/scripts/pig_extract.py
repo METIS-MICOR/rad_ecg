@@ -96,6 +96,7 @@ class Pig_Feat():
     aix         :float = None #Augmentation Index (AIx)
     ph_mor      :float = None #Mean Phase Angle (Morlet)
     ph_cgau     :float = None #Mean Phase Angle (Cgau1)
+    
     lad_mean    :float = None #Mean Flow
     lad_sys_pk  :float = None #Mean systolic peak
     lad_dia_pk  :float = None #Mean diastolic peak
@@ -115,10 +116,10 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = False
-        self.view_models :bool  = True
+        self.view_pig    :bool  = True
+        self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
-        self.windowsize  :int   = 8        #size of section window 
+        self.windowsize  :int   = 30       #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
 
         # Multiple file pathing
@@ -201,6 +202,7 @@ class PigRAD:
             ('psd1'       , 'f4'),  #Amplitude of Harmonic 1
             ('psd2'       , 'f4'),  #Amplitude of Harmonic 2
             ('psd3'       , 'f4'),  #Amplitude of Harmonic 3
+            ('mayer_pow'  , 'f4'),  #Mayer Waves Amplitude
             ('var_mor'    , 'f4'),  #Phase Variance (Morlet)
             ('var_cgau'   , 'f4'),  #Phase Variance (Cgau1 - Gaussian)
             # ####### Signal Quality & Shift #################
@@ -890,16 +892,20 @@ class PigRAD:
                     
                     # ---Signal Quality & Baseline Check ---
                     power_ratio, spec_entropy, _ = freq_tool.evaluate_signal(ss1wave)
+                    mayer_power = freq_tool.extract_mayer(ss1wave)
+
                     # power_ratio, spec_entropy, w_dist, current_psd_norm = freq_tool.evaluate_signal(
                     #     ss1wave, baseline_psd_norm=baseline_psd_norm
                     # )
+                    # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
+                    
                     # Log the metrics to the dataset
                     pig_avg_data["sqi_power"][idx] = power_ratio
                     pig_avg_data["sqi_entropy"][idx] = spec_entropy
-                    # pig_avg_data["w_dist"][idx] = w_dist if w_dist is not None else 0.0
+                    pig_avg_data["mayer_pow"][idx] = mayer_power
 
                     # Threshold the signal to a particular power range and or spectral entropy (shannon energy)
-                    if power_ratio < 0.95 or spec_entropy > 0.50: #was 45 - right on the edge
+                    if power_ratio < 0.90 or spec_entropy > 0.45: #was 45 - right on the edge
                         logger.warning(f"sect {idx} rejected as noise. Power Ratio: {power_ratio:.2f}, Entropy: {spec_entropy:.2f}")
                         pig_avg_data["invalid"][idx] = 1
                         continue
@@ -1164,7 +1170,8 @@ class PigRAD:
             removecols = [
                 "flow_div", "lad_pi", "ap_MAP", "pul_wid",
                 "shock_gap", "f0", "f1", "f2", "f3", "lad_dia_pk",
-                "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "lad_mean"
+                "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "lad_mean",
+                "mayer_pow"
             ]
 
             for col in removecols:
@@ -1173,7 +1180,7 @@ class PigRAD:
 
             norm_features = [
                 "SBP", "DBP", "HR", "lad_dia_net", "lad_dia_neg",
-                "lad_mean", "pul_wid",
+                "lad_mean", "pul_wid", "mayer_pow"
             ]
 
             # allcols
@@ -1485,6 +1492,7 @@ class SignalDataLoader:
                 
             # Quality Test
             power_ratio, spec_entropy, _ = freq_tool.evaluate_signal(sig_sample)
+            
             cand['power_ratio'] = power_ratio
             cand['entropy'] = spec_entropy
             cand['quality_score'] = power_ratio + (1.0 - spec_entropy)
@@ -1505,6 +1513,8 @@ class SignalDataLoader:
             raise ValueError(f"Failed to find any viable leads for '{target_name}'.")
             
         return selected_indices[0]
+
+#TODO  - See if you can calc delta offset in every pig between ss1 and carotid | ecg
 
 #CLASS Advanced Viewer
 class SignalGUI:
@@ -2042,6 +2052,7 @@ class CardiacFreqTools:
         #Use it to deconstruct the levels and reassemble the signal
         #without the wander. 
 
+
     def get_wavelet(self, wavelet_type:str, center_freq:float):
         """Generates the requested wavelet kernel
 
@@ -2194,7 +2205,7 @@ class CardiacFreqTools:
             
         return top_f, top_psd
     
-    def evaluate_signal(self, signal: np.array, baseline_psd_norm=None) -> tuple:
+    def evaluate_signal(self, signal: np.array) -> tuple: #baseline_psd_norm=None
         """
         Evaluates if the signal is physiological or just noise. Uses Welch's method to estimate the power spectral density independently of peak finding.
         
@@ -2238,6 +2249,42 @@ class CardiacFreqTools:
         #     w_dist = wasserstein_distance(freqs, freqs, u_weights=psd_norm, v_weights=baseline_psd_norm)
 
         return power_ratio, norm_spec_entropy, psd_norm
+    
+    def extract_mayer(self, signal: np.array, band_low: float = 0.04, band_high: float = 0.15) -> float:
+        """
+        Calculates the power of Mayer waves (Low Frequency blood pressure oscillations)
+        typically found in the 0.04 to 0.15 Hz band in large mammals.
+
+        Args:
+            signal (np.array): Pressure (SS1) waveform for a section.
+            band_low (float): Lower bound of the Mayer wave frequency band.
+            band_high (float): Upper bound of the Mayer wave frequency band.
+
+        Returns:
+            float: Total power in the Mayer wave frequency band. Returns np.nan if unable to calculate.
+        """
+        if len(signal) == 0:
+            return np.nan
+
+        # To resolve a ~0.1 Hz wave (10-second period), we ideally want nperseg to be 
+        # at least 20-30 seconds. We cap it at the actual signal length if the window is shorter.
+        nperseg = min(len(signal), int(self.fs * 30.0)) 
+
+        try:
+            freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
+            
+            # Create mask for the Mayer wave frequency band
+            mayer_mask = (freqs >= band_low) & (freqs <= band_high)
+            
+            # Integrate the power spectral density in this band using trapezoidal rule
+            mayer_power = np.trapezoid(psd[mayer_mask], freqs[mayer_mask])
+            
+            return float(mayer_power)
+        
+        except Exception as e:
+            logger.warning(f"{e}")
+            return np.nan
+        
 
 #CLASS EDA
 class EDA(object):
