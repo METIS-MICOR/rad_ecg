@@ -348,23 +348,9 @@ def walk_directory(directory: Path, tree: Tree, files:bool = False) -> None:
             text_filename.stylize(f"link file://{path}")
             file_size = path.stat().st_size
             text_filename.append(f" ({decimal(file_size)})", "blue")
-        #     if path.suffix == "py":
-        #         icon = "🐍 "
-        #     elif path.suffix == ".hea":
-        #         icon = "🤯  "
-        #     elif path.suffix == ".ebm":
-        #         icon = "� "
-        #     elif path.suffix == ".npz":
-        #         icon = "🔫 "
-        #     elif path.suffix == ".mib":
-        #         icon = "� "
-        #     elif path.suffix == ".zip":
-        #         icon = "🤐 "
-        #     else:
-        #         icon = "� "
-
             tree.add(Text(f'{idx} ', "blue") + text_filename) # + Text(icon)
         idx += 1
+
 #FUNCTION Walk Directory
 def load_choices(fp:str, batch_process:bool=False):
     """Loads whatever file you pick
@@ -389,11 +375,43 @@ def load_choices(fp:str, batch_process:bool=False):
     
     if not batch_process:
         question = "What file would you like to load?\n"
-        file_choice = console.input(f"{question}")
+        file_choice = "30" #console.input(f"{question}")
         if file_choice.isnumeric():
-            files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
-            return files[int(file_choice)]
+            if fp._tail[-1] == "inputdata":
+                folders = sorted(f for f in Path(str(fp)).iterdir())
+                return folders[int(file_choice)]
+            else:
+                files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+                return files[int(file_choice)]
         else:
             raise ValueError("Invalid choice")
     else:
-        return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+        if fp._tail[-1] == "inputdata":
+            return sorted(f for f in Path(str(fp)).iterdir())
+        else:
+            return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+
+SECTION_DTYPES = [
+    ('wave_section', 'i4'),
+    ('start_point' , 'i4'),
+    ('end_point'   , 'i4'),
+    ('valid'       , 'i4'),
+    ('fail_reason' , str, 16),
+    ('Avg_HR'      , 'f4'), 
+    ('SDNN'        , 'f4'),
+    ('min_HR_diff' , 'f4'), 
+    ('max_HR_diff' , 'f4'), 
+    ('RMSSD'       , 'f4'),
+    ('NN50'        , 'f4'),
+    ('PNN50'       , 'f4'),
+    ('QTVI'        , 'f4'),
+    ('isoelectric' , 'f4'),
+    ('Avg_QRS'     , 'f4'),
+    ('Avg_QT'      , 'f4'),
+    ('Avg_PR'      , 'f4'),
+    ('Avg_ST'      , 'f4')
+]
+
+INTERIOR_DTYPES = [
+    
+]
