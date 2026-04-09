@@ -57,6 +57,12 @@ class SignalDataLoader:
                     self.window = 2
                     self.fs = float(header["frequency"])
 
+                case "ecg": 
+                    pass
+                case "h12": 
+                    pass            
+
+                #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
                 case "":
                     from wfdb import rdrecord
                     record = rdrecord(
@@ -69,10 +75,7 @@ class SignalDataLoader:
                     self.wave = record.p_signal
                     self.window = 10
                     self.dtypes = setup_globals.SECTION_DTYPES
-                case "ecg": 
-                    pass
-                case "h12": 
-                    pass            
+
         except Exception as e:
             logger.critical(f"Unable to load file. Error {e}")
 
@@ -90,12 +93,12 @@ class SignalDataLoader:
             wave = self.wave,
             fs = self.fs,
         )
-        rad.sect_info = np.zeros(shape=(self.segments.shape[0]), dtype=setup_globals.SECTION_DTYPES)
+        rad.sect_info = np.zeros(shape=(self.segments.shape[0]), dtype=self.dtypes)
         rad.sect_info["wave_section"] = np.arange(self.segments.shape[0])
         rad.sect_info["start_point"] = self.segments[:,0]
         rad.sect_info["end_point"] = self.segments[:,1]
         rad.sect_info["valid"] = self.segments[:,2]
-        #Don't need this anymore, so delete it. 
+        #Don't need segments anymore, so delete it. 
         del self.segments
         return rad
 
@@ -157,7 +160,7 @@ class RadECG:
         self.window_size = window_size
         self.gui = SignalGUI(self.data)
         self.freq_tools = CardiacFreqTools(fs=self.fs)
-        self.stack_range = np.arange(0, self.data.sect_info.shape[0], 10000)
+        self.stack_range = np.arange(10000, self.data.sect_info.shape[0], 10000)
         # Historical trackers
         self.low_counts = 0
         self.sect_counter = 0
@@ -173,7 +176,7 @@ class RadECG:
         Returns:
             np.array: Stacked array
         """        
-        return np.vstack((self.data['peaks'], new_peaks_arr)).astype(np.int32)
+        return np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
         
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
@@ -183,9 +186,9 @@ class RadECG:
             while len(sect_que) > 0:
                 progbar.update(task_id=job_id, description=f"[green] Extracting Peaks", advance=1)
                 curr_section = sect_que.popleft()
-                start_p = curr_section[0]
-                end_p = curr_section[1]
-                wave_chunk = self.data.wave[start_p:end_p]
+                start_p = curr_section[0].item()
+                end_p = curr_section[1].item()
+                wave_chunk = self.data.wave[start_p:end_p].flatten()
 
                 # Check Signal Quality Index (SQI)
                 power_ratio, spec_entropy, _ = self.freq_tools.evaluate_signal(wave_chunk)
@@ -193,9 +196,9 @@ class RadECG:
                 self.data.sect_info[self.sect_counter]["spec_entropy"] = spec_entropy
 
                 # In-Band Power Ratio and Shannon Entropy thresholds
-                if power_ratio < 0.90 or spec_entropy > 0.45:
+                if power_ratio < 0.85 or spec_entropy > 0.60:
                     logger.warning(f"Section {self.sect_counter} rejected via SQI. Pwr: {power_ratio:.2f}, Ent: {spec_entropy:.2f}")
-                    self.data.sect_info[self.sect_counter]["fail_reason"] = "SQI_Noise"
+                    self.data.sect_info["fail_reason"][self.sect_counter] = "SQI_Noise"
                     continue
 
                 # Extract Initial R Peaks
@@ -208,7 +211,7 @@ class RadECG:
                 #Basic count reality check
                 if r_peaks.size < 2 or r_peaks.size > 100:
                     logger.warning(f"Section {self.sect_counter} rejected: Invalid peak count ({r_peaks.size}).")
-                    self.data.sect_info[self.sect_counter]["fail_reason"] = "no_sig"
+                    self.data.sect_info["fail_reason"][self.sect_counter] = "no_sig"
                     continue
 
                 # Format Peak Array
@@ -227,7 +230,7 @@ class RadECG:
                             new_peaks_arr, last_keys, peak_info, rolled_med, self.sect_counter, start_p, end_p
                         )
                         if not sect_valid:
-                            self.data.sect_info[self.sect_counter]["fail_reason"] = "historical_fail"
+                            self.data.sect_info["fail_reason"][self.sect_counter] = "historical_fail"
                     else:
                         sect_valid = True # Resetting baseline if no recent valid history
                 else:
@@ -246,7 +249,7 @@ class RadECG:
                     # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
                 
                 # Advance section id to next section
-                self.data.sect_info[self.sect_counter]["valid"] = ""
+                self.data.sect_info["valid"][self.sect_counter] = 1
                 self.sect_counter += 1
                 logger.info(f'Section counter at {self.section_counter}')
 
@@ -332,4 +335,4 @@ def main():
     RAD.run_extraction()
 
 if __name__ == "__main__":
-    main()
+    main()  

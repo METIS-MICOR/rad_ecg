@@ -409,7 +409,9 @@ SECTION_DTYPES = [
     ('Avg_QRS'     , 'f4'),
     ('Avg_QT'      , 'f4'),
     ('Avg_PR'      , 'f4'),
-    ('Avg_ST'      , 'f4')
+    ('Avg_ST'      , 'f4'),
+    ('power_ratio' , 'f4'),
+    ('spec_entropy', 'f4')
 ]
 
 INTERIOR_DTYPES = [
