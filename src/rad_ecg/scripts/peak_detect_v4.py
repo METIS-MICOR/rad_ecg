@@ -2,15 +2,17 @@ import utils
 import support
 import numpy as np
 import setup_globals
-import scipy.signal as ss
-from scipy.stats import entropy
-from scipy.signal import welch
-from collections import deque
-from dataclasses import dataclass, field
-from typing import List, Dict, Tuple
 from pathlib import Path
+from scipy.fft import rfft
+import scipy.signal as ss
+from scipy.signal import welch
+from scipy.stats import entropy
+from collections import deque
+import matplotlib.pyplot as plt
+from typing import List, Dict, Tuple
+from dataclasses import dataclass, field
+from matplotlib.patches import Rectangle, Arrow
 from support import logger, console, log_time, mainspinner
-
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
@@ -61,7 +63,6 @@ class SignalDataLoader:
                     pass
                 case "h12": 
                     pass            
-
                 #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
                 case "":
                     from wfdb import rdrecord
@@ -105,7 +106,6 @@ class SignalDataLoader:
 ###############################################################################
 # 2. Tool Classes
 ###############################################################################
-
 class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
     def __init__(self, fs: float = 1000.0):
@@ -114,7 +114,7 @@ class CardiacFreqTools:
     def evaluate_signal(self, signal:np.ndarray) -> Tuple[float, float, np.ndarray]:
         """
         Evaluates if the signal is physiological or noise using Welch's PSD.
-        Calculates In-Band Power Ratio (0.5 - 20 Hz) and normalized Spectral Entropy.
+        Calculates In-Band Power Ratio (0.5 - 15 Hz) and normalized Spectral Entropy.
         """
         if len(signal) == 0:
             return 0.0, 1.0, None
@@ -126,8 +126,8 @@ class CardiacFreqTools:
         if total_power == 0:
             return 0.0, 1.0, None
 
-        # In-Band Power Ratio (0.5 to 20.0 Hz)
-        band_mask = (freqs >= 0.5) & (freqs <= 20.0)
+        # In-Band Power Ratio (0.5 to 15.0 Hz)
+        band_mask = (freqs >= 0.5) & (freqs <= 15.0)
         in_band_power = np.sum(psd[band_mask])
         power_ratio = in_band_power / total_power
         
@@ -139,13 +139,192 @@ class CardiacFreqTools:
         return power_ratio, norm_spec_entropy, psd_norm
 
 class SignalGUI:
-    """Handles all Matplotlib visualizations"""
-    def __init__(self, ecg_data: ECGData):
+    """Handles all Matplotlib visualizations for debugging and validation."""
+    def __init__(self, ecg_data: 'ECGData', plot_fft: bool = False, plot_errors: bool = False):
         self.data = ecg_data
+        self.plot_fft = plot_fft
+        self.plot_errors = plot_errors
 
-    def plot_errors(self, start_idx: int, end_idx: int, error_type: str):
-        # Update Error plotting goes here
-        logger.info(f"Visualizing error: {error_type} at {start_idx}:{end_idx}")
+    def plot_fft_section(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int):
+        """Recreates the interactive FFT and Spectrogram plot from V3."""
+        if not self.plot_fft:
+            return
+
+        wave_chunk = self.data.wave[start_idx:end_idx]
+        rolled_med_chunk = self.data.rolling_med[start_idx:end_idx]
+        
+        fig = plt.figure(figsize=(12, 9))
+        grid = plt.GridSpec(2, 2, hspace=0.7, height_ratios=[1.5, 1])
+        ax_ecg = fig.add_subplot(grid[0, :2])
+        ax_freq = fig.add_subplot(grid[1, :1])
+        ax_spec = fig.add_subplot(grid[1, 1:2])
+
+        # ECG Plot
+        ax_ecg.plot(range(start_idx, end_idx), wave_chunk, label='Full ECG')
+        ax_ecg.plot(range(start_idx, end_idx), rolled_med_chunk, label='Rolling Median')
+        ax_ecg.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red', label='R peaks')
+        
+        # Shade R-R intervals
+        for peak in range(new_peaks_arr.shape[0] - 1):
+            band_color = 'red' if new_peaks_arr[peak, 1] == 0 else 'lightgreen'
+            rect = Rectangle(
+                xy=(new_peaks_arr[peak, 0], 0), 
+                width=new_peaks_arr[peak+1, 0] - new_peaks_arr[peak, 0], 
+                height=np.max(self.data.wave[new_peaks_arr[peak, 0]:new_peaks_arr[peak+1, 0]]), 
+                facecolor=band_color, edgecolor="grey", alpha=0.7
+            )
+            ax_ecg.add_patch(rect)
+
+        ax_ecg.set_title(f'Full ECG waveform for section {sect_id} indices {start_idx}:{end_idx}') 
+        ax_ecg.set_xlabel("Timesteps")
+        ax_ecg.set_ylabel("ECG mV")
+        ax_ecg.legend()
+
+        # Initial FFT & Spectrogram setup (using last two peaks)
+        if new_peaks_arr.shape[0] >= 2:
+            p0, p1 = new_peaks_arr[-2, 0], new_peaks_arr[-1, 0]
+            self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
+
+        # Interactive Closures
+        def onSpacebar(event):
+            if event.key == " ": 
+                timer.stop()
+                plt.close(fig)
+
+        def onClick(event):
+            if event.inaxes == ax_ecg:
+                rects = [i for i in ax_ecg.patches if isinstance(i, Rectangle)]
+                for rect in rects:
+                    if rect.contains(event)[0]:
+                        p0 = int(rect.get_x())
+                        p1 = int(p0 + rect.get_width())
+                        ax_freq.cla()
+                        ax_spec.cla()
+                        self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
+                        fig.canvas.draw_idle()
+
+        fig.canvas.mpl_connect("button_press_event", onClick)
+        fig.canvas.mpl_connect('key_press_event', onSpacebar)
+        
+        # Auto-close timer
+        timer = fig.canvas.new_timer(interval=3000)
+        timer.single_shot = True
+        timer.add_callback(plt.close, fig)
+        timer.start()
+        plt.show()
+
+    def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
+        """Helper for the interactive FFT updates."""
+        samp = self.data.wave[p0:p1]
+        if len(samp) == 0: return
+
+        # FFT
+        fft_samp = np.abs(rfft(samp))
+        freq_list = np.fft.rfftfreq(len(samp), d=1/self.data.fs)
+        freqs = fft_samp[0:int(len(samp)/2)]
+        thres = np.where(freq_list < 18)[0][-1] if len(freq_list) > 0 else len(freq_list)
+        
+        ax_freq.stem(freqs)
+        if thres > 0:
+            ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
+        ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
+        ax_freq.set_xlabel("Freq (Hz)")
+        ax_freq.set_ylabel("Power")
+
+        # Spectrogram
+        ax_spec.specgram(
+            self.data.wave[start_idx:end_idx].flatten(),
+            NFFT=max(256, int(self.data.fs)),
+            detrend="linear",
+            noverlap=10,
+            Fs=self.data.fs
+        )
+        ax_spec.set_xlabel("Time (sec)")
+        ax_spec.set_ylabel("Freq, Hz")
+        ax_spec.set_title("Spectrogram")
+
+    def plot_validation_error(self, error_type: str, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, **kwargs):
+        """Historical validation error plots."""
+        if not self.plot_errors:
+            return
+
+        wave_chunk = self.data.wave[start_idx:end_idx]
+        rolled_chunk = self.data.rolling_med[start_idx:end_idx]
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(range(start_idx, end_idx), wave_chunk, label='ECG')
+        ax.plot(range(start_idx, end_idx), rolled_chunk, label='Rolling Median')
+        ax.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red', label='R peaks')
+
+        match error_type:
+            case "separation":
+                bad_sep = kwargs.get("bad_sep", [])
+                for x in bad_sep:
+                    ax.axvline(x=new_peaks_arr[x, 0], color='goldenrod', linestyle='--')
+                    if x + 1 < len(new_peaks_arr):
+                        ax.axvline(x=new_peaks_arr[x + 1, 0], color='goldenrod', linestyle='--')
+                ax.set_title(f'Bad Peak Separation: idx {start_idx} to {end_idx} (Sect {sect_id})')
+
+            case "height":
+                low_peaks = kwargs.get("low_peaks", [])
+                high_peaks = kwargs.get("high_peaks", [])
+                
+                for idx in low_peaks:
+                    arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='goldenrod')
+                    ax.add_patch(arrow)
+                for idx in high_peaks:
+                    arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='darkviolet')
+                    ax.add_patch(arrow)
+                ax.set_title(f'Bad Peak Height: idx {start_idx} to {end_idx} (Sect {sect_id})')
+
+            case "rolling_median":
+                outs = kwargs.get("outs", [])
+                iqr = kwargs.get("iqr", 1.0)
+                
+                ax.axhline(y=(np.quantile(rolled_chunk, .80) + 1.5 * iqr), color='magenta', linestyle='--', label='Upper Guardrail')
+                ax.axhline(y=(np.quantile(rolled_chunk, .20) - 1.5 * iqr), color='red', linestyle='--', label='Lower Guardrail')
+                
+                for out_type, p0, p1 in outs:
+                    height = np.max(self.data.wave[p0:p1]) if out_type == 'above' else np.min(self.data.wave[p0:p1])
+                    rect = Rectangle((p0, 0), p1 - p0, height, facecolor='lightgrey', alpha=0.9)
+                    ax.add_patch(rect)
+                ax.set_title(f'Bad Rolling Median: idx {start_idx} to {end_idx} (Sect {sect_id})')
+
+            case "slope":
+                leftbases = kwargs.get("leftbases", [])
+                slopes = kwargs.get("slopes", [])
+                upper_bound = kwargs.get("upper_bound", 0)
+                lower_bound = kwargs.get("lower_bound", 0)
+                
+                if leftbases:
+                    ax.scatter(leftbases, self.data.wave[leftbases], marker="o", color="green", label="Left Base")
+                    _delt = 0.10 * (np.max(wave_chunk) - np.min(wave_chunk))
+                    
+                    for i, slope in enumerate(slopes):
+                        if i < len(leftbases):
+                            if slope > upper_bound:
+                                arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] + _delt*2, 0, -_delt, width=40, color="red")
+                                ax.add_patch(arrow)
+                            elif slope < lower_bound:
+                                arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] - _delt*2, 0, _delt, width=40, color="red")
+                                ax.add_patch(arrow)
+                ax.set_title(f'Bad Peak Slope: idx {start_idx} to {end_idx} (Sect {sect_id})')
+
+        ax.legend(loc='upper left')
+
+        def onSpacebar(event):
+            if event.key == " ": 
+                timer.stop()
+                plt.close(fig)
+
+        fig.canvas.mpl_connect('key_press_event', onSpacebar)
+        
+        timer = fig.canvas.new_timer(interval=3000)
+        timer.single_shot = True
+        timer.add_callback(plt.close, fig)
+        timer.start()
+        
+        plt.show()
 
 ###############################################################################
 # 3. Core Extraction Engine
@@ -158,12 +337,16 @@ class RadECG:
         self.fs = data.fs
         self.configs = configs
         self.window_size = window_size
-        self.gui = SignalGUI(self.data)
+        self.gui = SignalGUI(
+            self.data, 
+            plot_fft=self.configs.get("plot_fft", False), 
+            plot_errors=self.configs.get("plot_errors", False)
+        )
         self.freq_tools = CardiacFreqTools(fs=self.fs)
         self.stack_range = np.arange(10000, self.data.sect_info.shape[0], 10000)
         # Historical trackers
         self.low_counts = 0
-        self.sect_counter = 0
+        self.sect_id = 0
         self.iqr_low_thresh = 1.0
     
     @log_time
@@ -181,7 +364,7 @@ class RadECG:
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
         sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
-        progbar, job_id = support.mainspinner(console, len(sect_que))
+        progbar, job_id = mainspinner(console, len(sect_que))
         with progbar:
             while len(sect_que) > 0:
                 progbar.update(task_id=job_id, description=f"[green] Extracting Peaks", advance=1)
@@ -192,13 +375,13 @@ class RadECG:
 
                 # Check Signal Quality Index (SQI)
                 power_ratio, spec_entropy, _ = self.freq_tools.evaluate_signal(wave_chunk)
-                self.data.sect_info[self.sect_counter]["power_ratio"] = power_ratio
-                self.data.sect_info[self.sect_counter]["spec_entropy"] = spec_entropy
+                self.data.sect_info[self.sect_id]["power_ratio"] = power_ratio
+                self.data.sect_info[self.sect_id]["spec_entropy"] = spec_entropy
 
                 # In-Band Power Ratio and Shannon Entropy thresholds
                 if power_ratio < 0.85 or spec_entropy > 0.60:
-                    logger.warning(f"Section {self.sect_counter} rejected via SQI. Pwr: {power_ratio:.2f}, Ent: {spec_entropy:.2f}")
-                    self.data.sect_info["fail_reason"][self.sect_counter] = "SQI_Noise"
+                    logger.warning(f"Section {self.sect_id} rejected via SQI. Pwr: {power_ratio:.2f}, Ent: {spec_entropy:.2f}")
+                    self.data.sect_info["fail_reason"][self.sect_id] = "SQI_Noise"
                     continue
 
                 # Extract Initial R Peaks
@@ -210,27 +393,45 @@ class RadECG:
                 )
                 #Basic count reality check
                 if r_peaks.size < 2 or r_peaks.size > 100:
-                    logger.warning(f"Section {self.sect_counter} rejected: Invalid peak count ({r_peaks.size}).")
-                    self.data.sect_info["fail_reason"][self.sect_counter] = "no_sig"
+                    logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
+                    self.data.sect_info["fail_reason"][self.sect_id] = "no_sig"
+                    self.sect_id += 1
                     continue
 
                 # Format Peak Array
                 r_peaks_shifted = r_peaks + start_p
+                same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
+                if len(same_peaks) > 0:
+                    last_peak = max(same_peaks)
+                    new_peaks = list(set(r_peaks_shifted) - set(same_peaks))
+                    new_peaks.append(last_peak)
+                    new_peaks = sorted(new_peaks)
+                    # Need to pop off the last R Peak as it will always be zero (last in the peak loop)
+                    self.data.peaks = self.data.peaks[:-1,:]  
+                    peak_info['peak_heights'] = peak_info['peak_heights'][len(same_peaks)-1:]
+                    peak_info['prominences'] = peak_info['prominences'][len(same_peaks)-1:]
+                    new_peaks = np.array(new_peaks).reshape(-1, 1)
+                else:
+                    new_peaks = r_peaks_shifted.reshape(-1, 1)
+                
                 valid_mask = np.ones((len(r_peaks_shifted), 1), dtype=int)
                 new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), valid_mask))
+                
+                if self.gui.plot_fft:
+                    self.gui.plot_fft_section(start_p, end_p, new_peaks_arr, peak_info, self.sect_id)
                 
                 # Calculate Rolling Median for the chunk
                 rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
                 
                 # Historical Validation
-                if len(self.data.peaks) > 10:
+                if self.sect_id > 10:
                     last_keys = self.get_consecutive_valid_peaks(self.data.peaks)
                     if last_keys is not False:
                         sect_valid, new_peaks_arr = self.historical_validation_check(
-                            new_peaks_arr, last_keys, peak_info, rolled_med, self.sect_counter, start_p, end_p
+                            new_peaks_arr, last_keys, peak_info, rolled_med, self.sect_id, start_p, end_p
                         )
                         if not sect_valid:
-                            self.data.sect_info["fail_reason"][self.sect_counter] = "historical_fail"
+                            self.data.sect_info["fail_reason"][self.sect_id] = "historical_fail"
                     else:
                         sect_valid = True # Resetting baseline if no recent valid history
                 else:
@@ -238,8 +439,8 @@ class RadECG:
 
                 # Finalize Section
                 if sect_valid:
-                    self.data.sect_info[self.sect_counter]["valid"] = 1
-                    if self.sect_counter in self.stack_range:
+                    self.data.sect_info[self.sect_id]["valid"] = 1
+                    if self.sect_id in self.stack_range:
                         self.data.peaks = self.peak_stack_test(new_peaks_arr)
                     else:
                         self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
@@ -249,9 +450,9 @@ class RadECG:
                     # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
                 
                 # Advance section id to next section
-                self.data.sect_info["valid"][self.sect_counter] = 1
-                self.sect_counter += 1
-                logger.info(f'Section counter at {self.section_counter}')
+                self.data.sect_info["valid"][self.sect_id] = 1
+                self.sect_id += 1
+                logger.debug(f'Section counter at {self.sect_id}')
 
     def get_consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
         """Scans back in time to find consecutive validated R peaks."""
@@ -322,12 +523,12 @@ class RadECG:
         """Placeholder for PQRST geometry extraction."""
         pass
 
-# --- Entry Point ---
+# --- Program Start ---
 def main():
-    configs      :dict = setup_globals.load_config()
-    fp           :Path = Path.cwd() / configs["data_path"]
-    batch_process:bool = configs["batch"]
-    selected     :int  = setup_globals.load_choices(fp, batch_process)
+    configs      :dict  = setup_globals.load_config()
+    fp           :Path  = Path.cwd() / configs["data_path"]
+    batch_process:bool  = configs["batch"]
+    selected     :int   = setup_globals.load_choices(fp, batch_process)
     loader = SignalDataLoader(selected)
     loader.load_signal_data()
     ECG = loader.load_structures()
@@ -335,4 +536,4 @@ def main():
     RAD.run_extraction()
 
 if __name__ == "__main__":
-    main()  
+    main()
