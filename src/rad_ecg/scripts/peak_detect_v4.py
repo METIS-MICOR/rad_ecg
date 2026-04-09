@@ -112,10 +112,15 @@ class CardiacFreqTools:
         self.fs = fs
 
     def evaluate_signal(self, signal:np.ndarray) -> Tuple[float, float, np.ndarray]:
-        """
-        Evaluates if the signal is physiological or noise using Welch's PSD.
-        Calculates In-Band Power Ratio (0.5 - 15 Hz) and normalized Spectral Entropy.
-        """
+        """Evaluates if the signal is physiological or noise using Welch's PSD.
+        Calculates In-Band Power Ratio (0.5 - 20 Hz) and normalized Spectral Entropy.
+
+        Args:
+            signal (np.ndarray): _description_
+
+        Returns:
+            Tuple[float, float, np.ndarray]: _description_
+        """        
         if len(signal) == 0:
             return 0.0, 1.0, None
 
@@ -126,8 +131,8 @@ class CardiacFreqTools:
         if total_power == 0:
             return 0.0, 1.0, None
 
-        # In-Band Power Ratio (0.5 to 15.0 Hz)
-        band_mask = (freqs >= 0.5) & (freqs <= 15.0)
+        # In-Band Power Ratio (0.1 to 20.0 Hz)
+        band_mask = (freqs >= 0.1) & (freqs <= 20.0)
         in_band_power = np.sum(psd[band_mask])
         power_ratio = in_band_power / total_power
         
@@ -146,7 +151,7 @@ class SignalGUI:
         self.plot_errors = plot_errors
 
     def plot_fft_section(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int):
-        """Recreates the interactive FFT and Spectrogram plot from V3."""
+        """Interactive FFT and Spectrogram plot"""
         if not self.plot_fft:
             return
 
@@ -180,7 +185,7 @@ class SignalGUI:
         ax_ecg.set_ylabel("ECG mV")
         ax_ecg.legend()
 
-        # Initial FFT & Spectrogram setup (using last two peaks)
+        # Initial Welch PSD & Spectrogram setup (using last two peaks)
         if new_peaks_arr.shape[0] >= 2:
             p0, p1 = new_peaks_arr[-2, 0], new_peaks_arr[-1, 0]
             self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
@@ -214,34 +219,45 @@ class SignalGUI:
         plt.show()
 
     def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
-        """Helper for the interactive FFT updates."""
-        samp = self.data.wave[p0:p1]
-        if len(samp) == 0: return
+        """Helper for the interactive frequency updates."""
+        samp = self.data.wave[p0:p1].flatten()
+        if len(samp) == 0: 
+            return
 
-        # FFT
-        fft_samp = np.abs(rfft(samp))
-        freq_list = np.fft.rfftfreq(len(samp), d=1/self.data.fs)
-        freqs = fft_samp[0:int(len(samp)/2)]
-        thres = np.where(freq_list < 18)[0][-1] if len(freq_list) > 0 else len(freq_list)
+        # Welch's PSD 
+        nfft_val = max(len(samp), int(self.data.fs * 2.0))
+        freqs, psd = welch(samp, fs=self.data.fs, nperseg=nfft_val)
+        ax_freq.plot(freqs, psd, color='darkviolet', lw=1.5)
+        ax_freq.fill_between(freqs, psd, color='darkviolet', alpha=0.3)
         
-        ax_freq.stem(freqs)
-        if thres > 0:
-            ax_freq.axhline(y=fft_samp[0:thres].mean(), color='dodgerblue', linestyle='--')
-        ax_freq.set_title(f'FFT spectrum peaks {p0}:{p1}')
-        ax_freq.set_xlabel("Freq (Hz)")
-        ax_freq.set_ylabel("Power")
+        # Calculate the mean of the physiological band (< 18 Hz) for the threshold line
+        physio_mask = freqs < 18
+        if np.any(physio_mask):
+            mean_power = psd[physio_mask].mean()
+            ax_freq.axhline(y=mean_power, color='dodgerblue', linestyle='--', label=f'Mean Pwr (<18Hz): {mean_power:.2e}')
+            ax_freq.legend()
+
+        ax_freq.set_title(f'Welch PSD (peaks {p0}:{p1})')
+        ax_freq.set_xlabel("Frequency (Hz)")
+        ax_freq.set_ylabel("Power / Hz")
+        ax_freq.set_xlim(0, 40) # Restrict to physiological range
 
         # Spectrogram
+        chunk = self.data.wave[start_idx:end_idx].flatten()
+        nfft_val = max(256, int(self.data.fs * 0.5)) 
+        
         ax_spec.specgram(
-            self.data.wave[start_idx:end_idx].flatten(),
-            NFFT=max(256, int(self.data.fs)),
+            chunk,
+            NFFT=nfft_val,
             detrend="linear",
-            noverlap=10,
-            Fs=self.data.fs
+            noverlap=int(nfft_val * 0.5),
+            Fs=self.data.fs,
+            cmap='magma' # Swapped to magma for better contrast on power densities
         )
         ax_spec.set_xlabel("Time (sec)")
-        ax_spec.set_ylabel("Freq, Hz")
+        ax_spec.set_ylabel("Frequency (Hz)")
         ax_spec.set_title("Spectrogram")
+        ax_spec.set_ylim(0, 60) # Restrict Y-axis to physiological range
 
     def plot_validation_error(self, error_type: str, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, **kwargs):
         """Historical validation error plots."""
@@ -325,9 +341,8 @@ class SignalGUI:
         timer.start()
         
         plt.show()
-
 ###############################################################################
-# 3. Core Extraction Engine
+# 3. Main Extraction Engine
 ###############################################################################
 class RadECG:
     """Main search class for finding, validating, and extracting ECG information."""
@@ -379,7 +394,7 @@ class RadECG:
                 self.data.sect_info[self.sect_id]["spec_entropy"] = spec_entropy
 
                 # In-Band Power Ratio and Shannon Entropy thresholds
-                if power_ratio < 0.85 or spec_entropy > 0.60:
+                if power_ratio < 0.90 or spec_entropy > 0.60:
                     logger.warning(f"Section {self.sect_id} rejected via SQI. Pwr: {power_ratio:.2f}, Ent: {spec_entropy:.2f}")
                     self.data.sect_info["fail_reason"][self.sect_id] = "SQI_Noise"
                     continue
@@ -391,12 +406,15 @@ class RadECG:
                     height=np.percentile(wave_chunk, 95),
                     distance=int(self.fs * 0.200)
                 )
-                #Basic count reality check
+                #Basic count reality check (we shouldn't need this anymore)
                 if r_peaks.size < 2 or r_peaks.size > 100:
                     logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
                     self.data.sect_info["fail_reason"][self.sect_id] = "no_sig"
                     self.sect_id += 1
                     continue
+
+                # Calculate Rolling Median for the chunk
+                rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
 
                 # Format Peak Array
                 r_peaks_shifted = r_peaks + start_p
@@ -419,9 +437,6 @@ class RadECG:
                 
                 if self.gui.plot_fft:
                     self.gui.plot_fft_section(start_p, end_p, new_peaks_arr, peak_info, self.sect_id)
-                
-                # Calculate Rolling Median for the chunk
-                rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
                 
                 # Historical Validation
                 if self.sect_id > 10:
