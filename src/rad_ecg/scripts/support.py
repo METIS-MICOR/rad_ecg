@@ -154,10 +154,10 @@ def mainspinner(console:Console, totalstops:int):
         totalstops (int): Amount of categories searched
 
     Returns:
-        my_progress_bar (Progress): Progress bar for tracking overall progress
+        prog_bar (Progress): Progress bar for tracking overall progress
         jobtask (int): mainjob id for ecg extraction
     """
-    my_progress_bar = Progress(
+    prog_bar = Progress(
         TextColumn("{task.description}"),
         SpinnerColumn("aesthetic"),
         BarColumn(),
@@ -170,10 +170,10 @@ def mainspinner(console:Console, totalstops:int):
         transient=True,
         console=console,
         refresh_per_second=6,
-        redirect_stdout=False
+        # redirect_stdout=False
     )
-    jobtask = my_progress_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
-    return my_progress_bar, jobtask
+    jobtask = prog_bar.add_task("[green]Detecting peaks", total=totalstops + 1)
+    return prog_bar, jobtask
 
 def add_spin_subt(prog:Progress, msg:str, howmanysleeps:int):
     """Adds a secondary job to the main progress bar

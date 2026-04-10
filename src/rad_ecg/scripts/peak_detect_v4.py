@@ -3,16 +3,15 @@ import support
 import numpy as np
 import setup_globals
 from pathlib import Path
-from scipy.fft import rfft
 import scipy.signal as ss
-from scipy.signal import welch
-from scipy.stats import entropy
 from collections import deque
+from scipy.signal import welch
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 from dataclasses import dataclass, field
+from scipy.stats import entropy, kurtosis
 from matplotlib.patches import Rectangle, Arrow
-from support import logger, console, log_time, mainspinner
+from support import logger, console, log_time, mainspinner, DATE_JSON
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
@@ -30,7 +29,7 @@ class ECGData:
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
         self.interior_peaks = np.zeros((0, 16), dtype=np.int32)
 
-class SignalDataLoader:
+class SignalLoader:
     """Handles loading and structuring of the data."""
     def __init__(self, file_path: str):
         self.file_path = file_path
@@ -110,38 +109,91 @@ class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
     def __init__(self, fs: float = 1000.0):
         self.fs = fs
-
-    def evaluate_signal(self, signal:np.ndarray) -> Tuple[float, float, np.ndarray]:
-        """Evaluates if the signal is physiological or noise using Welch's PSD.
-        Calculates In-Band Power Ratio (0.5 - 20 Hz) and normalized Spectral Entropy.
-
-        Args:
-            signal (np.ndarray): _description_
-
-        Returns:
-            Tuple[float, float, np.ndarray]: _description_
-        """        
+    def evaluate_ecg_sqi(self, signal: np.ndarray) -> Tuple[bool, str, dict]:
+        """
+        Evaluates ECG signal quality using Kurtosis and targeted Spectral Banding.
+        Returns a boolean (is_valid), a string (fail_reason), and a dictionary of the metrics.
+        """
         if len(signal) == 0:
-            return 0.0, 1.0, None
+            return False, "Empty Signal", {}
 
+        # Statistical SQI: Kurtosis
+        # A clean ECG has high kurtosis due to sharp R-peaks. Noise flattens this.
+        k_sqi = kurtosis(signal)
+
+        # Spectral SQI: Welch's PSD
         nperseg = min(len(signal), int(self.fs * 2.0))
         freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
-        
         total_power = np.sum(psd)
-        if total_power == 0:
-            return 0.0, 1.0, None
 
-        # In-Band Power Ratio (0.1 to 20.0 Hz)
-        band_mask = (freqs >= 0.1) & (freqs <= 20.0)
-        in_band_power = np.sum(psd[band_mask])
-        power_ratio = in_band_power / total_power
+        if total_power == 0:
+            return False, "Zero Power", {}
+
+        # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
+        qrs_band = (freqs >= 5.0) & (freqs <= 15.0)
+        p_sqi = np.sum(psd[qrs_band]) / total_power
+
+        # High-Frequency Noise Ratio: Power above 20 Hz (EMG / Artifacts)
+        hf_band = freqs > 20.0
+        hf_sqi = np.sum(psd[hf_band]) / total_power
+
+        # Decision Matrix
+        is_valid = True
+        fail_reason = ""
+
+        # Thresholds (These may need slight tuning based on your specific signal noise floor)
+        if k_sqi < 5.0:
+            is_valid = False
+            fail_reason += "SQI: Low Kurtosis " #(Missing QRS / High Noise)
+        if p_sqi < 0.10:
+            is_valid = False
+            fail_reason += "SQI: Low QRS Power " #(Baseline Wander / Artifact)
+        if hf_sqi > 0.45:
+            is_valid = False
+            fail_reason += "SQI: High EMG Noise "
+
+        metrics = {
+            "kurtosis": k_sqi,
+            "qrs_pwr_ratio": p_sqi,
+            "hf_pwr_ratio": hf_sqi
+        }
+
+        return is_valid, fail_reason, metrics
+
+    # def evaluate_signal(self, signal:np.ndarray) -> Tuple[float, float, np.ndarray]:
+    #     """Evaluates if the signal is physiological or noise using Welch's PSD.
+    #     Calculates In-Band Power Ratio (0.5 - 20 Hz) and normalized Spectral Entropy.
+
+    #     Args:
+    #         signal (np.ndarray): _description_
+
+    #     Returns:
+    #         Tuple[float, float, np.ndarray]: _description_
+    #     """        
+    #     if len(signal) == 0:
+    #         return 0.0, 1.0, None
+
+    #     nperseg = min(len(signal), int(self.fs * 2.0))
+    #     freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
         
-        # Spectral Entropy
-        psd_norm = psd / total_power
-        spec_entropy = entropy(psd_norm)
-        norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
+    #     total_power = np.sum(psd)
+    #     if total_power == 0:
+    #         return 0.0, 1.0, None
+
+    #     # In-Band Power Ratio (0.1 to 20.0 Hz)
+    #     band_mask = (freqs >= 0.1) & (freqs <= 20.0)
+    #     in_band_power = np.sum(psd[band_mask])
+    #     power_ratio = in_band_power / total_power
         
-        return power_ratio, norm_spec_entropy, psd_norm
+    #     # Spectral Entropy
+    #     psd_norm = psd / total_power
+    #     spec_entropy = entropy(psd_norm)
+    #     norm_spec_entropy = spec_entropy / np.log(len(psd_norm))
+        
+    #     return power_ratio, norm_spec_entropy, psd_norm
+    #BUG : While this method worked wonderfully for more periodic signals like blood pressure
+        #It does not perform well on ECG's due to the sharp nature of the QRS complex. 
+        #Additionally the welch's method tends to wash out the interesting frequencies we want
 
 class SignalGUI:
     """Handles all Matplotlib visualizations for debugging and validation."""
@@ -150,8 +202,8 @@ class SignalGUI:
         self.plot_fft = plot_fft
         self.plot_errors = plot_errors
 
-    def plot_fft_section(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int):
-        """Interactive FFT and Spectrogram plot"""
+    def plot_fft_section(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, sqi_metrics: dict):
+        """Displays the ECG waveform, SQI stats, and window-level spectral plots."""
         if not self.plot_fft:
             return
 
@@ -159,36 +211,45 @@ class SignalGUI:
         rolled_med_chunk = self.data.rolling_med[start_idx:end_idx]
         
         fig = plt.figure(figsize=(12, 9))
-        grid = plt.GridSpec(2, 2, hspace=0.7, height_ratios=[1.5, 1])
+        grid = plt.GridSpec(2, 2, hspace=0.4, height_ratios=[1.5, 1])
         ax_ecg = fig.add_subplot(grid[0, :2])
         ax_freq = fig.add_subplot(grid[1, :1])
         ax_spec = fig.add_subplot(grid[1, 1:2])
 
         # ECG Plot
-        ax_ecg.plot(range(start_idx, end_idx), wave_chunk, label='Full ECG')
-        ax_ecg.plot(range(start_idx, end_idx), rolled_med_chunk, label='Rolling Median')
-        ax_ecg.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red', label='R peaks')
+        ax_ecg.plot(range(start_idx, end_idx), wave_chunk, label='Full ECG', color='dodgerblue')
+        ax_ecg.plot(range(start_idx, end_idx), rolled_med_chunk, label='Rolling Median', color='orange')
         
-        # Shade R-R intervals
-        for peak in range(new_peaks_arr.shape[0] - 1):
-            band_color = 'red' if new_peaks_arr[peak, 1] == 0 else 'lightgreen'
-            rect = Rectangle(
-                xy=(new_peaks_arr[peak, 0], 0), 
-                width=new_peaks_arr[peak+1, 0] - new_peaks_arr[peak, 0], 
-                height=np.max(self.data.wave[new_peaks_arr[peak, 0]:new_peaks_arr[peak+1, 0]]), 
-                facecolor=band_color, edgecolor="grey", alpha=0.7
-            )
-            ax_ecg.add_patch(rect)
+        if len(new_peaks_arr) > 0:
+            ax_ecg.scatter(new_peaks_arr[:, 0], peak_info.get('peak_heights', []), marker='D', color='red', label='R peaks', zorder=5)
 
         ax_ecg.set_title(f'Full ECG waveform for section {sect_id} indices {start_idx}:{end_idx}') 
         ax_ecg.set_xlabel("Timesteps")
         ax_ecg.set_ylabel("ECG mV")
-        ax_ecg.legend()
+        ax_ecg.legend(loc='upper right')
 
-        # Initial Welch PSD & Spectrogram setup (using last two peaks)
-        if new_peaks_arr.shape[0] >= 2:
-            p0, p1 = new_peaks_arr[-2, 0], new_peaks_arr[-1, 0]
-            self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
+        # Add SQI Metrics Text Block
+        k_sqi = sqi_metrics.get("kurtosis", 0)
+        p_sqi = sqi_metrics.get("qrs_pwr_ratio", 0)
+        hf_sqi = sqi_metrics.get("hf_pwr_ratio", 0)
+        
+        stat_text = (
+            f"Kurtosis (kSQI): {k_sqi:.2f}   |   "
+            f"QRS Power (5-15Hz): {p_sqi:.1%}   |   "
+            f"HF Noise (>20Hz): {hf_sqi:.1%}"
+        )
+        
+        # Place text at the bottom center of the ECG plot
+        ax_ecg.text(
+            0.5, 0.05, stat_text, 
+            transform=ax_ecg.transAxes, 
+            fontsize=12, fontweight='bold', 
+            ha='center', va='bottom', 
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='gray')
+        )
+
+        # 3. Draw Spectral Plots for the ENTIRE window
+        self._draw_freq_and_spec(ax_freq, ax_spec, wave_chunk, start_idx, end_idx)
 
         # Interactive Closures
         def onSpacebar(event):
@@ -196,19 +257,6 @@ class SignalGUI:
                 timer.stop()
                 plt.close(fig)
 
-        def onClick(event):
-            if event.inaxes == ax_ecg:
-                rects = [i for i in ax_ecg.patches if isinstance(i, Rectangle)]
-                for rect in rects:
-                    if rect.contains(event)[0]:
-                        p0 = int(rect.get_x())
-                        p1 = int(p0 + rect.get_width())
-                        ax_freq.cla()
-                        ax_spec.cla()
-                        self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
-                        fig.canvas.draw_idle()
-
-        fig.canvas.mpl_connect("button_press_event", onClick)
         fig.canvas.mpl_connect('key_press_event', onSpacebar)
         
         # Auto-close timer
@@ -218,47 +266,49 @@ class SignalGUI:
         timer.start()
         plt.show()
 
-    def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
-        """Helper for the interactive frequency updates."""
-        samp = self.data.wave[p0:p1].flatten()
-        if len(samp) == 0: 
-            return
+    def _draw_freq_and_spec(self, ax_freq, ax_spec, wave_chunk, start_idx, end_idx):
+        """Calculates and plots Welch PSD and Spectrogram for the full section."""
+        chunk = wave_chunk.flatten()
+        if len(chunk) == 0: return
 
-        # Welch's PSD 
-        nfft_val = max(len(samp), int(self.data.fs * 2.0))
-        freqs, psd = welch(samp, fs=self.data.fs, nperseg=nfft_val)
-        ax_freq.plot(freqs, psd, color='darkviolet', lw=1.5)
-        ax_freq.fill_between(freqs, psd, color='darkviolet', alpha=0.3)
+        # --- Welch's PSD ---
+        # Match the nperseg exactly to the SQI evaluation logic
+        nperseg = min(len(chunk), int(self.data.fs * 2.0))
+        freqs, psd = welch(chunk, fs=self.data.fs, nperseg=nperseg)
         
-        # Calculate the mean of the physiological band (< 18 Hz) for the threshold line
-        physio_mask = freqs < 18
-        if np.any(physio_mask):
-            mean_power = psd[physio_mask].mean()
-            ax_freq.axhline(y=mean_power, color='dodgerblue', linestyle='--', label=f'Mean Pwr (<18Hz): {mean_power:.2e}')
-            ax_freq.legend()
+        # Base plot
+        ax_freq.plot(freqs, psd, color='darkviolet', lw=1.5)
+        ax_freq.fill_between(freqs, psd, color='darkviolet', alpha=0.2)
+        
+        # Highlight QRS Band (5 - 15 Hz)
+        qrs_mask = (freqs >= 5.0) & (freqs <= 15.0)
+        ax_freq.fill_between(freqs, psd, where=qrs_mask, color='limegreen', alpha=0.5, label='QRS Band (5-15Hz)')
+        
+        # Highlight HF Band (> 20 Hz)
+        hf_mask = (freqs > 20.0)
+        ax_freq.fill_between(freqs, psd, where=hf_mask, color='crimson', alpha=0.5, label='HF Noise (>20Hz)')
 
-        ax_freq.set_title(f'Welch PSD (peaks {p0}:{p1})')
+        ax_freq.set_title('Welch PSD (Full Section)')
         ax_freq.set_xlabel("Frequency (Hz)")
         ax_freq.set_ylabel("Power / Hz")
         ax_freq.set_xlim(0, 40) # Restrict to physiological range
+        ax_freq.legend(loc='upper right')
 
-        # Spectrogram
-        chunk = self.data.wave[start_idx:end_idx].flatten()
-        nfft_val = max(256, int(self.data.fs * 0.5)) 
+        # --- Spectrogram ---
+        spec_nfft = max(256, int(self.data.fs * 0.5)) 
         
         ax_spec.specgram(
             chunk,
-            NFFT=nfft_val,
+            NFFT=spec_nfft,
             detrend="linear",
-            noverlap=int(nfft_val * 0.5),
+            noverlap=int(spec_nfft * 0.5),
             Fs=self.data.fs,
-            cmap='magma' # Swapped to magma for better contrast on power densities
+            cmap='magma' 
         )
         ax_spec.set_xlabel("Time (sec)")
         ax_spec.set_ylabel("Frequency (Hz)")
         ax_spec.set_title("Spectrogram")
-        ax_spec.set_ylim(0, 60) # Restrict Y-axis to physiological range
-
+        ax_spec.set_ylim(0, 40) # Restrict Y-axis to physiological range
     def plot_validation_error(self, error_type: str, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, **kwargs):
         """Historical validation error plots."""
         if not self.plot_errors:
@@ -389,14 +439,18 @@ class RadECG:
                 wave_chunk = self.data.wave[start_p:end_p].flatten()
 
                 # Check Signal Quality Index (SQI)
-                power_ratio, spec_entropy, _ = self.freq_tools.evaluate_signal(wave_chunk)
-                self.data.sect_info[self.sect_id]["power_ratio"] = power_ratio
-                self.data.sect_info[self.sect_id]["spec_entropy"] = spec_entropy
+                is_valid, fail_reason, sqi_metrics = self.freq_tools.evaluate_ecg_sqi(wave_chunk)
+                
+                # Store the metrics
+                self.data.sect_info[self.sect_id]["kurtosis"] = sqi_metrics.get("kurtosis", 0)
+                self.data.sect_info[self.sect_id]["qrs_pwr"] = sqi_metrics.get("qrs_pwr_ratio", 0)
+                self.data.sect_info[self.sect_id]["hf_pwr"] = sqi_metrics.get("hf_pwr_ratio", 0)
 
-                # In-Band Power Ratio and Shannon Entropy thresholds
-                if power_ratio < 0.90 or spec_entropy > 0.60:
-                    logger.warning(f"Section {self.sect_id} rejected via SQI. Pwr: {power_ratio:.2f}, Ent: {spec_entropy:.2f}")
-                    self.data.sect_info["fail_reason"][self.sect_id] = "SQI_Noise"
+                # Gate the section
+                if not is_valid:
+                    logger.warning(f"Section {self.sect_id} rejected: {fail_reason}. kSQI: {sqi_metrics['kurtosis']:.2f}, HF: {sqi_metrics['hf_pwr_ratio']:.2f}")
+                    self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
+                    self.sect_id += 1
                     continue
 
                 # Extract Initial R Peaks
@@ -420,14 +474,10 @@ class RadECG:
                 r_peaks_shifted = r_peaks + start_p
                 same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
                 if len(same_peaks) > 0:
-                    last_peak = max(same_peaks)
-                    new_peaks = list(set(r_peaks_shifted) - set(same_peaks))
-                    new_peaks.append(last_peak)
-                    new_peaks = sorted(new_peaks)
-                    # Need to pop off the last R Peak as it will always be zero (last in the peak loop)
-                    self.data.peaks = self.data.peaks[:-1,:]  
-                    peak_info['peak_heights'] = peak_info['peak_heights'][len(same_peaks)-1:]
-                    peak_info['prominences'] = peak_info['prominences'][len(same_peaks)-1:]
+                    f_peak = min(same_peaks)
+                    keepers = r_peaks_shifted >= f_peak
+                    peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
+                    peak_info['prominences'] = peak_info['prominences'][keepers]
                     new_peaks = np.array(new_peaks).reshape(-1, 1)
                 else:
                     new_peaks = r_peaks_shifted.reshape(-1, 1)
@@ -436,8 +486,8 @@ class RadECG:
                 new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), valid_mask))
                 
                 if self.gui.plot_fft:
-                    self.gui.plot_fft_section(start_p, end_p, new_peaks_arr, peak_info, self.sect_id)
-                
+                    self.gui.plot_fft_section(start_p, end_p, new_peaks_arr, peak_info, self.sect_id, sqi_metrics)
+
                 # Historical Validation
                 if self.sect_id > 10:
                     last_keys = self.get_consecutive_valid_peaks(self.data.peaks)
@@ -544,11 +594,12 @@ def main():
     fp           :Path  = Path.cwd() / configs["data_path"]
     batch_process:bool  = configs["batch"]
     selected     :int   = setup_globals.load_choices(fp, batch_process)
-    loader = SignalDataLoader(selected)
+    loader = SignalLoader(selected)
     loader.load_signal_data()
     ECG = loader.load_structures()
     RAD = RadECG(ECG, configs, fp)
     RAD.run_extraction()
+    support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
 
 if __name__ == "__main__":
     main()

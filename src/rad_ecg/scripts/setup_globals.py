@@ -375,7 +375,7 @@ def load_choices(fp:str, batch_process:bool=False):
     
     if not batch_process:
         question = "What file would you like to load?\n"
-        file_choice = "21" #" #console.input(f"{question}")
+        file_choice = "9" #" #console.input(f"{question}")
         if file_choice.isnumeric():
             if fp._tail[-1] == "inputdata":
                 folders = sorted(f for f in Path(str(fp)).iterdir())
@@ -397,19 +397,22 @@ SECTION_DTYPES = [
     ('end_point'   , 'i4'),
     ('valid'       , 'i4'),
     ('fail_reason' , str, 16),
-    ('Avg_HR'      , 'f4'), 
+    ('HR'          , 'f4'), 
     ('SDNN'        , 'f4'),
     ('min_HR_diff' , 'f4'), 
     ('max_HR_diff' , 'f4'), 
     ('RMSSD'       , 'f4'),
     ('NN50'        , 'f4'),
     ('PNN50'       , 'f4'),
-    ('QTVI'        , 'f4'),
     ('isoelectric' , 'f4'),
-    ('Avg_QRS'     , 'f4'),
-    ('Avg_QT'      , 'f4'),
-    ('Avg_PR'      , 'f4'),
-    ('Avg_ST'      , 'f4'),
+    ('kurtosis'    , 'f4'),
+    ('qrs_pwr'     , 'f4'),
+    ('hf_pwr'      , 'f4'),
+    ('QTVI'        , 'f4'),
+    ('QRS'         , 'f4'),
+    ('QT'          , 'f4'),
+    ('PR'          , 'f4'),
+    ('ST'          , 'f4'),
     ('power_ratio' , 'f4'),
     ('spec_entropy', 'f4')
 ]
