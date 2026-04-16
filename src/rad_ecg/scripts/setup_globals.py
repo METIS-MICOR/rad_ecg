@@ -375,7 +375,7 @@ def load_choices(fp:str, batch_process:bool=False):
     
     if not batch_process:
         question = "What file would you like to load?\n"
-        file_choice = "9" #" #console.input(f"{question}")
+        file_choice = "10" #" #console.input(f"{question}")
         if file_choice.isnumeric():
             if fp._tail[-1] == "inputdata":
                 folders = sorted(f for f in Path(str(fp)).iterdir())
@@ -406,8 +406,10 @@ SECTION_DTYPES = [
     ('PNN50'       , 'f4'),
     ('isoelectric' , 'f4'),
     ('kurtosis'    , 'f4'),
+    ('hjorth'      , 'f4'),
     ('qrs_pwr'     , 'f4'),
     ('hf_pwr'      , 'f4'),
+    ('bad_b_rat'   , 'f4'),
     ('QTVI'        , 'f4'),
     ('QRS'         , 'f4'),
     ('QT'          , 'f4'),
