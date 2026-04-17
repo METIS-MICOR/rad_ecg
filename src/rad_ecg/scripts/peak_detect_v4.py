@@ -1,7 +1,9 @@
 import utils
+import stumpy
 import support
 import numpy as np
 import setup_globals
+from numba import cuda
 from pathlib import Path
 import scipy.signal as ss
 from collections import deque
@@ -127,26 +129,26 @@ class CardiacFreqTools:
         mobility_d1 = np.sqrt(var_d2 / var_d1)
         return mobility_d1 / mobility
     
-    def calc_spectral(self, signal: np.ndarray) -> Tuple[float, float]:
+    def calc_spec_ratio(self, signal: np.ndarray) -> Tuple[float, float]:
         p_sqi:float = 0.0
         hf_sqi:float = 0.0
         # Spectral SQI: Welch's PSD
         nperseg = min(len(signal), int(self.fs * 2.0))
-        freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg)
+        freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg, detrend="linear")
         total_power = np.sum(psd)
 
         if total_power == 0:
-            return False, "Zero Power", {}
+            return 0
 
         # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
         qrs_band = (freqs >= 5.0) & (freqs <= 15.0)
         p_sqi = np.sum(psd[qrs_band]) / total_power
 
-        # High-Frequency Noise Ratio: Power above 20 Hz (EMG / Artifacts)
-        hf_band = freqs > 20.0
+        # High-Frequency Noise Ratio: Power 1 - 40 Hz (EMG / Artifacts).  Ignoring LF and ULF freqs
+        hf_band = (freqs >= 1.0) & (freqs <= 40.0)
         hf_sqi = np.sum(psd[hf_band]) / total_power
 
-        return p_sqi, hf_sqi
+        return p_sqi / hf_sqi
 
     def pre_peak_sqi(self, wave_chunk: np.ndarray) -> tuple:
         """
@@ -158,49 +160,83 @@ class CardiacFreqTools:
 
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
-        
+        spectral = self.calc_spec_ratio(wave_chunk)
         metrics = {
-            "kurtosis":k_sqi,
-            "hjorth"  :complexity
+            "kurtosis" :np.round(k_sqi, 2),
+            "hjorth"   :np.round(complexity, 2),
+            "spectral" :np.round(spectral, 2)
         }
 
         is_valid = True
         fail_reason = ""
 
         # Gate 1: Is there a heartbeat shape? (Low Kurtosis = flatline or Gaussian noise)
-        if k_sqi < 5:
+        if k_sqi < 4:
             is_valid = False
-            fail_reason += "Low Kurtosis (Missing QRS / Flatline)"
+            fail_reason += f"Low Kurtosis {k_sqi:.2f} | " #(Missing QRS / Flatline)00
             
         # Gate 2: Is the window drowning in static?
-        if complexity > 5.0: 
+        if complexity > 3.0: 
             is_valid = False
-            fail_reason += "High Hjorth Complexity (Severe HF Static)"
-
+            fail_reason += f"High Hjorth Complexity {complexity:.2f} | " #(Severe HF Static)
+        
+        # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
+        if (spectral != None) & (spectral < 0.3):
+            is_valid = False
+            fail_reason += f"Low QRS Power {spectral:.2f}"
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
-        """STAGE 2: Granular beat-by-beat checks via STFT."""
-        # Start with all peaks marked invalid
+        """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
         valid_mask = np.zeros(len(r_peaks), dtype=int) 
 
         if len(r_peaks) < 2:
-            return False, "Not enough peaks for STFT", {"bad_beat_ratio": 1.0}, valid_mask
+            return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
+        # Matrix Profile Calculation (Chunk-level)
+        m = int(self.fs * 0.12)
+        m = max(m, 3) # Stumpy requires a minimum window of 3
+
+        try:
+            device_id = cuda.list_devices()[0].id
+            mp = stumpy.gpu_stump(wave_chunk.astype(np.float64), m=m, device_id=device_id)
+        except Exception as e:
+            logger.error(f"GPU Stumpy failed, falling back to CPU: {e}")
+            mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
+
+        distances = mp[:, 0]
+        med_dist = np.median(distances)
+        mad = np.median(np.abs(distances - med_dist))
+        mp_threshold = med_dist + (4.0 * max(mad, 1e-6))
+
+        #Beat-by-Beat Evaluation (MP + STFT)
         bad_beats = 0
         total_beats = len(r_peaks) - 1
+        logger.info(f"MP Stats: {med_dist:.3f} | MAD: {mad:.3f} | Threshold: {mp_threshold:.3f}")
 
         for i in range(total_beats):
             p0 = r_peaks[i]
             p1 = r_peaks[i+1]
-            samp = wave_chunk[p0:p1]
-            if len(samp) < 4:
-                # Mark bad
+            # # --- Matrix Profile Discord ---
+            search_start = max(0, p0 - m)
+            search_end = min(len(distances), p0 + (m // 2))
+            peak_mp_dist = np.max(distances[search_start:search_end])
+            
+            if peak_mp_dist > mp_threshold:
+                logger.debug(f"Beat {i} FAILED Matrix Profile: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
                 bad_beats += 1
-                continue
+                continue 
+            else:
+                # Log passing peaks just to see how far below threshold they are
+                logger.debug(f"Beat {i} PASSED Matrix Profile: dist {peak_mp_dist:.3f} <= thres {mp_threshold:.3f}")
+            # --- Check 2: STFT HF Noise ---
+            samp = wave_chunk[p0:p1]
+            # if len(samp) < 4:
+            #     bad_beats += 1
+            #     continue
 
-            fft_samp = np.abs(rfft(samp))
-            freq_list = rfftfreq(len(samp), d=1/self.fs)
+            fft_samp = np.abs(np.fft.rfft(samp))
+            freq_list = np.fft.rfftfreq(len(samp), d=1/self.fs)
             thres = np.where(freq_list < 18)[0][-1]
 
             if thres > 0 and thres < len(fft_samp):
@@ -215,13 +251,14 @@ class CardiacFreqTools:
                 bad_beats += 1
                 continue
 
-            valid_mask[i] = 1 # Mark as Valid
+            #If it passes both the Matrix Profile and STFT, mark as valid
+            valid_mask[i] = 1 
 
         bad_beat_ratio = bad_beats / total_beats
         metrics = {"bad_beat_ratio": bad_beat_ratio}
         
         is_valid = bad_beat_ratio <= 0.25
-        fail_reason = "SQI: R-R Intervals failed STFT HF check" if not is_valid else ""
+        fail_reason = "Bad Beats" if not is_valid else ""
 
         return is_valid, fail_reason, metrics, valid_mask
     
@@ -272,11 +309,13 @@ class SignalGUI:
         # Add SQI Metrics Text Block
         k_sqi = sqi_metrics["kurtosis"].item()
         hjorth = sqi_metrics["hjorth"].item()
+        spectral = sqi_metrics["spectral"].item()
         bad_ratio = sqi_metrics["bad_b_rat"].item()
         
         stat_text = (
             f"Kurtosis: {k_sqi:.2f}   |   "
             f"Hjorth Complexity: {hjorth:.2f}   |   "
+            f"QRS Ratio: {spectral:.2f}   |   "
             f"Bad Beat Ratio: {bad_ratio:.1%}"
         )
         
@@ -332,8 +371,8 @@ class SignalGUI:
             return
 
         # --- STFT for the specific R-R interval ---
-        fft_samp = np.abs(rfft(samp))
-        freq_list = rfftfreq(len(samp), d=1/self.data.fs)
+        fft_samp = np.abs(np.fft.rfft(samp))
+        freq_list = np.fft.rfftfreq(len(samp), d=1/self.data.fs)
         freqs = fft_samp[0:int(len(samp)/2)]
         
         # Determine index for 18 Hz physiological threshold
@@ -346,7 +385,7 @@ class SignalGUI:
         if thres > 0 and thres < len(fft_samp):
             mean_low = fft_samp[0:thres].mean()
             ax_freq.axhline(y=mean_low, color='dodgerblue', linestyle='--', label='Mean LF Pwr (<18Hz)')
-            high_freqs = fft_samp[thres:len(freqs)]
+            high_freqs = fft_samp[thres:int(len(samp)/2)]
             outs = np.where(high_freqs > mean_low)[0]
             if outs.size > 0:
                 # Scatter red dots exactly where HF noise spikes above the mean
@@ -355,7 +394,7 @@ class SignalGUI:
         ax_freq.set_title(f'STFT Spectrum (peaks {p0}:{p1})')
         ax_freq.set_xlabel("Frequency (Hz)")
         ax_freq.set_ylabel("Magnitude")
-        ax_freq.set_xlim(0, 40) # Restrict to physiological range
+        ax_freq.set_xlim(0, 40) 
         ax_freq.legend(loc='upper right')
 
         # --- Spectrogram (Full Section) ---
@@ -375,7 +414,16 @@ class SignalGUI:
         ax_spec.set_title("Spectrogram (Full Section)")
         ax_spec.set_ylim(0, 40) # Restrict Y-axis to physiological range
 
-    def plot_validation_error(self, error_type: str, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, **kwargs):
+    def plot_validation_error(
+            self, 
+            error_type   : str, 
+            start_idx    : int, 
+            end_idx      : int, 
+            new_peaks_arr: np.ndarray, 
+            peak_info    : dict, 
+            sect_id      : int, 
+            **kwargs
+        ):
         """Historical validation error plots."""
         if not self.plot_errors:
             return
@@ -441,6 +489,9 @@ class SignalGUI:
                                 arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] - _delt*2, 0, _delt, width=40, color="red")
                                 ax.add_patch(arrow)
                 ax.set_title(f'Bad Peak Slope: idx {start_idx} to {end_idx} (Sect {sect_id})')
+            #TODO - Case extend
+                #Extend cases for Kurtosis, Hijorth, Spectral and maybe matrix profile. 
+                #Still not sold how much that works
 
         ax.legend(loc='upper left')
 
@@ -505,16 +556,26 @@ class RadECG:
             end_p = curr_section[1].item()
             wave_chunk = self.data.wave[start_p:end_p].flatten()
 
-            # Check Signal Quality Index (SQI)
+            # Check Signal Quality Index (SQI) using lightweight checks
             is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
             self.data.sect_info[self.sect_id]["kurtosis"] = pre_metrics.get("kurtosis", 0)
             self.data.sect_info[self.sect_id]["hjorth"] = pre_metrics.get("hjorth", 0)
+            self.data.sect_info[self.sect_id]["spectral"] = pre_metrics.get("spec_ratio", 0)
 
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                 self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
                 self.sect_id += 1
+                if self.gui.plot_errors:
+                    #TODO - Need a basic plot routine in SignalGUI.  Just plots wave / rolling median
+                    pass
                 continue
+
+            # Calculate Rolling Median for the chunk
+            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
+            self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
+            #BUG -
+                # You might not need to store 
 
             # Extract Initial R Peaks
             r_peaks, peak_info = ss.find_peaks(
@@ -526,10 +587,11 @@ class RadECG:
             #Basic count check (we shouldn't need this anymore)
             if r_peaks.size < 2 or r_peaks.size > 100:
                 logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
-                self.data.sect_info["fail_reason"][self.sect_id] = "no_sig"
+                self.data.sect_info["fail_reason"][self.sect_id] += " no_sig"
                 self.sect_id += 1
-                continue
+                continue        
 
+            #Check each beat with the matrix profile and STFT. 
             is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
             self.data.sect_info[self.sect_id]["bad_b_rat"] = post_metrics.get("bad_beat_ratio", 1.0)
 
@@ -537,26 +599,26 @@ class RadECG:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                 self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
                 self.sect_id += 1
+                if self.gui.plot_errors:
+                    self.gui.plot_validation_error(start_p, end_p, new_peaks_arr, peak_info, self.sect_id, self.data.sect_info[self.sect_id]) 
                 continue
-
-            # Calculate Rolling Median for the chunk
-            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
 
             # Format Peak Array
             r_peaks_shifted = r_peaks + start_p
             same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
             #BUG 
                 #Could speed above line up with np.intersect.
-            #If there's peak overlap, find the intersection 
-            #and shift which peaks to evaluate
+            #If there's peak overlap, find the intersection and shift which peaks to evaluate
             if len(same_peaks) > 0:
-                #Find the last peak in common.  This will be the peak you
-                #pop off in each section to ensure the next section analyzes it
+                #Find the last peak in common. 
                 f_peak = max(same_peaks)
+                #Index those peaks from the last same peak, to the end of the r_peaks_shifted
                 keepers = r_peaks_shifted >= f_peak
+                #Stack the mask to create the 1x1 array
                 new_peaks_arr = np.hstack((r_peaks_shifted[keepers].reshape(-1, 1), val_mask[keepers].reshape(-1, 1)))
                 peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                 peak_info['prominences'] = peak_info['prominences'][keepers]
+                #Don't process the last peak. That will get indexed in the next section. 
                 self.data.peaks = self.data.peaks[:-1, :]
             else:
                 new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
@@ -565,6 +627,8 @@ class RadECG:
                 self.gui.plot_fft_sect(start_p, end_p, new_peaks_arr, peak_info, self.sect_id, self.data.sect_info[self.sect_id])
 
             # Historical Validation
+            #BUG - validation 
+                #Need a better way to do this other than count.  
             if self.sect_id > 10:
                 last_keys = self.get_consecutive_valid_peaks(self.data.peaks)
                 if last_keys is not False:
@@ -573,7 +637,7 @@ class RadECG:
                         rolled_med, self.sect_id, start_p, end_p
                     )
                     if not sect_valid:
-                        self.data.sect_info["fail_reason"][self.sect_id] = "historical_fail"
+                        self.data.sect_info["fail_reason"][self.sect_id] += " historical_fail"
                 else:
                     # Resetting baseline if no recent valid history
                     sect_valid = True 
