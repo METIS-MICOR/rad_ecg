@@ -11,9 +11,9 @@ from scipy.signal import welch
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 from dataclasses import dataclass, field
-from scipy.stats import entropy, kurtosis
-from scipy.fft import rfft, rfftfreq, irfft
+# from scipy.fft import rfft, rfftfreq, irfft
 from matplotlib.patches import Rectangle, Arrow
+from scipy.stats import entropy, kurtosis, wasserstein_distance
 from support import logger, console, log_time, mainspinner, DATE_JSON
 ###############################################################################
 # 1. Data Structures
@@ -110,8 +110,10 @@ class SignalLoader:
 ###############################################################################
 class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
-    def __init__(self, fs: float = 1000.0):
+    def __init__(self, fs: float = 1000.0, history_size: int = 10):
         self.fs = fs
+        self.history_size = history_size
+        self.psd_history = deque(maxlen=self.history_size)
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -129,8 +131,8 @@ class CardiacFreqTools:
         mobility_d1 = np.sqrt(var_d2 / var_d1)
         return mobility_d1 / mobility
     
-    def calc_spec_ratio(self, signal: np.ndarray) -> Tuple[float, float]:
-        p_sqi:float = 0.0
+    def calc_spec_metrics(self, signal: np.ndarray) -> Tuple[float, float]:
+        qrs_sqi:float = 0.0
         hf_sqi:float = 0.0
         # Spectral SQI: Welch's PSD
         nperseg = min(len(signal), int(self.fs * 2.0))
@@ -142,13 +144,46 @@ class CardiacFreqTools:
 
         # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
         qrs_band = (freqs >= 5.0) & (freqs <= 15.0)
-        p_sqi = np.sum(psd[qrs_band]) / total_power
-
-        # High-Frequency Noise Ratio: Power 1 - 40 Hz (EMG / Artifacts).  Ignoring LF and ULF freqs
+        qrs_power = np.sum(psd[qrs_band])
+        qrs_sqi = qrs_power / total_power
+        
+        # High-Frequency Band: Power 1 - 40 Hz (EMG / Artifacts).  Ignoring LF and ULF freqs
         hf_band = (freqs >= 1.0) & (freqs <= 40.0)
-        hf_sqi = np.sum(psd[hf_band]) / total_power
+        hf_power = np.sum(psd[hf_band])
+        hf_sqi = hf_power / total_power
+        spec_ratio =  qrs_sqi / hf_sqi
+        
+        # --- Metric 2: Wasserstein Distribution Shift ---
+        f_target = freqs[qrs_band]
+        psd_target = psd[qrs_band]
+        
+        w_dist = 0.0
+        is_stable = True
+        
+        if qrs_power > 0:
+            # Normalize PSD so it acts as a valid probability distribution (mass = 1)
+            normalized_psd = psd_target / qrs_power
+            
+            if not self.psd_history:
+                # First valid chunk seeds the baseline
+                self.psd_history.append(normalized_psd)
+            else:
+                # Get median baseline across recent history
+                baseline = np.median(np.vstack(self.psd_history), axis=0)
+                
+                # Calculate Earth Mover's Distance
+                w_dist = wasserstein_distance(
+                    u_values=f_target, 
+                    v_values=f_target, 
+                    u_weights=baseline, 
+                    v_weights=normalized_psd
+                )
+                # Threshold for a massive shift in signal composition
+                is_stable = w_dist < 5.0 
+                if is_stable:
+                    self.psd_history.append(normalized_psd)
 
-        return p_sqi / hf_sqi
+        return spec_ratio, w_dist, is_stable
 
     def pre_peak_sqi(self, wave_chunk: np.ndarray) -> tuple:
         """
@@ -160,11 +195,12 @@ class CardiacFreqTools:
 
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
-        spectral = self.calc_spec_ratio(wave_chunk)
+        spectral, wdist, is_stable = self.calc_spec_metrics(wave_chunk)
         metrics = {
             "kurtosis" :np.round(k_sqi, 2),
             "hjorth"   :np.round(complexity, 2),
-            "spectral" :np.round(spectral, 2)
+            "spectral" :np.round(spectral, 2), 
+            "wdist"    :np.round(wdist, 2),
         }
 
         is_valid = True
@@ -184,6 +220,10 @@ class CardiacFreqTools:
         if (spectral != None) & (spectral < 0.3):
             is_valid = False
             fail_reason += f"Low QRS Power {spectral:.2f}"
+        # Gate 4: Wasserstein Distribution Shift (Global sensor degradation)
+        if not is_stable:
+            is_valid = False
+            fail_reason += f"Severe Spectral Drift (W-Dist: {wdist:.2f}). "
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
