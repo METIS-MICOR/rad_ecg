@@ -114,8 +114,8 @@ class CardiacFreqTools:
         self.fs = fs
         self.history_size = history_size
         self.psd_history = deque(maxlen=self.history_size)
-        self.freq_lim = 18
-        self.entropy_lim = 4
+        self.freq_lim = 15.0
+        self.entropy_lim = 4.0
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -344,9 +344,9 @@ class SignalGUI:
         self.plot_fft = plot_fft
         self.plot_errors = plot_errors
         self.timeout_ms = timeout_ms
-        self.freq_lim = 18
-        self.entropy_lim = 4
-        self.hf_lim = 0.50
+        self.freq_lim :float = 15.0
+        self.entropy_lim :float = 4.0
+        self.hf_lim :float = 0.50
     
     def _apply_timer_and_show(self, fig, timeout:int = None):
         """Helper method to attach an auto-close timer and keypress overrides to a figure."""
@@ -540,7 +540,7 @@ class SignalGUI:
         #Click Event to view fft        
         fig.canvas.mpl_connect("button_press_event", onClick)
         # Auto-close timer
-        self._apply_timer_and_show(fig, timeout=5000)
+        self._apply_timer_and_show(fig, timeout=3000)
 
     def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
         """Calculates STFT for the clicked R-R interval, and Spectrogram for the section."""
@@ -568,23 +568,23 @@ class SignalGUI:
 
         lf_mask = ~hf_mask
 
-        # Plot Physiological Frequencies (<= 18 Hz)
+        # Plot Physiological Frequencies (<= self.freq_lim Hz)
         ax_freq.stem(
             freq_list[lf_mask], fft_samp[lf_mask], 
-            basefmt=" ", linefmt='dodgerblue', markerfmt='bo', label='Physio (<=18Hz)'
+            basefmt=" ", linefmt='dodgerblue', markerfmt='bo', label=f'Physio (<={self.freq_lim}Hz)'
         )
         
-        # Plot High-Frequencies (> 18 Hz)
+        # Plot High-Frequencies (> self.freq_lim Hz)
         if np.any(hf_mask):
             # Paint red if it violates the area threshold, otherwise keep it orange
             hf_color = 'red' if hf_ratio > self.hf_lim else 'orange'
             ax_freq.stem(
                 freq_list[hf_mask], fft_samp[hf_mask], 
-                basefmt=" ", linefmt=hf_color, markerfmt=f'{hf_color}', label='HF Mass (>18Hz)'
+                basefmt=" ", linefmt=hf_color, markerfmt=f'{hf_color}', label=f'HF Mass (>{self.freq_lim}Hz)'
             )
 
         # 4. Draw boundary and shade background if rejected
-        ax_freq.axvline(x=18.0, color='grey', linestyle='--', alpha=0.5)
+        ax_freq.axvline(x=self.freq_lim, color='grey', linestyle='--', alpha=0.5)
         
         if hf_ratio > self.hf_lim or beat_entropy > self.entropy_lim:
             ax_freq.axvspan(self.freq_lim, max(freq_list), color='red', alpha=0.1, label='Rejected Area/Entropy')
@@ -783,7 +783,7 @@ class RadECG:
                 distance=int(self.fs * 0.200)
             )
             #Basic count check (we shouldn't need this anymore)
-            if r_peaks.size < 2 or r_peaks.size > 100:
+            if r_peaks.size < 4 or r_peaks.size > 100:
                 logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
                 self.data.sect_info["fail_reason"][self.sect_id] += " no_sig"
                 self.sect_id += 1
@@ -918,7 +918,7 @@ class RadECG:
         med_diff = np.diff(last_keys)
         last_avg_p_sep = np.mean(med_diff) if len(med_diff) > 0 else 1.0
         lower_bound_sep = last_avg_p_sep * 0.5
-        upper_bound_sep = last_avg_p_sep * 2.0
+        upper_bound_sep = last_avg_p_sep * 3.0
         
         diffs = np.diff(new_peaks_arr[:, 0])
         if np.any((diffs < lower_bound_sep) | (diffs > upper_bound_sep)):
@@ -928,7 +928,7 @@ class RadECG:
         # Peak Height Check
         last_avg_peak_heights = np.mean([self.data.wave[x] for x in last_keys])
         r_roll_diff = self.data.wave[last_keys] - self.data.rolling_med[last_keys]
-        lower_bound_ht = np.mean(r_roll_diff) * 0.51
+        lower_bound_ht = np.mean(r_roll_diff) * 0.5
         upper_bound_ht = last_avg_peak_heights * 3.0
         
         if np.any((peak_info['peak_heights'] < lower_bound_ht) | (peak_info['peak_heights'] > upper_bound_ht)):
