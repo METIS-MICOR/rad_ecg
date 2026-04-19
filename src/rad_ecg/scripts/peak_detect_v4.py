@@ -114,6 +114,8 @@ class CardiacFreqTools:
         self.fs = fs
         self.history_size = history_size
         self.psd_history = deque(maxlen=self.history_size)
+        self.freq_lim = 18
+        self.entropy_lim = 4
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -178,8 +180,8 @@ class CardiacFreqTools:
                     u_weights=baseline, 
                     v_weights=normalized_psd
                 )
-                # Threshold for a massive shift in signal composition
-                is_stable = w_dist < 5.0 
+                # Threshold for a large shift in signal composition
+                is_stable = w_dist < 3.0 
                 if is_stable:
                     self.psd_history.append(normalized_psd)
 
@@ -209,7 +211,7 @@ class CardiacFreqTools:
         # Gate 1: Is there a heartbeat shape? (Low Kurtosis = flatline or Gaussian noise)
         if k_sqi < 4:
             is_valid = False
-            fail_reason += f"Low Kurtosis {k_sqi:.2f} | " #(Missing QRS / Flatline)00
+            fail_reason += f"Low Kurtosis {k_sqi:.2f} | " #(Missing QRS / Flatline)
             
         # Gate 2: Is the window drowning in static?
         if complexity > 3.0: 
@@ -217,13 +219,14 @@ class CardiacFreqTools:
             fail_reason += f"High Hjorth Complexity {complexity:.2f} | " #(Severe HF Static)
         
         # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
-        if (spectral != None) & (spectral < 0.3):
+        if (spectral != None) & (spectral < 0.4):
             is_valid = False
             fail_reason += f"Low QRS Power {spectral:.2f}"
+
         # Gate 4: Wasserstein Distribution Shift (Global sensor degradation)
         if not is_stable:
             is_valid = False
-            fail_reason += f"Severe Spectral Drift (W-Dist: {wdist:.2f}). "
+            fail_reason += f"Shift in W-Dist: {wdist:.2f}). "
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
@@ -233,9 +236,9 @@ class CardiacFreqTools:
         if len(r_peaks) < 2:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
-        # Matrix Profile Calculation (Chunk-level)
+        # --- Matrix Profile Calculation (Chunk-level) ---
         m = int(self.fs * 0.12)
-        m = max(m, 3) # Stumpy requires a minimum window of 3
+        m = max(m, 3) 
 
         try:
             device_id = cuda.list_devices()[0].id
@@ -246,68 +249,215 @@ class CardiacFreqTools:
 
         distances = mp[:, 0]
         med_dist = np.median(distances)
+        
+        # Prevent vanishing MAD on ultra-clean sections
         mad = np.median(np.abs(distances - med_dist))
-        mp_threshold = med_dist + (4.0 * max(mad, 1e-6))
+        safe_mad = max(mad, 0.5) 
+        mp_threshold = med_dist + (4.0 * safe_mad)
 
-        #Beat-by-Beat Evaluation (MP + STFT)
+        # Beat-by-Beat Evaluation (MP + STFT)
         bad_beats = 0
         total_beats = len(r_peaks) - 1
-        logger.info(f"MP Stats: {med_dist:.3f} | MAD: {mad:.3f} | Threshold: {mp_threshold:.3f}")
+        logger.info(f"MP Stats: Med {med_dist:.3f} | Safe MAD: {safe_mad:.3f} | Thres: {mp_threshold:.3f}")
 
         for i in range(total_beats):
             p0 = r_peaks[i]
             p1 = r_peaks[i+1]
-            # # --- Matrix Profile Discord ---
+            
+            # --- Check 1: Matrix Profile Discord ---
             search_start = max(0, p0 - m)
             search_end = min(len(distances), p0 + (m // 2))
-            peak_mp_dist = np.max(distances[search_start:search_end])
+            
+            # Use median of the search window to avoid punishing good peaks for adjacent noise
+            peak_mp_dist = np.median(distances[search_start:search_end])
             
             if peak_mp_dist > mp_threshold:
-                logger.debug(f"Beat {i} FAILED Matrix Profile: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
+                logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
                 bad_beats += 1
                 continue 
-            else:
-                # Log passing peaks just to see how far below threshold they are
-                logger.debug(f"Beat {i} PASSED Matrix Profile: dist {peak_mp_dist:.3f} <= thres {mp_threshold:.3f}")
-            # --- Check 2: STFT HF Noise ---
+
+            # --- Check 2: STFT HF Area & Entropy ---
             samp = wave_chunk[p0:p1]
-            # if len(samp) < 4:
-            #     bad_beats += 1
-            #     continue
-
-            fft_samp = np.abs(np.fft.rfft(samp))
-            freq_list = np.fft.rfftfreq(len(samp), d=1/self.fs)
-            thres = np.where(freq_list < 18)[0][-1]
-
-            if thres > 0 and thres < len(fft_samp):
-                mean_low = fft_samp[0:thres].mean()
-                high_freqs = fft_samp[thres:int(len(samp)/2)]
-                if np.any(high_freqs > mean_low):
-                    outs = np.where(high_freqs > mean_low)[0]
-                    if outs.size >= 2:
-                        bad_beats += 1
-                        continue
-            else:
+            if len(samp) < 4:
                 bad_beats += 1
                 continue
 
-            #If it passes both the Matrix Profile and STFT, mark as valid
+            # Calculate the spectrum
+            fft_samp = np.abs(np.fft.rfft(samp))
+            freq_list = np.fft.rfftfreq(len(samp), d=1/self.fs)
+            
+            total_power = np.sum(fft_samp)
+            if total_power == 0:
+                bad_beats += 1
+                continue
+
+            # Band Power Integration Check
+            # How much of the beat's total mass is high-frequency noise?
+            hf_mask = freq_list > self.freq_lim #18
+            hf_power = np.sum(fft_samp[hf_mask])
+            hf_ratio = hf_power / total_power
+            
+            # If more than 50% of the beat's energy is > 18Hz, it's mostly noise.
+            if hf_ratio > 0.50:
+                logger.info(f"Beat {i} FAILED STFT: HF Ratio {hf_ratio:.2f} > 0.40")
+                bad_beats += 1
+                continue
+
+            # Spectral Entropy Check
+            # Normalize the spectrum so it sums to 1.0 (treating it like a probability distribution)
+            psd_norm = fft_samp / total_power
+            beat_entropy = entropy(psd_norm)
+            
+            # A completely flat distribution of noise maximizes entropy.
+            # A clean QRS typically has a spectral entropy between 1.0 and 2.5.
+            entropy_threshold = self.entropy_lim
+            if beat_entropy > entropy_threshold:
+                logger.info(f"Beat {i} FAILED STFT: Entropy {beat_entropy:.2f} > {entropy_threshold}")
+                bad_beats += 1
+                continue
+
+            # If it passes both the Matrix Profile and STFT, mark as valid
             valid_mask[i] = 1 
 
         bad_beat_ratio = bad_beats / total_beats
-        metrics = {"bad_beat_ratio": bad_beat_ratio}
+        metrics = {
+            "bad_beat_ratio": bad_beat_ratio, 
+            "mp_distances": distances,
+            "mp_threshold": mp_threshold
+        }
         
         is_valid = bad_beat_ratio <= 0.25
-        fail_reason = "Bad Beats" if not is_valid else ""
+        fail_reason = f"Bad Beats: {bad_beats} | {total_beats}" if not is_valid else ""
 
         return is_valid, fail_reason, metrics, valid_mask
     
 class SignalGUI:
     """Handles all Matplotlib visualizations for debugging and validation."""
-    def __init__(self, ecg_data: 'ECGData', plot_fft: bool = False, plot_errors: bool = False):
+    def __init__(
+            self, 
+            ecg_data: 'ECGData', 
+            plot_fft: bool = False, 
+            plot_errors: bool = False,
+            timeout_ms: int = 2000
+        ):
         self.data = ecg_data
         self.plot_fft = plot_fft
         self.plot_errors = plot_errors
+        self.timeout_ms = timeout_ms
+        self.freq_lim = 18
+        self.entropy_lim = 4
+        self.hf_lim = 0.50
+    
+    def _apply_timer_and_show(self, fig, timeout:int = None):
+        """Helper method to attach an auto-close timer and keypress overrides to a figure."""
+        timeout = self.timeout_ms if timeout == None else timeout
+        timer = fig.canvas.new_timer(interval=timeout)
+        timer.single_shot = True
+        
+        def onKeyPress(event):
+            # If down arrow is pressed, stop the timer and close the figure manually
+            if event.key == "down": 
+                timer.stop()
+                plt.close(fig)
+            # If up arrow is pressed, stop the timer to allow for interaction
+            elif event.key == "up":
+                timer.stop()
+                logger.info('Auto-close timer stopped. Plot is now interactive.')
+
+        fig.canvas.mpl_connect('key_press_event', onKeyPress)
+        timer.add_callback(plt.close, fig)
+        timer.start()
+        plt.show()
+        plt.close(fig)
+
+    def plot_pre_error(
+            self, 
+            error_type   : str, 
+            start_idx    : int, 
+            end_idx      : int, 
+            sect_id      : int, 
+            **kwargs
+        ):
+        """Historical validation error plots."""
+        if not self.plot_errors:
+            return
+
+        wave_chunk = self.data.wave[start_idx:end_idx]
+        rolled_chunk = self.data.rolling_med[start_idx:end_idx]
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(range(start_idx, end_idx), wave_chunk, label='ECG')
+        ax.plot(range(start_idx, end_idx), rolled_chunk, label='Rolling Median')
+        ax.set_title(f'Section {sect_id} indices {start_idx}:{end_idx}\n{error_type}') 
+        ax.set_xlabel("Timesteps")
+        ax.set_ylabel("ECG mV")
+        ax.legend(loc='upper right')
+        self._apply_timer_and_show(fig=fig)
+    
+    def plot_post_error(
+            self, 
+            error_type   : str, 
+            start_idx    : int, 
+            end_idx      : int, 
+            r_peaks_abs  : np.ndarray,
+            peak_info    : dict,
+            sect_id      : int, 
+            post_metrics : dict = None,
+            val_mask     : np.ndarray = None
+        ):
+        """Visualizes the ECG against the Matrix Profile when a beat-by-beat failure occurs."""
+        if not self.plot_errors:
+            return
+
+        wave_chunk = self.data.wave[start_idx:end_idx]
+        rolled_chunk = self.data.rolling_med[start_idx:end_idx]
+        x_range = np.arange(start_idx, end_idx)
+        
+        fig = plt.figure(figsize=(12, 6))
+        grid = plt.GridSpec(2, 1, hspace=0.3, height_ratios=[2, 1])
+        
+        ax_ecg = fig.add_subplot(grid[0])
+        ax_mp = fig.add_subplot(grid[1], sharex=ax_ecg)
+
+        # --- 1. ECG Subplot ---
+        ax_ecg.plot(x_range, wave_chunk, label='ECG', color='dodgerblue')
+        ax_ecg.plot(x_range, rolled_chunk, label='Rolling Median', color='orange')
+        
+        if r_peaks_abs.shape[0] > 0 and 'peak_heights' in peak_info:
+            ax_ecg.scatter(r_peaks_abs, peak_info['peak_heights'], marker='D', color='red', label='R peaks', zorder=5)
+
+        ax_ecg.set_title(f'Section {sect_id} indices {start_idx}:{end_idx}\nRejected: {error_type}') 
+        ax_ecg.set_ylabel("ECG mV")
+        ax_ecg.legend(loc='upper right')
+
+        # --- 2. Matrix Profile Subplot ---
+        if post_metrics and "mp_distances" in post_metrics:
+            mp_dist = post_metrics["mp_distances"]
+            mp_thresh = post_metrics["mp_threshold"]
+            
+            # Stumpy arrays are shorter by (m-1). Pad with NaNs to align with the ECG indices.
+            pad_len = len(wave_chunk) - len(mp_dist)
+            padded_mp = np.pad(mp_dist, (0, pad_len), constant_values=np.nan)
+            ax_mp.plot(x_range, padded_mp, color='purple', label='Matrix Profile Distance')
+            ax_mp.axhline(y=mp_thresh, color='red', linestyle='--', label=f'Threshold ({mp_thresh:.2f})')
+            ax_mp.set_ylabel("MP Distance")
+            ax_mp.legend(loc='upper right')
+        else:
+            ax_mp.text(0.5, 0.5, "Matrix Profile Data Unavailable", ha='center', va='center', transform=ax_mp.transAxes)
+
+        # Shade R-R intervals based on the valid_mask (column 1 of new_peaks_arr)
+        if val_mask is not None:
+            for idx, peak in enumerate(range(r_peaks_abs.shape[0] - 1)):
+                band_color = 'red' if val_mask[idx] == 0 else 'lightgreen'
+                rect = Rectangle(
+                    xy=(r_peaks_abs[peak], 0), 
+                    width=r_peaks_abs[peak+1] - r_peaks_abs[peak], 
+                    height=np.max(self.data.wave[r_peaks_abs[peak]:r_peaks_abs[peak+1]]), 
+                    facecolor=band_color, edgecolor="grey", alpha=0.7
+                )
+                ax_ecg.add_patch(rect)
+        ax_mp.set_xlabel("Timesteps")
+        self._apply_timer_and_show(fig=fig)
 
     def plot_fft_sect(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, sqi_metrics: dict):
         """Displays the ECG waveform, SQI stats, and interactive beat-level spectral plots."""
@@ -347,24 +497,26 @@ class SignalGUI:
         ax_ecg.legend(loc='upper right')
 
         # Add SQI Metrics Text Block
-        k_sqi = sqi_metrics["kurtosis"].item()
-        hjorth = sqi_metrics["hjorth"].item()
-        spectral = sqi_metrics["spectral"].item()
-        bad_ratio = sqi_metrics["bad_b_rat"].item()
-        
+        k_sqi = sqi_metrics["kurtosis"]
+        hjorth = sqi_metrics["hjorth"]
+        spectral = sqi_metrics["spectral"]
+        bad_ratio = sqi_metrics["bad_b_rat"]
+        wdist = sqi_metrics["wdist"]
+
         stat_text = (
             f"Kurtosis: {k_sqi:.2f}   |   "
             f"Hjorth Complexity: {hjorth:.2f}   |   "
+            f"Wasserstein Dist {wdist:.2f}   |   "
             f"QRS Ratio: {spectral:.2f}   |   "
-            f"Bad Beat Ratio: {bad_ratio:.1%}"
+            f"Bad Beat Ratio: {bad_ratio:.1%}   |   "
         )
         
         # Place text at the bottom center of the ECG plot
         ax_ecg.text(
-            0.5, 0.05, stat_text, 
+            0.5, -0.20, stat_text, 
             transform=ax_ecg.transAxes, 
-            fontsize=12, fontweight='bold', 
-            ha='center', va='bottom', 
+            fontsize=11, fontweight='bold', 
+            ha='center', va='bottom', zorder=10,
             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='gray')
         )
 
@@ -372,18 +524,6 @@ class SignalGUI:
         if new_peaks_arr.shape[0] >= 2:
             p0, p1 = new_peaks_arr[-2, 0], new_peaks_arr[-1, 0]
             self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
-        
-        # timer = fig.canvas.new_timer(interval=3000)
-        # timer.single_shot = True
-        # timer_cid = timer.add_callback(plt.close, fig)
-        
-        # 3. Interactive Closures
-        # def onSpacebar(event):
-        #     if event.key == " ": 
-        #         timer.stop()
-        #         timer.remove_callback(timer)
-        #         logger.warning('Timer stopped')
-        #         plt.close(fig)
 
         def onClick(event):
             if event.inaxes == ax_ecg:
@@ -396,13 +536,11 @@ class SignalGUI:
                         ax_spec.cla()
                         self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
                         fig.canvas.draw_idle()
-         
-        # Auto-close timer
+        
+        #Click Event to view fft        
         fig.canvas.mpl_connect("button_press_event", onClick)
-        # fig.canvas.mpl_connect('key_press_event', onSpacebar)
-        # timer.start()
-        plt.show()
-        plt.close()
+        # Auto-close timer
+        self._apply_timer_and_show(fig, timeout=5000)
 
     def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
         """Calculates STFT for the clicked R-R interval, and Spectrogram for the section."""
@@ -413,28 +551,49 @@ class SignalGUI:
         # --- STFT for the specific R-R interval ---
         fft_samp = np.abs(np.fft.rfft(samp))
         freq_list = np.fft.rfftfreq(len(samp), d=1/self.data.fs)
-        freqs = fft_samp[0:int(len(samp)/2)]
         
-        # Determine index for 18 Hz physiological threshold
-        thres = np.where(freq_list < 18)[0][-1]
-        
-        # Plot the frequencies
-        ax_freq.stem(freqs)
-        
-        # Plot mean line and highlight HF noise violations if they exist
-        if thres > 0 and thres < len(fft_samp):
-            mean_low = fft_samp[0:thres].mean()
-            ax_freq.axhline(y=mean_low, color='dodgerblue', linestyle='--', label='Mean LF Pwr (<18Hz)')
-            high_freqs = fft_samp[thres:int(len(samp)/2)]
-            outs = np.where(high_freqs > mean_low)[0]
-            if outs.size > 0:
-                # Scatter red dots exactly where HF noise spikes above the mean
-                ax_freq.scatter(freq_list[thres + outs], high_freqs[outs], color='red', zorder=5, label='HF Noise Spikes')
+        # Calculate the exact metrics used in the extraction engine
+        total_power = np.sum(fft_samp)
+        if total_power > 0:
+            hf_mask = freq_list > self.freq_lim
+            hf_power = np.sum(fft_samp[hf_mask])
+            hf_ratio = hf_power / total_power
+            
+            psd_norm = fft_samp / total_power
+            beat_entropy = entropy(psd_norm)
+        else:
+            hf_ratio = 0.0
+            beat_entropy = 0.0
+            hf_mask = np.zeros_like(freq_list, dtype=bool)
 
-        ax_freq.set_title(f'STFT Spectrum (peaks {p0}:{p1})')
+        lf_mask = ~hf_mask
+
+        # Plot Physiological Frequencies (<= 18 Hz)
+        ax_freq.stem(
+            freq_list[lf_mask], fft_samp[lf_mask], 
+            basefmt=" ", linefmt='dodgerblue', markerfmt='bo', label='Physio (<=18Hz)'
+        )
+        
+        # Plot High-Frequencies (> 18 Hz)
+        if np.any(hf_mask):
+            # Paint red if it violates the area threshold, otherwise keep it orange
+            hf_color = 'red' if hf_ratio > self.hf_lim else 'orange'
+            ax_freq.stem(
+                freq_list[hf_mask], fft_samp[hf_mask], 
+                basefmt=" ", linefmt=hf_color, markerfmt=f'{hf_color}', label='HF Mass (>18Hz)'
+            )
+
+        # 4. Draw boundary and shade background if rejected
+        ax_freq.axvline(x=18.0, color='grey', linestyle='--', alpha=0.5)
+        
+        if hf_ratio > self.hf_lim or beat_entropy > self.entropy_lim:
+            ax_freq.axvspan(self.freq_lim, max(freq_list), color='red', alpha=0.1, label='Rejected Area/Entropy')
+
+        # Embed the new metrics directly into the title for immediate feedback
+        ax_freq.set_title(f'STFT (peaks {p0}:{p1}) | HF Ratio: {hf_ratio:.2f} | Entropy: {beat_entropy:.2f}')
         ax_freq.set_xlabel("Frequency (Hz)")
         ax_freq.set_ylabel("Magnitude")
-        ax_freq.set_xlim(0, 40) 
+        ax_freq.set_xlim(0, 50) 
         ax_freq.legend(loc='upper right')
 
         # --- Spectrogram (Full Section) ---
@@ -452,7 +611,7 @@ class SignalGUI:
         ax_spec.set_xlabel("Time (sec)")
         ax_spec.set_ylabel("Frequency (Hz)")
         ax_spec.set_title("Spectrogram (Full Section)")
-        ax_spec.set_ylim(0, 40) # Restrict Y-axis to physiological range
+        ax_spec.set_ylim(0, 50)
 
     def plot_validation_error(
             self, 
@@ -596,32 +755,31 @@ class RadECG:
             end_p = curr_section[1].item()
             wave_chunk = self.data.wave[start_p:end_p].flatten()
 
+            # Calculate Rolling Median for the chunk
+            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
+            self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
+            #BUG -
+                # You might not need to store this
+
             # Check Signal Quality Index (SQI) using lightweight checks
             is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
             self.data.sect_info[self.sect_id]["kurtosis"] = pre_metrics.get("kurtosis", 0)
             self.data.sect_info[self.sect_id]["hjorth"] = pre_metrics.get("hjorth", 0)
             self.data.sect_info[self.sect_id]["spectral"] = pre_metrics.get("spec_ratio", 0)
-
+            self.data.sect_info[self.sect_id]["wdist"] = pre_metrics.get("wdist", 0)
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                 self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
-                self.sect_id += 1
                 if self.gui.plot_errors:
-                    #TODO - Need a basic plot routine in SignalGUI.  Just plots wave / rolling median
-                    pass
+                    self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id)
+                self.sect_id += 1
                 continue
-
-            # Calculate Rolling Median for the chunk
-            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
-            self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
-            #BUG -
-                # You might not need to store 
 
             # Extract Initial R Peaks
             r_peaks, peak_info = ss.find_peaks(
                 wave_chunk.flatten(), 
-                prominence=np.percentile(wave_chunk, 99),
-                height=np.percentile(wave_chunk, 95),
+                prominence=np.percentile(wave_chunk, 99), #99
+                height=np.percentile(wave_chunk, 93),     #95
                 distance=int(self.fs * 0.200)
             )
             #Basic count check (we shouldn't need this anymore)
@@ -638,12 +796,21 @@ class RadECG:
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                 self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
-                self.sect_id += 1
                 if self.gui.plot_errors:
-                    self.gui.plot_validation_error(start_p, end_p, new_peaks_arr, peak_info, self.sect_id, self.data.sect_info[self.sect_id]) 
+                    self.gui.plot_post_error(
+                        error_type=fail_reason, 
+                        start_idx=start_p, 
+                        end_idx=end_p, 
+                        r_peaks_abs=(r_peaks + start_p), 
+                        peak_info=peak_info, 
+                        sect_id=self.sect_id, 
+                        post_metrics=post_metrics,
+                        val_mask = val_mask
+                    )
+                self.sect_id += 1
                 continue
 
-            # Format Peak Array
+            # Shift peak array to present section start/end indexes.  Check for overlap with history
             r_peaks_shifted = r_peaks + start_p
             same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
             #BUG 
@@ -776,10 +943,10 @@ class RadECG:
 
 # --- Program Start ---
 def main():
-    configs      :dict  = setup_globals.load_config()
-    fp           :Path  = Path.cwd() / configs["data_path"]
-    batch_process:bool  = configs["batch"]
-    selected     :int   = setup_globals.load_choices(fp, batch_process)
+    configs      :dict = setup_globals.load_config()
+    fp           :Path = Path.cwd() / configs["data_path"]
+    batch_process:bool = configs["batch"]
+    selected     :int  = setup_globals.load_choices(fp, batch_process)
     loader = SignalLoader(selected)
     loader.load_signal_data()
     ECG = loader.load_structures()
