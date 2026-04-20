@@ -379,7 +379,7 @@ def load_choices(fp:str, batch_process:bool=False):
         if file_choice.isnumeric():
             if fp._tail[-1] == "inputdata":
                 folders = sorted(f for f in Path(str(fp)).iterdir())
-                return folders[int(file_choice)]
+                return folders[int(file_choice)-1]
             else:
                 files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
                 return files[int(file_choice)]

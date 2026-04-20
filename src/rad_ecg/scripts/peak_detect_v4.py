@@ -67,17 +67,18 @@ class SignalLoader:
                     pass            
                 #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
                 case "":
-                    from wfdb import rdrecord
-                    record = rdrecord(
-                        self.file_path / f"{self.file_path._tail[-1]}",
-                        sampfrom=0,
-                        sampto=None,
-                        channels=[0]
-                    )
-                    self.fs = record.fs
-                    self.wave = record.p_signal
-                    self.window = 10
-                    self.dtypes = setup_globals.SECTION_DTYPES
+                    if self.file_path.is_dir():
+                        from wfdb import rdrecord
+                        record = rdrecord(
+                            self.file_path / f"{self.file_path._tail[-1]}",
+                            sampfrom=0,
+                            sampto=None,
+                            channels=[0]
+                        )
+                        self.fs = record.fs
+                        self.wave = record.p_signal
+                        self.window = 10
+                        self.dtypes = setup_globals.SECTION_DTYPES
 
         except Exception as e:
             logger.critical(f"Unable to load file. Error {e}")
@@ -110,12 +111,18 @@ class SignalLoader:
 ###############################################################################
 class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
-    def __init__(self, fs: float = 1000.0, history_size: int = 10):
+    def __init__(
+            self, 
+            fs: float = 1000.0, 
+            history_size: int = 6,
+            freq_lim: float = 15, 
+            qrs_lim : float = 0.35
+            ):
         self.fs = fs
         self.history_size = history_size
         self.psd_history = deque(maxlen=self.history_size)
-        self.freq_lim = 15.0
-        self.entropy_lim = 4.0
+        self.freq_lim = freq_lim
+        self.qrs_lim = qrs_lim
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -134,8 +141,6 @@ class CardiacFreqTools:
         return mobility_d1 / mobility
     
     def calc_spec_metrics(self, signal: np.ndarray) -> Tuple[float, float]:
-        qrs_sqi:float = 0.0
-        hf_sqi:float = 0.0
         # Spectral SQI: Welch's PSD
         nperseg = min(len(signal), int(self.fs * 2.0))
         freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg, detrend="linear")
@@ -145,7 +150,7 @@ class CardiacFreqTools:
             return 0
 
         # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
-        qrs_band = (freqs >= 5.0) & (freqs <= 15.0)
+        qrs_band = (freqs >= 5.0) & (freqs <= self.freq_lim)
         qrs_power = np.sum(psd[qrs_band])
         qrs_sqi = qrs_power / total_power
         
@@ -219,21 +224,21 @@ class CardiacFreqTools:
             fail_reason += f"High Hjorth Complexity {complexity:.2f} | " #(Severe HF Static)
         
         # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
-        if (spectral != None) & (spectral < 0.4):
+        if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False
             fail_reason += f"Low QRS Power {spectral:.2f}"
 
         # Gate 4: Wasserstein Distribution Shift (Global sensor degradation)
         if not is_stable:
             is_valid = False
-            fail_reason += f"Shift in W-Dist: {wdist:.2f}). "
+            fail_reason += f"Shift in W-Dist: {wdist:.2f})"
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
         """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
         valid_mask = np.zeros(len(r_peaks), dtype=int) 
 
-        if len(r_peaks) < 2:
+        if len(r_peaks) < 4:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
         # --- Matrix Profile Calculation (Chunk-level) ---
@@ -252,72 +257,72 @@ class CardiacFreqTools:
         
         # Prevent vanishing MAD on ultra-clean sections
         mad = np.median(np.abs(distances - med_dist))
-        safe_mad = max(mad, 0.5) 
-        mp_threshold = med_dist + (4.0 * safe_mad)
-
-        # Beat-by-Beat Evaluation (MP + STFT)
+        safe_mad = max(mad, 0.1) 
+        mp_threshold = med_dist + (3.0 * safe_mad)
+        
+        # Beat-by-Beat Evaluation 
         bad_beats = 0
         total_beats = len(r_peaks) - 1
-        logger.info(f"MP Stats: Med {med_dist:.3f} | Safe MAD: {safe_mad:.3f} | Thres: {mp_threshold:.3f}")
+        
+        # Window offsets (100ms)
+        offset = int(self.fs * 0.10) 
 
         for i in range(total_beats):
             p0 = r_peaks[i]
             p1 = r_peaks[i+1]
             
-            # --- Check 1: Matrix Profile Discord ---
-            search_start = max(0, p0 - m)
+            # --- GATE 1: Matrix Profile Discord ---
+            search_start = max(0, p0 - (m // 2))
             search_end = min(len(distances), p0 + (m // 2))
-            
-            # Use median of the search window to avoid punishing good peaks for adjacent noise
-            peak_mp_dist = np.median(distances[search_start:search_end])
-            
+            # peak_mp_dist = np.median(distances[search_start:search_end])
+            if search_start < search_end:
+                peak_mp_dist = np.max(distances[search_start:search_end])
+            else:
+                peak_mp_dist = 0.0
+
             if peak_mp_dist > mp_threshold:
                 logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
                 bad_beats += 1
                 continue 
 
-            # --- Check 2: STFT HF Area & Entropy ---
-            samp = wave_chunk[p0:p1]
-            if len(samp) < 4:
+            # --- GATE 2: Local Hjorth (QRS Morphology) ---
+            # Tightly centered on the QRS complex [-100ms to +100ms]
+            qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
+            if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
+                logger.info(f"Beat {i} FAILED: High QRS Complexity")
                 bad_beats += 1
                 continue
 
-            # Calculate the spectrum
-            fft_samp = np.abs(np.fft.rfft(samp))
-            freq_list = np.fft.rfftfreq(len(samp), d=1/self.fs)
+            # --- GATE 3: Inter-Beat STFT (Baseline Stability) ---
+            # Slice strictly BETWEEN the QRS complexes to evaluate the baseline
+            start_inter = p0 + offset
+            end_inter = p1 - offset
             
-            total_power = np.sum(fft_samp)
-            if total_power == 0:
-                bad_beats += 1
-                continue
+            # Ensure the gap is at least 200ms (avoids crashing on high heart rates like 180+ BPM)
+            if end_inter - start_inter > int(self.fs * 0.20):
+                inter_samp = wave_chunk[start_inter:end_inter]
+                
+                # Apply Hann window 
+                window = np.hanning(len(inter_samp))
+                fft_inter = np.abs(np.fft.rfft(inter_samp * window))
+                freq_inter = np.fft.rfftfreq(len(inter_samp), d=1/self.fs)
+                
+                total_inter_pwr = np.sum(fft_inter)
+                if total_inter_pwr > 0:
+                    # In the T-P segment, energy should be very low frequency.
+                    # Anything > 15 Hz is baseline noise/instability.
+                    hf_noise_mask = freq_inter > 15.0
+                    hf_noise_pwr = np.sum(fft_inter[hf_noise_mask])
+                    inter_noise_ratio = hf_noise_pwr / total_inter_pwr
+                    
+                    # If more than 30% of the inter-beat gap is HF noise, the baseline is unstable
+                    if inter_noise_ratio > 0.30:
+                        logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
+                        bad_beats += 1
+                        continue
 
-            # Band Power Integration Check
-            # How much of the beat's total mass is high-frequency noise?
-            hf_mask = freq_list > self.freq_lim #18
-            hf_power = np.sum(fft_samp[hf_mask])
-            hf_ratio = hf_power / total_power
-            
-            # If more than 50% of the beat's energy is > 18Hz, it's mostly noise.
-            if hf_ratio > 0.50:
-                logger.info(f"Beat {i} FAILED STFT: HF Ratio {hf_ratio:.2f} > 0.40")
-                bad_beats += 1
-                continue
-
-            # Spectral Entropy Check
-            # Normalize the spectrum so it sums to 1.0 (treating it like a probability distribution)
-            psd_norm = fft_samp / total_power
-            beat_entropy = entropy(psd_norm)
-            
-            # A completely flat distribution of noise maximizes entropy.
-            # A clean QRS typically has a spectral entropy between 1.0 and 2.5.
-            entropy_threshold = self.entropy_lim
-            if beat_entropy > entropy_threshold:
-                logger.info(f"Beat {i} FAILED STFT: Entropy {beat_entropy:.2f} > {entropy_threshold}")
-                bad_beats += 1
-                continue
-
-            # If it passes both the Matrix Profile and STFT, mark as valid
-            valid_mask[i] = 1 
+            # Passed all checks
+            valid_mask[i] = 1
 
         bad_beat_ratio = bad_beats / total_beats
         metrics = {
@@ -335,19 +340,18 @@ class SignalGUI:
     """Handles all Matplotlib visualizations for debugging and validation."""
     def __init__(
             self, 
-            ecg_data: 'ECGData', 
-            plot_fft: bool = False, 
+            ecg_data   : ECGData, 
+            tools      : CardiacFreqTools,
+            plot_fft   : bool = False, 
             plot_errors: bool = False,
-            timeout_ms: int = 2000
+            timeout_ms : int = 2000
         ):
         self.data = ecg_data
+        self.hijorth = tools.calc_hjorth_complexity
         self.plot_fft = plot_fft
         self.plot_errors = plot_errors
         self.timeout_ms = timeout_ms
-        self.freq_lim :float = 15.0
-        self.entropy_lim :float = 4.0
-        self.hf_lim :float = 0.50
-    
+
     def _apply_timer_and_show(self, fig, timeout:int = None):
         """Helper method to attach an auto-close timer and keypress overrides to a figure."""
         timeout = self.timeout_ms if timeout == None else timeout
@@ -376,7 +380,6 @@ class SignalGUI:
             start_idx    : int, 
             end_idx      : int, 
             sect_id      : int, 
-            **kwargs
         ):
         """Historical validation error plots."""
         if not self.plot_errors:
@@ -419,7 +422,7 @@ class SignalGUI:
         ax_ecg = fig.add_subplot(grid[0])
         ax_mp = fig.add_subplot(grid[1], sharex=ax_ecg)
 
-        # --- 1. ECG Subplot ---
+        # --- ECG Subplot ---
         ax_ecg.plot(x_range, wave_chunk, label='ECG', color='dodgerblue')
         ax_ecg.plot(x_range, rolled_chunk, label='Rolling Median', color='orange')
         
@@ -430,7 +433,7 @@ class SignalGUI:
         ax_ecg.set_ylabel("ECG mV")
         ax_ecg.legend(loc='upper right')
 
-        # --- 2. Matrix Profile Subplot ---
+        # --- Matrix Profile Subplot ---
         if post_metrics and "mp_distances" in post_metrics:
             mp_dist = post_metrics["mp_distances"]
             mp_thresh = post_metrics["mp_threshold"]
@@ -543,54 +546,71 @@ class SignalGUI:
         self._apply_timer_and_show(fig, timeout=3000)
 
     def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
-        """Calculates STFT for the clicked R-R interval, and Spectrogram for the section."""
-        samp = self.data.wave[p0:p1].flatten()
-        if len(samp) == 0: 
-            return
-
-        # --- STFT for the specific R-R interval ---
-        fft_samp = np.abs(np.fft.rfft(samp))
-        freq_list = np.fft.rfftfreq(len(samp), d=1/self.data.fs)
+        """Calculates STFT for the isolated inter-beat baseline, and Spectrogram for the section."""
+        offset = int(self.data.fs * 0.10) # 100ms offset
         
-        # Calculate the exact metrics used in the extraction engine
-        total_power = np.sum(fft_samp)
-        if total_power > 0:
-            hf_mask = freq_list > self.freq_lim
-            hf_power = np.sum(fft_samp[hf_mask])
-            hf_ratio = hf_power / total_power
+        # --- 1. Local Hjorth (QRS Morphology) ---
+        qrs_start = max(0, p0 - offset)
+        qrs_end = min(len(self.data.wave), p0 + offset)
+        qrs_samp = self.data.wave[qrs_start:qrs_end].flatten()
+        
+        local_hjorth = self.hijorth(qrs_samp) if len(qrs_samp) > 4 else 0.0
+
+        # --- 2. Inter-Beat STFT (Baseline Stability) ---
+        start_inter = p0 + offset
+        end_inter = p1 - offset
+        
+        inter_noise_ratio = 0.0
+        freq_inter = np.array([])
+        fft_inter = np.array([])
+        hf_mask = np.array([], dtype=bool)
+        
+        # Only process if we have a valid >200ms gap between peaks
+        if end_inter - start_inter > int(self.data.fs * 0.20):
+            inter_samp = self.data.wave[start_inter:end_inter].flatten()
+            window = np.hanning(len(inter_samp))
+            fft_inter = np.abs(np.fft.rfft(inter_samp * window))
+            freq_inter = np.fft.rfftfreq(len(inter_samp), d=1/self.data.fs)
             
-            psd_norm = fft_samp / total_power
-            beat_entropy = entropy(psd_norm)
-        else:
-            hf_ratio = 0.0
-            beat_entropy = 0.0
-            hf_mask = np.zeros_like(freq_list, dtype=bool)
-
-        lf_mask = ~hf_mask
-
-        # Plot Physiological Frequencies (<= self.freq_lim Hz)
-        ax_freq.stem(
-            freq_list[lf_mask], fft_samp[lf_mask], 
-            basefmt=" ", linefmt='dodgerblue', markerfmt='bo', label=f'Physio (<={self.freq_lim}Hz)'
-        )
+            total_inter_pwr = np.sum(fft_inter)
+            if total_inter_pwr > 0:
+                hf_mask = freq_inter > 15.0
+                hf_noise_pwr = np.sum(fft_inter[hf_mask])
+                inter_noise_ratio = hf_noise_pwr / total_inter_pwr
         
-        # Plot High-Frequencies (> self.freq_lim Hz)
-        if np.any(hf_mask):
-            # Paint red if it violates the area threshold, otherwise keep it orange
-            hf_color = 'red' if hf_ratio > self.hf_lim else 'orange'
-            ax_freq.stem(
-                freq_list[hf_mask], fft_samp[hf_mask], 
-                basefmt=" ", linefmt=hf_color, markerfmt=f'{hf_color}', label=f'HF Mass (>{self.freq_lim}Hz)'
-            )
+        # --- 3. Plotting the Inter-Beat Spectrum ---
+        if len(freq_inter) > 0:
+            # Plot Low-Frequency Physiological Baseline (<= 15 Hz)
+            lf_mask = ~hf_mask
+            if np.any(lf_mask):
+                ax_freq.stem(
+                    freq_inter[lf_mask], fft_inter[lf_mask], 
+                    basefmt=" ", linefmt='dodgerblue', markerfmt='bo', label='Physio Baseline (<=15Hz)'
+                )
+            
+            # Plot High-Frequency Baseline Noise (> 15 Hz)
+            if np.any(hf_mask):
+                # Paint red if it violates the 25% noise ratio threshold
+                noise_color = 'red' if inter_noise_ratio > 0.30 else 'orange'
+                ax_freq.stem(
+                    freq_inter[hf_mask], fft_inter[hf_mask], 
+                    basefmt=" ", linefmt=noise_color, markerfmt=f'{noise_color}', label='HF Noise (>15Hz)'
+                )
 
-        # 4. Draw boundary and shade background if rejected
-        ax_freq.axvline(x=self.freq_lim, color='grey', linestyle='--', alpha=0.5)
+        # Draw boundaries and shade background if rejected
+        ax_freq.axvline(x=15.0, color='grey', linestyle='--', alpha=0.5)
         
-        if hf_ratio > self.hf_lim or beat_entropy > self.entropy_lim:
-            ax_freq.axvspan(self.freq_lim, max(freq_list), color='red', alpha=0.1, label='Rejected Area/Entropy')
+        if inter_noise_ratio > 0.25:
+            ax_freq.axvspan(15.0, 50.0, color='red', alpha=0.1, label='Rejected Baseline')
+            
+        if local_hjorth > 4.5:
+            # Add a massive watermark warning if the QRS itself was rejected
+            ax_freq.text(0.5, 0.5, "QRS REJECTED: HIGH HJORTH", color='red', 
+                         fontsize=14, fontweight='bold', ha='center', va='center', 
+                         transform=ax_freq.transAxes, alpha=0.3)
 
-        # Embed the new metrics directly into the title for immediate feedback
-        ax_freq.set_title(f'STFT (peaks {p0}:{p1}) | HF Ratio: {hf_ratio:.2f} | Entropy: {beat_entropy:.2f}')
+        # Embed the exact local metrics into the title
+        ax_freq.set_title(f'Inter-Beat STFT | Baseline Noise: {inter_noise_ratio:.0%} | Local Hjorth: {local_hjorth:.2f}')
         ax_freq.set_xlabel("Frequency (Hz)")
         ax_freq.set_ylabel("Magnitude")
         ax_freq.set_xlim(0, 50) 
@@ -598,7 +618,7 @@ class SignalGUI:
 
         # --- Spectrogram (Full Section) ---
         chunk = self.data.wave[start_idx:end_idx].flatten()
-        spec_nfft = max(256, int(self.data.fs * 0.5)) 
+        spec_nfft = max(256, int(self.data.fs * 2)) 
         
         ax_spec.specgram(
             chunk,
@@ -610,7 +630,7 @@ class SignalGUI:
         )
         ax_spec.set_xlabel("Time (sec)")
         ax_spec.set_ylabel("Frequency (Hz)")
-        ax_spec.set_title("Spectrogram (Full Section)")
+        ax_spec.set_title("Spectrogram (Full Section | 2s Window)")
         ax_spec.set_ylim(0, 50)
 
     def plot_validation_error(
@@ -718,12 +738,13 @@ class RadECG:
         self.fs = data.fs
         self.configs = configs
         self.window_size = window_size
-        self.gui = SignalGUI(
-            self.data, 
-            plot_fft=self.configs.get("plot_fft", False), 
-            plot_errors=self.configs.get("plot_errors", False)
-        )
         self.freq_tools = CardiacFreqTools(fs=self.fs)
+        self.gui = SignalGUI(
+            ecg_data = self.data, 
+            tools = self.freq_tools,
+            plot_fft=self.configs.get("plot_fft", False), 
+            plot_errors=self.configs.get("plot_errors", False),
+        )
         self.stack_range:range = np.arange(10000, self.data.sect_info.shape[0], 10000)
         # Historical trackers
         self.low_counts:int = 0
@@ -779,7 +800,7 @@ class RadECG:
             r_peaks, peak_info = ss.find_peaks(
                 wave_chunk.flatten(), 
                 prominence=np.percentile(wave_chunk, 99), #99
-                height=np.percentile(wave_chunk, 93),     #95
+                height=np.percentile(wave_chunk, 94),     #95
                 distance=int(self.fs * 0.200)
             )
             #Basic count check (we shouldn't need this anymore)
@@ -947,7 +968,7 @@ def main():
     fp           :Path = Path.cwd() / configs["data_path"]
     batch_process:bool = configs["batch"]
     selected     :int  = setup_globals.load_choices(fp, batch_process)
-    loader = SignalLoader(selected)
+    loader       :SignalLoader = SignalLoader(selected)
     loader.load_signal_data()
     ECG = loader.load_structures()
     RAD = RadECG(ECG, configs, fp)
