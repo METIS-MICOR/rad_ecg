@@ -121,6 +121,8 @@ class CardiacFreqTools:
         self.fs = fs
         self.history_size = history_size
         self.psd_history = deque(maxlen=self.history_size)
+        self.mp_med_history = deque(maxlen=self.history_size)
+        self.mp_mad_history = deque(maxlen=self.history_size)
         self.freq_lim = freq_lim
         self.qrs_lim = qrs_lim
 
@@ -253,10 +255,24 @@ class CardiacFreqTools:
             mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
 
         distances = mp[:, 0]
-        med_dist = np.median(distances)
+        # med_dist = np.median(distances)
+        local_med = np.median(distances)
+        local_mad = np.median(np.abs(distances - local_med))        
+        
+        # --- Historical MP Smoothing ---
+        if not self.mp_med_history:
+            # Seed the history on the first pass
+            self.mp_med_history.append(local_med)
+            self.mp_mad_history.append(local_mad)
+            med_dist = local_med
+            mad = local_mad
+        else:
+            # Use historical median of medians/MADs for extreme stability
+            med_dist = np.median(self.mp_med_history)
+            mad = np.median(self.mp_mad_history)        
         
         # Prevent vanishing MAD on ultra-clean sections
-        mad = np.median(np.abs(distances - med_dist))
+        # mad = np.median(np.abs(distances - med_dist))
         safe_mad = max(mad, 0.1) 
         mp_threshold = med_dist + (3.0 * safe_mad)
         
@@ -264,6 +280,8 @@ class CardiacFreqTools:
         bad_beats = 0
         total_beats = len(r_peaks) - 1
         
+        #Container for rectangle labeling
+        reject_reasons = [None] * total_beats
         # Window offsets (100ms)
         offset = int(self.fs * 0.10) 
 
@@ -282,6 +300,7 @@ class CardiacFreqTools:
 
             if peak_mp_dist > mp_threshold:
                 logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
+                reject_reasons[i] = "MP" 
                 bad_beats += 1
                 continue 
 
@@ -290,6 +309,7 @@ class CardiacFreqTools:
             qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
             if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
                 logger.info(f"Beat {i} FAILED: High QRS Complexity")
+                reject_reasons[i] = "HJH" 
                 bad_beats += 1
                 continue
 
@@ -318,6 +338,7 @@ class CardiacFreqTools:
                     # If more than 30% of the inter-beat gap is HF noise, the baseline is unstable
                     if inter_noise_ratio > 0.30:
                         logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
+                        reject_reasons[i] = "STFT" 
                         bad_beats += 1
                         continue
 
@@ -328,10 +349,14 @@ class CardiacFreqTools:
         metrics = {
             "bad_beat_ratio": bad_beat_ratio, 
             "mp_distances": distances,
-            "mp_threshold": mp_threshold
+            "mp_threshold": mp_threshold,
+            "rejections" : reject_reasons
         }
         
         is_valid = bad_beat_ratio <= 0.25
+        if is_valid:
+            self.mp_med_history.append(local_med)
+            self.mp_mad_history.append(local_mad)
         fail_reason = f"Bad Beats: {bad_beats} | {total_beats}" if not is_valid else ""
 
         return is_valid, fail_reason, metrics, valid_mask
@@ -462,38 +487,67 @@ class SignalGUI:
         ax_mp.set_xlabel("Timesteps")
         self._apply_timer_and_show(fig=fig)
 
-    def plot_fft_sect(self, start_idx: int, end_idx: int, new_peaks_arr: np.ndarray, peak_info: dict, sect_id: int, sqi_metrics: dict):
+    def plot_fft_sect(
+            self, 
+            start_idx: int, 
+            end_idx: int, 
+            new_peaks_arr: np.ndarray, 
+            peak_info: dict, 
+            sect_id: int, 
+            sqi_metrics: dict,
+            post_metrics: dict = None
+        ):
         """Displays the ECG waveform, SQI stats, and interactive beat-level spectral plots."""
         if not self.plot_fft:
             return
 
         wave_chunk = self.data.wave[start_idx:end_idx]
         rolled_med_chunk = self.data.rolling_med[start_idx:end_idx]
-        
+        x_range = np.arange(start_idx, end_idx, dtype=np.float64)
+
         fig = plt.figure(figsize=(12, 9))
         grid = plt.GridSpec(2, 2, hspace=0.4, height_ratios=[1.5, 1])
         ax_ecg = fig.add_subplot(grid[0, :2])
         ax_freq = fig.add_subplot(grid[1, :1])
         ax_spec = fig.add_subplot(grid[1, 1:2])
-
+        
+        ax_mp_overlay = ax_ecg.twinx()
+        ax_mp_overlay.set_visible(False)
+        mp_line_drawn = False
+        
         # ECG Plot
-        ax_ecg.plot(range(start_idx, end_idx), wave_chunk, label='Full ECG', color='dodgerblue')
-        ax_ecg.plot(range(start_idx, end_idx), rolled_med_chunk, label='Rolling Median', color='orange')
+        ax_ecg.plot(x_range, wave_chunk, label='Full ECG', color='dodgerblue')
+        ax_ecg.plot(x_range, rolled_med_chunk, label='Rolling Median', color='orange')
         
         if len(new_peaks_arr) > 0:
             ax_ecg.scatter(new_peaks_arr[:, 0], peak_info.get('peak_heights', []), marker='D', color='red', label='R peaks', zorder=5)
-
+        
+        # Extract rejection reasons
+        reasons = post_metrics.get("rejections", []) if post_metrics else []
+        
         # Shade R-R intervals based on the valid_mask (column 1 of new_peaks_arr)
         for peak in range(new_peaks_arr.shape[0] - 1):
-            band_color = 'red' if new_peaks_arr[peak, 1] == 0 else 'lightgreen'
+            is_valid = new_peaks_arr[peak, 1]
+            band_color = 'lightgreen' if is_valid else 'red'
+            p0_x = new_peaks_arr[peak, 0]
+            p1_x = new_peaks_arr[peak+1, 0]
+            rect_height = np.max(self.data.wave[p0_x:p1_x])
             rect = Rectangle(
-                xy=(new_peaks_arr[peak, 0], 0), 
-                width=new_peaks_arr[peak+1, 0] - new_peaks_arr[peak, 0], 
-                height=np.max(self.data.wave[new_peaks_arr[peak, 0]:new_peaks_arr[peak+1, 0]]), 
-                facecolor=band_color, edgecolor="grey", alpha=0.7
+                xy=(p0_x, 0), 
+                width=p1_x - p0_x, 
+                height=rect_height, 
+                facecolor=band_color, 
+                edgecolor="grey", alpha=0.7
             )
             ax_ecg.add_patch(rect)
-
+            if not is_valid  and isinstance(reasons[peak], str): #and peak < len(reasons)
+                mid_x = p0_x + (p1_x - p0_x) / 2
+                mid_y = rect_height / 2
+                ax_ecg.text(
+                    mid_x, mid_y, reasons[peak], color='black', fontsize=10, 
+                    fontweight='bold', ha='center', va='center', 
+                    bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2', edgecolor='none')
+                )
         ax_ecg.set_title(f'Full ECG waveform for section {sect_id} indices {start_idx}:{end_idx} (Click R-R to update STFT)') 
         ax_ecg.set_xlabel("Timesteps")
         ax_ecg.set_ylabel("ECG mV")
@@ -539,9 +593,33 @@ class SignalGUI:
                         ax_spec.cla()
                         self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
                         fig.canvas.draw_idle()
-        
+
+        def onRightArrowToggle(event):
+            nonlocal mp_line_drawn
+            if event.key == "right":
+                if ax_mp_overlay.get_visible():
+                    ax_mp_overlay.set_visible(False)
+                    ax_mp_overlay.set_axis_off()
+                else:
+                    if not mp_line_drawn and post_metrics and "mp_distances" in post_metrics:
+                        mp_dist = post_metrics["mp_distances"]
+                        mp_thresh = post_metrics["mp_threshold"]
+
+                        pad_len = len(wave_chunk) - len(mp_dist)
+                        padded_mp = np.pad(mp_dist, (0, pad_len), constant_values=np.nan)
+                        ax_mp_overlay.plot(x_range, padded_mp, color='purple', alpha=0.6, linestyle='-', linewidth=2)
+                        ax_mp_overlay.axhline(y=mp_thresh, color='red', linestyle='--', label=f'Threshold ({mp_thresh:.2f})')
+                        ax_mp_overlay.set_ylabel("Matrix Profile Distance", color='purple')
+                        ax_mp_overlay.tick_params(axis='y', labelcolor='purple')
+                        mp_line_drawn = True
+                    
+                    ax_mp_overlay.set_visible(True)
+                    ax_mp_overlay.set_axis_on()
+                fig.canvas.draw_idle()
+
         #Click Event to view fft        
         fig.canvas.mpl_connect("button_press_event", onClick)
+        fig.canvas.mpl_connect('key_press_event', onRightArrowToggle)
         # Auto-close timer
         self._apply_timer_and_show(fig, timeout=3000)
 
@@ -603,12 +681,6 @@ class SignalGUI:
         if inter_noise_ratio > 0.25:
             ax_freq.axvspan(15.0, 50.0, color='red', alpha=0.1, label='Rejected Baseline')
             
-        if local_hjorth > 4.5:
-            # Add a massive watermark warning if the QRS itself was rejected
-            ax_freq.text(0.5, 0.5, "QRS REJECTED: HIGH HJORTH", color='red', 
-                         fontsize=14, fontweight='bold', ha='center', va='center', 
-                         transform=ax_freq.transAxes, alpha=0.3)
-
         # Embed the exact local metrics into the title
         ax_freq.set_title(f'Inter-Beat STFT | Baseline Noise: {inter_noise_ratio:.0%} | Local Hjorth: {local_hjorth:.2f}')
         ax_freq.set_xlabel("Frequency (Hz)")
@@ -708,9 +780,6 @@ class SignalGUI:
                                 arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] - _delt*2, 0, _delt, width=40, color="red")
                                 ax.add_patch(arrow)
                 ax.set_title(f'Bad Peak Slope: idx {start_idx} to {end_idx} (Sect {sect_id})')
-            #TODO - Case extend
-                #Extend cases for Kurtosis, Hijorth, Spectral and maybe matrix profile. 
-                #Still not sold how much that works
 
         ax.legend(loc='upper left')
 
@@ -846,13 +915,22 @@ class RadECG:
                 new_peaks_arr = np.hstack((r_peaks_shifted[keepers].reshape(-1, 1), val_mask[keepers].reshape(-1, 1)))
                 peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                 peak_info['prominences'] = peak_info['prominences'][keepers]
+                # Count how many False values are in the mask
+                num_dropped = np.sum(~keepers) 
+                if "rejections" in post_metrics:
+                    post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
+                
                 #Don't process the last peak. That will get indexed in the next section. 
                 self.data.peaks = self.data.peaks[:-1, :]
             else:
                 new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
             if self.gui.plot_fft:
-                self.gui.plot_fft_sect(start_p, end_p, new_peaks_arr, peak_info, self.sect_id, self.data.sect_info[self.sect_id])
+                self.gui.plot_fft_sect(
+                    start_p, end_p, new_peaks_arr, peak_info, 
+                    self.sect_id, self.data.sect_info[self.sect_id],
+                    post_metrics = post_metrics
+                )
 
             # Historical Validation
             #BUG - validation 
