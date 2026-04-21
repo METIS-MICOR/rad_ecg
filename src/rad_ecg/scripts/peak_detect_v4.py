@@ -18,6 +18,22 @@ from support import logger, console, log_time, mainspinner, DATE_JSON
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
+
+@dataclass
+class SectionStat:
+    """Dataclass to house section data"""
+    avg_HR: float #bpm
+    SDNN  : float #ms
+    RMSSD : float #ms
+    PR    : float #ms
+    QRS   : float #ms
+    ST    : float #ms
+    QT    : float #ms
+    QTc   : float #ms
+    TpTe  : float #ms
+    QTVI  : float #ms
+    iso   : float #mV 
+
 @dataclass
 class ECGData:
     """Stores the state and results of the ECG processing pipeline."""
@@ -31,7 +47,9 @@ class ECGData:
     def __post_init__(self):
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
         self.interior_peaks = np.zeros((0, 16), dtype=np.int32)
-
+###############################################################################
+# 2. Tool Classes
+###############################################################################
 class SignalLoader:
     """Handles loading and structuring of the data."""
     def __init__(self, file_path: str):
@@ -106,9 +124,6 @@ class SignalLoader:
         del self.segments
         return rad
 
-###############################################################################
-# 2. Tool Classes
-###############################################################################
 class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
     def __init__(
@@ -245,7 +260,7 @@ class CardiacFreqTools:
 
         # --- Matrix Profile Calculation (Chunk-level) ---
         m = int(self.fs * .30) #.12
-        m = max(m, 3) 
+        m = max(m, int(np.median(np.diff(r_peaks // 2)))) 
 
         try:
             device_id = cuda.list_devices()[0].id
@@ -274,8 +289,8 @@ class CardiacFreqTools:
         # Prevent vanishing MAD on ultra-clean sections
         # mad = np.median(np.abs(distances - med_dist))
         safe_mad = max(mad, 0.4) 
-        mp_threshold = med_dist + (5 * safe_mad)
-        mp_threshold = max(mp_threshold, 6)
+        mp_threshold = med_dist + (5.5 * safe_mad)
+        mp_threshold = max(mp_threshold, 7)
 
         # Beat-by-Beat Evaluation 
         bad_beats = 0
@@ -320,11 +335,10 @@ class CardiacFreqTools:
                 reject_reasons[i] = "HJH" 
                 bad_beats += 1
                 continue
-    
             # ==========================================================
-            # GATE 2: Inter-Beat STFT (Baseline Stability) 
+            # GATE 3: Inter-Beat STFT (Baseline Stability) 
             # ==========================================================
-                # Slice strictly BETWEEN the QRS complexes to evaluate the baseline
+                # Slice strictly BETWEEN the QRS complexes to evaluate the stregnth of the T and P peak waves in between the R-R
             start_inter = p0 + offset
             end_inter = p1 - offset
             
@@ -736,7 +750,6 @@ class SignalGUI:
         qrs_start = max(0, p0 - offset)
         qrs_end = min(len(self.data.wave), p0 + offset)
         qrs_samp = self.data.wave[qrs_start:qrs_end].flatten()
-        
         local_hjorth = self.hijorth(qrs_samp) if len(qrs_samp) > 4 else 0.0
 
         # --- 2. Inter-Beat STFT (Baseline Stability) ---
@@ -847,139 +860,6 @@ class RadECG:
             np.array: Stacked array
         """        
         return np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-        
-    def run_extraction(self):
-        """Iterates through the ECG waveform in overlapping sections."""
-        sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
-        # progbar, job_id = mainspinner(console, len(sect_que))
-        # with progbar:
-        while len(sect_que) > 0:
-            # progbar.update(task_id=job_id, description=f"[green] Extracting Peaks", advance=1)
-            curr_section = sect_que.popleft()
-            start_p = curr_section[0].item()
-            end_p = curr_section[1].item()
-            wave_chunk = self.data.wave[start_p:end_p].flatten()
-
-            # Calculate Rolling Median for the chunk
-            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
-            self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
-
-            # Check Signal Quality Index (SQI) using lightweight checks
-            is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
-            self.data.sect_info["kurtosis"][self.sect_id] = pre_metrics.get("kurtosis", 0)
-            self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
-            self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spec_ratio", 0)
-            self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
-            if not is_valid:
-                logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
-                self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
-                if self.gui.plot_errors:
-                    self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id)
-                self.sect_id += 1
-                continue
-
-            # Extract Initial R Peaks
-            r_peaks, peak_info = ss.find_peaks(
-                wave_chunk.flatten(), 
-                prominence=np.percentile(wave_chunk, 99), #99
-                height=np.percentile(wave_chunk, 94),     #95
-                distance=int(self.fs * 0.200)
-            )
-            #Basic count check (we shouldn't need this anymore)
-            if r_peaks.size < 4 or r_peaks.size > 100:
-                logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
-                self.data.sect_info["fail_reason"][self.sect_id] += " no_sig"
-                self.sect_id += 1
-                continue        
-
-            #Check each beat with the matrix profile and STFT. 
-            is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
-            self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_beat_ratio", 1.0)
-
-            if not is_valid:
-                logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
-                self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
-                if self.gui.plot_errors:
-                    self.gui.plot_post_error(
-                        error_type=fail_reason, 
-                        start_idx=start_p, 
-                        end_idx=end_p, 
-                        r_peaks_abs=(r_peaks + start_p), 
-                        peak_info=peak_info, 
-                        sect_id=self.sect_id, 
-                        post_metrics=post_metrics,
-                        val_mask = val_mask
-                    )
-                self.sect_id += 1
-                continue
-
-            # Shift peak array to present section start/end indexes.  Check for overlap with history
-            r_peaks_shifted = r_peaks + start_p
-            same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
-            #BUG 
-                #Could speed above line up with np.intersect.
-            #If there's peak overlap, find the intersection and shift which peaks to evaluate
-            if len(same_peaks) > 0:
-                #Find the last peak in common. 
-                f_peak = max(same_peaks)
-                #Index those peaks from the last same peak, to the end of the r_peaks_shifted
-                keepers = r_peaks_shifted >= f_peak
-                #Stack the mask to create the 1x1 array
-                new_peaks_arr = np.hstack((r_peaks_shifted[keepers].reshape(-1, 1), val_mask[keepers].reshape(-1, 1)))
-                peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
-                peak_info['prominences'] = peak_info['prominences'][keepers]
-                # Count how many False values are in the mask
-                num_dropped = np.sum(~keepers) 
-                if "rejections" in post_metrics:
-                    post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
-                
-                #Don't process the last peak. That will get indexed in the next section. 
-                self.data.peaks = self.data.peaks[:-1, :]
-            else:
-                new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
-
-            # Historical data Validation
-            lookback = int(self.fs * 10) 
-            last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks, lookback=lookback)
-            if last_keys is not False:
-                sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
-                    new_peaks_arr, last_keys, peak_info, 
-                    start_idx=start_p, end_idx=end_p
-                )
-                if not sect_valid:
-                    self.data.sect_info["fail_reason"][self.sect_id] += f" | {fail_reason}"
-            else:
-                # If we don't have enough consecutive valids, 
-                # Trust the matrix profile STFT are doing their jobs
-                sect_valid = True 
-
-            #Plot all section info
-            if self.gui.plot_section and sect_valid:
-                self.gui.plot_fft_sect(
-                    start_p, end_p, new_peaks_arr, peak_info, 
-                    self.sect_id, self.data.sect_info[self.sect_id],
-                    post_metrics = post_metrics
-                )
-
-            # Finalize Section
-            if sect_valid:
-                self.data.sect_info[self.sect_id]["valid"] = 1
-                if self.sect_id in self.stack_range:
-                    self.data.peaks = self.peak_stack_test(new_peaks_arr)
-                else:
-                    self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-                #BUG - Memory
-                    # You're going to still run into the vstack problem
-
-                # Proceed to PQRST extract and stats
-                # int_peaks = self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
-                # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
-            
-            # Advance section id to next section
-            del new_peaks_arr
-            self.data.sect_info["valid"][self.sect_id] = 1
-            self.sect_id += 1
-            logger.debug(f'Section counter at {self.sect_id}')
 
     def consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
         """Scans back in time to find consecutive validated R peaks."""
@@ -997,6 +877,31 @@ class RadECG:
             elif (arr[counts[0], 0] - arr[counts[-1], 0] > lookback):
                 return arr[counts][::-1, 0]
         return False
+
+    def estimate_iso(self, r_peaks:np.ndarray) -> float:
+        iso = []
+        for idx, r_valid in enumerate(r_peaks): 
+            if r_valid:
+                try:
+                    T_pe = r_peaks[idx, 0]
+                    P_pe = r_peaks[idx + 1, 0]
+                    start = T_pe
+                    end = P_pe
+                    lil_wave = self.data.wave[start:end].flatten()
+                    lil_grads = np.gradient(np.gradient(lil_wave))
+                    half = lil_grads.shape[0]//2
+                    T_off = start + np.argmax(lil_grads[:half])
+                    P_on = start + half + np.argmax(lil_grads[half:])
+                    iso.append(np.nanmean(self.data.wave[T_off:P_on]))
+
+                except Exception as e:
+                    logger.warning(f'Iso extraction Error for Rpeak {r_peaks[idx, 0]:_d}\n{e} ')
+
+        if iso:
+            isoelectric = np.round(np.nanmean(iso), 6)
+            return isoelectric
+        else:
+            return None
 
     def historical_validation(
             self, 
@@ -1016,7 +921,6 @@ class RadECG:
         rolling_med_end = last_keys[-1]
         med_arr = self.data.rolling_med[rolling_med_start:rolling_med_end]
         r_peaks = new_peaks_arr[:, 0]
-
         # ==========================================================
         # GATE 1: Peak Separation Check
         # ==========================================================
@@ -1035,7 +939,6 @@ class RadECG:
                 sect_valid = False
                 logger.warning(f"Peak separation violation in section {self.sect_id}")
                 plot_kwargs["bad_sep"] = bad_sep
-
         # ==========================================================
         # GATE 2: Peak Height Check (ECG to rolling diff)
         # ==========================================================
@@ -1056,7 +959,6 @@ class RadECG:
             logger.warning(f"Peak height violation in section {self.sect_id}")
             plot_kwargs["low_peaks"] = low_peaks
             plot_kwargs["high_peaks"] = high_peaks
-
         # ==========================================================
         # GATE 3: Rolling Median (IQR Wandering Baseline Check)
         # ==========================================================
@@ -1153,10 +1055,158 @@ class RadECG:
             self.gui.plot_validation_error(f"FAILED:Historical {fail_reason}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
 
         return sect_valid, new_peaks_arr, fail_reason
+        # Add HR stats for that secti
 
     def extract_pqrst(self, new_peaks_arr, peak_info, rolled_med, start_p):
         """Placeholder for PQRST geometry extraction."""
         pass
+
+    def section_stats(self, new_peaks_arr:np.ndarray):
+        peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
+        if peak_check:
+            self.data.sect_info["section_info"][self.sect_id] = " inv_peak"
+            bad_peaks = np.where(new_peaks_arr[:-1, 1] == 0)[0]
+            logger.warning(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
+        # Now see if we have the bare minimum for peaks to extract. 
+        elif new_peaks_arr.size <= 2:
+            self.data['section_info'][self.sect_id]['fail_reason'] += " no_peaks"
+            logger.warning(f'Not enough peaks to calculate section stats')
+
+    def run_extraction(self):
+        """Iterates through the ECG waveform in overlapping sections."""
+        sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
+        # progbar, job_id = mainspinner(console, len(sect_que))
+        # with progbar:
+        while len(sect_que) > 0:
+            # progbar.update(task_id=job_id, description=f"[green] Extracting Peaks", advance=1)
+            curr_section = sect_que.popleft()
+            start_p = curr_section[0].item()
+            end_p = curr_section[1].item()
+            wave_chunk = self.data.wave[start_p:end_p].flatten()
+
+            # Calculate Rolling Median for the chunk
+            rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
+            self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
+
+            # Check Signal Quality Index (SQI) using lightweight checks
+            is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
+            self.data.sect_info["kurtosis"][self.sect_id] = pre_metrics.get("kurtosis", 0)
+            self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
+            self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spec_ratio", 0)
+            self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
+            if not is_valid:
+                logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
+                self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
+                if self.gui.plot_errors:
+                    self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id)
+                self.sect_id += 1
+                continue
+
+            # Extract Initial R Peaks
+            r_peaks, peak_info = ss.find_peaks(
+                wave_chunk.flatten(), 
+                prominence=np.percentile(wave_chunk, 99), #99
+                height=np.percentile(wave_chunk, 94),     #95
+                distance=int(self.fs * 0.200)
+            )
+            #Basic count check (we shouldn't need this anymore)
+            if r_peaks.size < 4 or r_peaks.size > 100:
+                logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
+                self.data.sect_info["fail_reason"][self.sect_id] += " no_sig"
+                self.sect_id += 1
+                continue        
+
+            #Check each beat with the matrix profile and STFT. 
+            is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
+            self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_beat_ratio", 1.0)
+
+            if not is_valid:
+                if self.gui.plot_errors:
+                    self.gui.plot_post_error(
+                        error_type=fail_reason, 
+                        start_idx=start_p, 
+                        end_idx=end_p, 
+                        r_peaks_abs=(r_peaks + start_p), 
+                        peak_info=peak_info, 
+                        sect_id=self.sect_id, 
+                        post_metrics=post_metrics,
+                        val_mask = val_mask
+                    )
+                logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
+                self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
+                self.sect_id += 1
+                continue
+
+            # Shift peak array to present section start/end indexes.  Check for overlap with history
+            r_peaks_shifted = r_peaks + start_p
+            same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
+            #BUG 
+                #Could speed above line up with np.intersect.
+            #If there's peak overlap, find the intersection and shift which peaks to evaluate
+            if len(same_peaks) > 0:
+                #Find the last peak in common. 
+                f_peak = max(same_peaks)
+                #Index those peaks from the last same peak, to the end of the r_peaks_shifted
+                keepers = r_peaks_shifted >= f_peak
+                #Stack the mask to create the 1x1 array
+                new_peaks_arr = np.hstack((r_peaks_shifted[keepers].reshape(-1, 1), val_mask[keepers].reshape(-1, 1)))
+                peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
+                peak_info['prominences'] = peak_info['prominences'][keepers]
+                # Count how many False values are in the mask
+                num_dropped = np.sum(~keepers) 
+                if "rejections" in post_metrics:
+                    post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
+                
+                #Don't process the last peak. That will get indexed in the next section. 
+                self.data.peaks = self.data.peaks[:-1, :]
+            else:
+                new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
+
+            # Historical data Validation
+            lookback = int(self.fs * 10) 
+            last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks, lookback=lookback)
+            if last_keys is not False:
+                sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
+                    new_peaks_arr, last_keys, peak_info, 
+                    start_idx=start_p, end_idx=end_p
+                )
+                if not sect_valid:
+                    self.data.sect_info["fail_reason"][self.sect_id] += f" | {fail_reason}"
+            else:
+                # If we don't have enough consecutive valids, 
+                # Trust the matrix profile STFT are doing their jobs
+                sect_valid = True 
+
+            # Finalize Section
+            if sect_valid:
+                self.data.sect_info[self.sect_id]["valid"] = 1
+                if self.sect_id in self.stack_range:
+                    self.data.peaks = self.peak_stack_test(new_peaks_arr)
+                else:
+                    self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
+                #BUG - Memory
+                    # You're going to still run into the vstack problem
+
+                # Proceed to PQRST extract and stats if section valid
+                int_peaks = self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
+                self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
+
+
+            #Plot all section info
+            if self.gui.plot_section and sect_valid:
+                self.gui.plot_fft_sect(
+                    start_p, end_p, new_peaks_arr, peak_info, 
+                    self.sect_id, self.data.sect_info[self.sect_id],
+                    post_metrics = post_metrics
+                )
+
+
+            # Advance section id to next section
+            del new_peaks_arr
+            self.data.sect_info["valid"][self.sect_id] = 1
+            self.sect_id += 1
+            logger.debug(f'Section counter at {self.sect_id}')
+
 
 # --- Program Start ---
 def main():
