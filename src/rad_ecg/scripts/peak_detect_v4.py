@@ -188,7 +188,7 @@ class CardiacFreqTools:
                     v_weights=normalized_psd
                 )
                 # Threshold for a large shift in signal composition
-                is_stable = w_dist < 3.0 
+                is_stable = w_dist < 2.5 #3.0
                 if is_stable:
                     self.psd_history.append(normalized_psd)
 
@@ -244,7 +244,7 @@ class CardiacFreqTools:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
         # --- Matrix Profile Calculation (Chunk-level) ---
-        m = int(self.fs * 0.12)
+        m = int(self.fs * 0.40) #.12
         m = max(m, 3) 
 
         try:
@@ -273,9 +273,10 @@ class CardiacFreqTools:
         
         # Prevent vanishing MAD on ultra-clean sections
         # mad = np.median(np.abs(distances - med_dist))
-        safe_mad = max(mad, 0.1) 
-        mp_threshold = med_dist + (3.0 * safe_mad)
-        
+        safe_mad = max(mad, 0.5) 
+        mp_threshold = med_dist + (5 * safe_mad)
+        mp_threshold = max(mp_threshold, 6.5)
+
         # Beat-by-Beat Evaluation 
         bad_beats = 0
         total_beats = len(r_peaks) - 1
@@ -291,16 +292,20 @@ class CardiacFreqTools:
             
             # --- GATE 1: Matrix Profile Discord ---
             search_start = max(0, p0 - (m // 2))
-            search_end = min(len(distances), p0 + (m // 2))
+            search_end = min(len(distances), p0 + (m // 2)) #p1 -
             # peak_mp_dist = np.median(distances[search_start:search_end])
             if search_start < search_end:
-                peak_mp_dist = np.max(distances[search_start:search_end])
+                gap_wave = wave_chunk[search_start:search_end + m]
+                if np.ptp(gap_wave) < 0.15:
+                    peak_mp_dist = 0.0
+                else:
+                    peak_mp_dist = np.max(distances[search_start:search_end])
             else:
                 peak_mp_dist = 0.0
 
             if peak_mp_dist > mp_threshold:
-                logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
-                reject_reasons[i] = "MP" 
+                logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f} (ptp: {np.ptp(gap_wave):.2f})")
+                reject_reasons[i] = "MP"
                 bad_beats += 1
                 continue 
 
@@ -335,8 +340,8 @@ class CardiacFreqTools:
                     hf_noise_pwr = np.sum(fft_inter[hf_noise_mask])
                     inter_noise_ratio = hf_noise_pwr / total_inter_pwr
                     
-                    # If more than 30% of the inter-beat gap is HF noise, the baseline is unstable
-                    if inter_noise_ratio > 0.30:
+                    # If more than 40% of the inter-beat gap is HF noise, the baseline is unstable
+                    if inter_noise_ratio > 0.40:
                         logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
                         reject_reasons[i] = "STFT" 
                         bad_beats += 1
@@ -668,8 +673,8 @@ class SignalGUI:
             
             # Plot High-Frequency Baseline Noise (> 15 Hz)
             if np.any(hf_mask):
-                # Paint red if it violates the 25% noise ratio threshold
-                noise_color = 'red' if inter_noise_ratio > 0.30 else 'orange'
+                # Paint red if it violates the 40% noise ratio threshold
+                noise_color = 'red' if inter_noise_ratio > 0.40 else 'orange'
                 ax_freq.stem(
                     freq_inter[hf_mask], fft_inter[hf_mask], 
                     basefmt=" ", linefmt=noise_color, markerfmt=f'{noise_color}', label='HF Noise (>15Hz)'
@@ -678,7 +683,7 @@ class SignalGUI:
         # Draw boundaries and shade background if rejected
         ax_freq.axvline(x=15.0, color='grey', linestyle='--', alpha=0.5)
         
-        if inter_noise_ratio > 0.25:
+        if inter_noise_ratio > 0.40:
             ax_freq.axvspan(15.0, 50.0, color='red', alpha=0.1, label='Rejected Baseline')
             
         # Embed the exact local metrics into the title
