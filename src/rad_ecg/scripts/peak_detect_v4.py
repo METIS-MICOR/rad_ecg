@@ -275,7 +275,7 @@ class CardiacFreqTools:
         # mad = np.median(np.abs(distances - med_dist))
         safe_mad = max(mad, 0.4) 
         mp_threshold = med_dist + (5 * safe_mad)
-        mp_threshold = max(mp_threshold, 7)
+        mp_threshold = max(mp_threshold, 6)
 
         # Beat-by-Beat Evaluation 
         bad_beats = 0
@@ -954,7 +954,7 @@ class RadECG:
                 sect_valid = True 
 
             #Plot all section info
-            if self.gui.plot_section:
+            if self.gui.plot_section and sect_valid:
                 self.gui.plot_fft_sect(
                     start_p, end_p, new_peaks_arr, peak_info, 
                     self.sect_id, self.data.sect_info[self.sect_id],
@@ -1149,9 +1149,10 @@ class RadECG:
                 plot_kwargs["lower_bound"] = lower_bound_slope
 
         if not sect_valid and self.gui.plot_errors:
+            fail_reason = fail_reason.strip("|")
             self.gui.plot_validation_error(f"FAILED:Historical {fail_reason}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
 
-        return sect_valid, new_peaks_arr, fail_reason.strip("|")
+        return sect_valid, new_peaks_arr, fail_reason
 
     def extract_pqrst(self, new_peaks_arr, peak_info, rolled_med, start_p):
         """Placeholder for PQRST geometry extraction."""
