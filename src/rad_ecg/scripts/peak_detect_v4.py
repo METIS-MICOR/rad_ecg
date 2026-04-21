@@ -188,7 +188,7 @@ class CardiacFreqTools:
                     v_weights=normalized_psd
                 )
                 # Threshold for a large shift in signal composition
-                is_stable = w_dist < 2.5 #3.0
+                is_stable = w_dist < 3.0 #3.0
                 if is_stable:
                     self.psd_history.append(normalized_psd)
 
@@ -244,7 +244,7 @@ class CardiacFreqTools:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
         # --- Matrix Profile Calculation (Chunk-level) ---
-        m = int(self.fs * 0.40) #.12
+        m = int(self.fs * .30) #.12
         m = max(m, 3) 
 
         try:
@@ -273,9 +273,9 @@ class CardiacFreqTools:
         
         # Prevent vanishing MAD on ultra-clean sections
         # mad = np.median(np.abs(distances - med_dist))
-        safe_mad = max(mad, 0.5) 
+        safe_mad = max(mad, 0.4) 
         mp_threshold = med_dist + (5 * safe_mad)
-        mp_threshold = max(mp_threshold, 6.5)
+        mp_threshold = max(mp_threshold, 7)
 
         # Beat-by-Beat Evaluation 
         bad_beats = 0
@@ -289,14 +289,15 @@ class CardiacFreqTools:
         for i in range(total_beats):
             p0 = r_peaks[i]
             p1 = r_peaks[i+1]
-            
-            # --- GATE 1: Matrix Profile Discord ---
+            # ==========================================================
+            # GATE 1: Matrix Profile Discord
+            # ==========================================================
             search_start = max(0, p0 - (m // 2))
             search_end = min(len(distances), p0 + (m // 2)) #p1 -
             # peak_mp_dist = np.median(distances[search_start:search_end])
             if search_start < search_end:
                 gap_wave = wave_chunk[search_start:search_end + m]
-                if np.ptp(gap_wave) < 0.15:
+                if np.ptp(gap_wave) < 0.20:
                     peak_mp_dist = 0.0
                 else:
                     peak_mp_dist = np.max(distances[search_start:search_end])
@@ -308,18 +309,22 @@ class CardiacFreqTools:
                 reject_reasons[i] = "MP"
                 bad_beats += 1
                 continue 
-
-            # --- GATE 2: Local Hjorth (QRS Morphology) ---
-            # Tightly centered on the QRS complex [-100ms to +100ms]
+    
+            # ==========================================================
+            # GATE 2: Local Hjorth (QRS Morphology)
+            # ==========================================================
+                # Tightly centered on the QRS complex [-100ms to +100ms]
             qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
             if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
                 logger.info(f"Beat {i} FAILED: High QRS Complexity")
                 reject_reasons[i] = "HJH" 
                 bad_beats += 1
                 continue
-
-            # --- GATE 3: Inter-Beat STFT (Baseline Stability) ---
-            # Slice strictly BETWEEN the QRS complexes to evaluate the baseline
+    
+            # ==========================================================
+            # GATE 2: Inter-Beat STFT (Baseline Stability) 
+            # ==========================================================
+                # Slice strictly BETWEEN the QRS complexes to evaluate the baseline
             start_inter = p0 + offset
             end_inter = p1 - offset
             
@@ -341,7 +346,7 @@ class CardiacFreqTools:
                     inter_noise_ratio = hf_noise_pwr / total_inter_pwr
                     
                     # If more than 40% of the inter-beat gap is HF noise, the baseline is unstable
-                    if inter_noise_ratio > 0.40:
+                    if inter_noise_ratio > 0.50:
                         logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
                         reject_reasons[i] = "STFT" 
                         bad_beats += 1
@@ -370,15 +375,15 @@ class SignalGUI:
     """Handles all Matplotlib visualizations for debugging and validation."""
     def __init__(
             self, 
-            ecg_data   : ECGData, 
-            tools      : CardiacFreqTools,
-            plot_fft   : bool = False, 
-            plot_errors: bool = False,
-            timeout_ms : int = 2000
+            ecg_data    : ECGData, 
+            tools       : CardiacFreqTools,
+            plot_section: bool = False, 
+            plot_errors : bool = False,
+            timeout_ms  : int = 2000
         ):
         self.data = ecg_data
         self.hijorth = tools.calc_hjorth_complexity
-        self.plot_fft = plot_fft
+        self.plot_section = plot_section
         self.plot_errors = plot_errors
         self.timeout_ms = timeout_ms
 
@@ -503,7 +508,7 @@ class SignalGUI:
             post_metrics: dict = None
         ):
         """Displays the ECG waveform, SQI stats, and interactive beat-level spectral plots."""
-        if not self.plot_fft:
+        if not self.plot_section:
             return
 
         wave_chunk = self.data.wave[start_idx:end_idx]
@@ -628,6 +633,101 @@ class SignalGUI:
         # Auto-close timer
         self._apply_timer_and_show(fig, timeout=3000)
 
+    def plot_validation_error(
+            self, 
+            error_type   : str, 
+            start_idx    : int, 
+            end_idx      : int, 
+            new_peaks_arr: np.ndarray, 
+            peak_info    : dict, 
+            sect_id      : int, 
+            **kwargs
+        ):
+        """Additive historical validation error plots."""
+        if not self.plot_errors:
+            return
+
+        wave_chunk = self.data.wave[start_idx:end_idx]
+        rolled_chunk = self.data.rolling_med[start_idx:end_idx]
+        x_range = np.arange(start_idx, end_idx)
+        
+        fig, ax = plt.subplots(figsize=(12, 6))
+        
+        ax.plot(x_range, wave_chunk, label='ECG', color='dodgerblue')
+        ax.plot(x_range, rolled_chunk, label='Rolling Median', color='orange')
+        ax.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red', label='R peaks', zorder=5)
+
+        for peak in range(new_peaks_arr.shape[0] - 1):
+            is_valid = new_peaks_arr[peak, 1]
+            band_color = 'lightgreen' if is_valid else 'red'
+            p0_x = new_peaks_arr[peak, 0]
+            p1_x = new_peaks_arr[peak+1, 0]
+            rect_height = np.max(self.data.wave[p0_x:p1_x])
+            rect = Rectangle(
+                xy=(p0_x, 0), width=p1_x - p0_x, height=rect_height, 
+                facecolor=band_color, edgecolor="grey", alpha=0.3 
+            )
+            ax.add_patch(rect)
+
+        # Peak Separation
+        if "bad_sep" in kwargs:
+            bad_sep = kwargs["bad_sep"]
+            for x in bad_sep:
+                ax.axvline(x=new_peaks_arr[x, 0], color='goldenrod', linestyle='--', linewidth=2, label='Bad Separation' if x == bad_sep[0] else "")
+                if x + 1 < len(new_peaks_arr):
+                    ax.axvline(x=new_peaks_arr[x + 1, 0], color='goldenrod', linestyle='--', linewidth=2)
+
+        # Peak Height
+        if "low_peaks" in kwargs or "high_peaks" in kwargs:
+            low_peaks = kwargs.get("low_peaks", [])
+            high_peaks = kwargs.get("high_peaks", [])
+            for idx in low_peaks:
+                arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='goldenrod', label='Low Peak' if idx == low_peaks[0] else "")
+                ax.add_patch(arrow)
+            for idx in high_peaks:
+                arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='darkviolet', label='High Peak' if idx == high_peaks[0] else "")
+                ax.add_patch(arrow)
+
+        # Rolling Median IQR
+        if "outs" in kwargs:
+            outs = kwargs["outs"]
+            iqr = kwargs.get("iqr", 1.0)
+            upper_b = np.quantile(rolled_chunk, .80) + 1.5 * iqr
+            lower_b = np.quantile(rolled_chunk, .20) - 1.5 * iqr
+            ax.axhline(y=upper_b, color='magenta', linestyle='--', label='Upper Guardrail')
+            ax.axhline(y=lower_b, color='red', linestyle='--', label='Lower Guardrail')
+            
+            for out_type, p0, p1 in outs:
+                height = np.max(self.data.wave[p0:p1]) if out_type == 'above' else np.min(self.data.wave[p0:p1])
+                rect = Rectangle((p0, 0), p1 - p0, height, facecolor='yellow', alpha=0.5, label='Wandering Baseline' if outs.index((out_type, p0, p1)) == 0 else "")
+                ax.add_patch(rect)
+
+        # Peak Slopes
+        if "slopes" in kwargs:
+            leftbases = kwargs["leftbases"]
+            slopes = kwargs["slopes"]
+            upper_bound = kwargs["upper_bound"]
+            lower_bound = kwargs["lower_bound"]
+            ax.scatter(leftbases, self.data.wave[leftbases], marker="o", color="green", label="Left Base", zorder=6)
+            _delt = 0.10 * (np.max(wave_chunk) - np.min(wave_chunk))
+            
+            for i, slope in enumerate(slopes):
+                if i < len(leftbases) and i < len(new_peaks_arr):
+                    if slope > upper_bound or slope < lower_bound:
+                        dy = -_delt if slope > upper_bound else _delt
+                        arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] - dy*2, 0, dy, width=40, color="red")
+                        ax.add_patch(arrow)
+
+        ax.set_title(f'{error_type} | Sect {sect_id}')
+        ax.set_xlabel("Timesteps")
+        ax.set_ylabel("ECG mV")
+        
+        # Deduplicate legend items
+        handles, labels = ax.get_legend_handles_labels()
+        by_label = dict(zip(labels, handles))
+        ax.legend(by_label.values(), by_label.keys(), loc='upper right')
+        self._apply_timer_and_show(fig=fig)
+
     def _draw_freq_and_spec(self, ax_freq, ax_spec, p0, p1, start_idx, end_idx):
         """Calculates STFT for the isolated inter-beat baseline, and Spectrogram for the section."""
         offset = int(self.data.fs * 0.10) # 100ms offset
@@ -674,7 +774,7 @@ class SignalGUI:
             # Plot High-Frequency Baseline Noise (> 15 Hz)
             if np.any(hf_mask):
                 # Paint red if it violates the 40% noise ratio threshold
-                noise_color = 'red' if inter_noise_ratio > 0.40 else 'orange'
+                noise_color = 'red' if inter_noise_ratio > 0.50 else 'orange'
                 ax_freq.stem(
                     freq_inter[hf_mask], fft_inter[hf_mask], 
                     basefmt=" ", linefmt=noise_color, markerfmt=f'{noise_color}', label='HF Noise (>15Hz)'
@@ -683,7 +783,7 @@ class SignalGUI:
         # Draw boundaries and shade background if rejected
         ax_freq.axvline(x=15.0, color='grey', linestyle='--', alpha=0.5)
         
-        if inter_noise_ratio > 0.40:
+        if inter_noise_ratio > 0.50:
             ax_freq.axvspan(15.0, 50.0, color='red', alpha=0.1, label='Rejected Baseline')
             
         # Embed the exact local metrics into the title
@@ -710,96 +810,6 @@ class SignalGUI:
         ax_spec.set_title("Spectrogram (Full Section | 2s Window)")
         ax_spec.set_ylim(0, 50)
 
-    def plot_validation_error(
-            self, 
-            error_type   : str, 
-            start_idx    : int, 
-            end_idx      : int, 
-            new_peaks_arr: np.ndarray, 
-            peak_info    : dict, 
-            sect_id      : int, 
-            **kwargs
-        ):
-        """Historical validation error plots."""
-        if not self.plot_errors:
-            return
-
-        wave_chunk = self.data.wave[start_idx:end_idx]
-        rolled_chunk = self.data.rolling_med[start_idx:end_idx]
-        
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(range(start_idx, end_idx), wave_chunk, label='ECG')
-        ax.plot(range(start_idx, end_idx), rolled_chunk, label='Rolling Median')
-        ax.scatter(new_peaks_arr[:, 0], peak_info['peak_heights'], marker='D', color='red', label='R peaks')
-
-        match error_type:
-            case "separation":
-                bad_sep = kwargs.get("bad_sep", [])
-                for x in bad_sep:
-                    ax.axvline(x=new_peaks_arr[x, 0], color='goldenrod', linestyle='--')
-                    if x + 1 < len(new_peaks_arr):
-                        ax.axvline(x=new_peaks_arr[x + 1, 0], color='goldenrod', linestyle='--')
-                ax.set_title(f'Bad Peak Separation: idx {start_idx} to {end_idx} (Sect {sect_id})')
-
-            case "height":
-                low_peaks = kwargs.get("low_peaks", [])
-                high_peaks = kwargs.get("high_peaks", [])
-                
-                for idx in low_peaks:
-                    arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='goldenrod')
-                    ax.add_patch(arrow)
-                for idx in high_peaks:
-                    arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='darkviolet')
-                    ax.add_patch(arrow)
-                ax.set_title(f'Bad Peak Height: idx {start_idx} to {end_idx} (Sect {sect_id})')
-
-            case "rolling_median":
-                outs = kwargs.get("outs", [])
-                iqr = kwargs.get("iqr", 1.0)
-                
-                ax.axhline(y=(np.quantile(rolled_chunk, .80) + 1.5 * iqr), color='magenta', linestyle='--', label='Upper Guardrail')
-                ax.axhline(y=(np.quantile(rolled_chunk, .20) - 1.5 * iqr), color='red', linestyle='--', label='Lower Guardrail')
-                
-                for out_type, p0, p1 in outs:
-                    height = np.max(self.data.wave[p0:p1]) if out_type == 'above' else np.min(self.data.wave[p0:p1])
-                    rect = Rectangle((p0, 0), p1 - p0, height, facecolor='lightgrey', alpha=0.9)
-                    ax.add_patch(rect)
-                ax.set_title(f'Bad Rolling Median: idx {start_idx} to {end_idx} (Sect {sect_id})')
-
-            case "slope":
-                leftbases = kwargs.get("leftbases", [])
-                slopes = kwargs.get("slopes", [])
-                upper_bound = kwargs.get("upper_bound", 0)
-                lower_bound = kwargs.get("lower_bound", 0)
-                
-                if leftbases:
-                    ax.scatter(leftbases, self.data.wave[leftbases], marker="o", color="green", label="Left Base")
-                    _delt = 0.10 * (np.max(wave_chunk) - np.min(wave_chunk))
-                    
-                    for i, slope in enumerate(slopes):
-                        if i < len(leftbases):
-                            if slope > upper_bound:
-                                arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] + _delt*2, 0, -_delt, width=40, color="red")
-                                ax.add_patch(arrow)
-                            elif slope < lower_bound:
-                                arrow = Arrow(leftbases[i], self.data.wave[leftbases[i]] - _delt*2, 0, _delt, width=40, color="red")
-                                ax.add_patch(arrow)
-                ax.set_title(f'Bad Peak Slope: idx {start_idx} to {end_idx} (Sect {sect_id})')
-
-        ax.legend(loc='upper left')
-
-        def onSpacebar(event):
-            if event.key == " ": 
-                timer.stop()
-                plt.close(fig)
-
-        fig.canvas.mpl_connect('key_press_event', onSpacebar)
-        
-        timer = fig.canvas.new_timer(interval=3000)
-        timer.single_shot = True
-        timer.add_callback(plt.close, fig)
-        timer.start()
-        plt.show()
 
 ###############################################################################
 # 3. Main Extraction Engine
@@ -816,7 +826,7 @@ class RadECG:
         self.gui = SignalGUI(
             ecg_data = self.data, 
             tools = self.freq_tools,
-            plot_fft=self.configs.get("plot_fft", False), 
+            plot_section=self.configs.get("plot_section", False), 
             plot_errors=self.configs.get("plot_errors", False),
         )
         self.stack_range:range = np.arange(10000, self.data.sect_info.shape[0], 10000)
@@ -853,15 +863,13 @@ class RadECG:
             # Calculate Rolling Median for the chunk
             rolled_med = utils.roll_med(wave_chunk).astype(np.float32)
             self.data.rolling_med[start_p:end_p] = rolled_med.reshape(-1, 1)
-            #BUG -
-                # You might not need to store this
 
             # Check Signal Quality Index (SQI) using lightweight checks
             is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
-            self.data.sect_info[self.sect_id]["kurtosis"] = pre_metrics.get("kurtosis", 0)
-            self.data.sect_info[self.sect_id]["hjorth"] = pre_metrics.get("hjorth", 0)
-            self.data.sect_info[self.sect_id]["spectral"] = pre_metrics.get("spec_ratio", 0)
-            self.data.sect_info[self.sect_id]["wdist"] = pre_metrics.get("wdist", 0)
+            self.data.sect_info["kurtosis"][self.sect_id] = pre_metrics.get("kurtosis", 0)
+            self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
+            self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spec_ratio", 0)
+            self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                 self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
@@ -886,7 +894,7 @@ class RadECG:
 
             #Check each beat with the matrix profile and STFT. 
             is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
-            self.data.sect_info[self.sect_id]["bad_b_rat"] = post_metrics.get("bad_beat_ratio", 1.0)
+            self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_beat_ratio", 1.0)
 
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
@@ -930,31 +938,28 @@ class RadECG:
             else:
                 new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
-            if self.gui.plot_fft:
+            # Historical data Validation
+            lookback = int(self.fs * 10) 
+            last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks, lookback=lookback)
+            if last_keys is not False:
+                sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
+                    new_peaks_arr, last_keys, peak_info, 
+                    start_idx=start_p, end_idx=end_p
+                )
+                if not sect_valid:
+                    self.data.sect_info["fail_reason"][self.sect_id] += f" | {fail_reason}"
+            else:
+                # If we don't have enough consecutive valids, 
+                # Trust the matrix profile STFT are doing their jobs
+                sect_valid = True 
+
+            #Plot all section info
+            if self.gui.plot_section:
                 self.gui.plot_fft_sect(
                     start_p, end_p, new_peaks_arr, peak_info, 
                     self.sect_id, self.data.sect_info[self.sect_id],
                     post_metrics = post_metrics
                 )
-
-            # Historical Validation
-            #BUG - validation 
-                #Need a better way to do this other than count.  
-            if self.sect_id > 10:
-                last_keys = self.get_consecutive_valid_peaks(self.data.peaks)
-                if last_keys is not False:
-                    sect_valid, new_peaks_arr = self.historical_validation_check(
-                        new_peaks_arr, last_keys, peak_info, 
-                        rolled_med, self.sect_id, start_p, end_p
-                    )
-                    if not sect_valid:
-                        self.data.sect_info["fail_reason"][self.sect_id] += " historical_fail"
-                else:
-                    # Resetting baseline if no recent valid history
-                    sect_valid = True 
-            else:
-                # First few sections are automatically valid if they passed SQI
-                sect_valid = True 
 
             # Finalize Section
             if sect_valid:
@@ -976,7 +981,7 @@ class RadECG:
             self.sect_id += 1
             logger.debug(f'Section counter at {self.sect_id}')
 
-    def get_consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
+    def consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
         """Scans back in time to find consecutive validated R peaks."""
         arr = r_peaks[::-1]
         counts = []
@@ -993,16 +998,68 @@ class RadECG:
                 return arr[counts][::-1, 0]
         return False
 
-    def historical_validation_check(self, new_peaks_arr, last_keys, peak_info, rolled_med, sect_id, start_idx, end_idx) -> Tuple[bool, np.ndarray]:
+    def historical_validation(
+            self, 
+            new_peaks_arr:np.ndarray, 
+            last_keys:list, 
+            peak_info:dict,
+            start_idx:int, 
+            end_idx:int
+        ) -> Tuple[bool, np.ndarray, str]:
         """Rejects whole segments based on historical averages (IQR, Slope, Separation, Height)."""
         sect_valid = True
-        
+        fail_reason = ""
+        plot_kwargs = {}
+
         # Grab historical rolling median
         rolling_med_start = last_keys[0]
         rolling_med_end = last_keys[-1]
         med_arr = self.data.rolling_med[rolling_med_start:rolling_med_end]
-        
-        # Calculate IQR
+        r_peaks = new_peaks_arr[:, 0]
+
+        # ==========================================================
+        # GATE 1: Peak Separation Check
+        # ==========================================================
+        med_diff = np.diff(last_keys)
+        if len(med_diff) > 0:
+            last_med_p_sep = np.median(med_diff) if len(med_diff) > 0 else 1.0
+            lower_bound_sep = last_med_p_sep * 0.5
+            upper_bound_sep = last_med_p_sep * 4.0
+            diffs = np.diff(r_peaks)
+            bad_sep = np.where((diffs < lower_bound_sep) | (diffs > upper_bound_sep))[0]
+            if bad_sep.size > 0:
+                #Invalidate the peaks
+                new_peaks_arr[bad_sep, 1] = 0
+                new_peaks_arr[bad_sep + 1, 1] = 0
+                fail_reason += "sep|"
+                sect_valid = False
+                logger.warning(f"Peak separation violation in section {self.sect_id}")
+                plot_kwargs["bad_sep"] = bad_sep
+
+        # ==========================================================
+        # GATE 2: Peak Height Check (ECG to rolling diff)
+        # ==========================================================
+        hist_peak_heights = self.data.wave[last_keys] - self.data.rolling_med[last_keys]
+        med_heights = np.median(hist_peak_heights)
+        lower_bound_ht = med_heights * 0.5
+        upper_bound_ht = med_heights * 4.0
+
+        curr_peak_heights = self.data.wave[r_peaks] - self.data.rolling_med[r_peaks]
+        low_peaks = np.where(curr_peak_heights < lower_bound_ht)[0]
+        high_peaks = np.where(curr_peak_heights > upper_bound_ht)[0]
+
+        if low_peaks.size > 0 or high_peaks.size > 0:
+            new_peaks_arr[low_peaks, 1] = 0
+            new_peaks_arr[high_peaks, 1] = 0
+            fail_reason += "height|"
+            sect_valid = False
+            logger.warning(f"Peak height violation in section {self.sect_id}")
+            plot_kwargs["low_peaks"] = low_peaks
+            plot_kwargs["high_peaks"] = high_peaks
+
+        # ==========================================================
+        # GATE 3: Rolling Median (IQR Wandering Baseline Check)
+        # ==========================================================
         q1 = np.quantile(med_arr, 0.20) if len(med_arr) > 0 else 0
         q3 = np.quantile(med_arr, 0.80) if len(med_arr) > 0 else 0
         iqr = q3 - q1
@@ -1010,36 +1067,91 @@ class RadECG:
         # Prevent vanishing gradient for IQR
         if iqr <= self.iqr_low_thresh:
             self.low_counts += 1
-            if self.low_counts > 6:
-                iqr = 3 * iqr
-            elif self.low_counts > 3:
-                iqr = iqr + 0.50 * iqr
+            if self.low_counts > 6: 
+                iqr *= 3
+            elif self.low_counts > 3: 
+                iqr *= 1.5
         else:
             self.iqr_low_thresh = iqr
             self.low_counts = 0
-
-        # Peak Separation Check
-        med_diff = np.diff(last_keys)
-        last_avg_p_sep = np.mean(med_diff) if len(med_diff) > 0 else 1.0
-        lower_bound_sep = last_avg_p_sep * 0.5
-        upper_bound_sep = last_avg_p_sep * 3.0
         
-        diffs = np.diff(new_peaks_arr[:, 0])
-        if np.any((diffs < lower_bound_sep) | (diffs > upper_bound_sep)):
-            logger.warning(f"Peak separation violation in section {sect_id}")
-            sect_valid = False
+        upper_med_bound = np.quantile(med_arr, 0.80) + 1.5 * iqr
+        lower_med_bound = np.quantile(med_arr, 0.20) - 1.5 * iqr
+        out_above = np.where(med_arr > upper_med_bound)[0]
+        out_below = np.where(med_arr < lower_med_bound)[0]
 
-        # Peak Height Check
-        last_avg_peak_heights = np.mean([self.data.wave[x] for x in last_keys])
-        r_roll_diff = self.data.wave[last_keys] - self.data.rolling_med[last_keys]
-        lower_bound_ht = np.mean(r_roll_diff) * 0.5
-        upper_bound_ht = last_avg_peak_heights * 3.0
-        
-        if np.any((peak_info['peak_heights'] < lower_bound_ht) | (peak_info['peak_heights'] > upper_bound_ht)):
-            logger.warning(f"Peak height violation in section {sect_id}")
-            sect_valid = False
+        if out_above.size > 0 or out_below.size > 0:
+            bad_pandas = 0
+            outs = []
+            for i in range(len(r_peaks) - 1):
+                p0_rel, p1_rel = r_peaks[i] - start_idx, r_peaks[i+1] - start_idx
+                samp_section = med_arr[p0_rel:p1_rel]
+                
+                if np.any(samp_section > upper_med_bound):
+                    outs.append(('above', r_peaks[i], r_peaks[i+1]))
+                    new_peaks_arr[i, 1] = 0
+                    bad_pandas += 1
+                elif np.any(samp_section < lower_med_bound):
+                    outs.append(('below', r_peaks[i], r_peaks[i+1]))
+                    new_peaks_arr[i, 1] = 0
+                    bad_pandas += 1
 
-        return sect_valid, new_peaks_arr
+            #BUG - Consider bumping this down possibly...Previous gates are at 25% sect failure
+            if bad_pandas > (round(0.50 * (len(r_peaks) - 1))):
+                fail_reason += "roll_med|"
+                sect_valid = False
+                plot_kwargs["outs"] = outs
+                plot_kwargs["iqr"] = iqr
+
+        # ==========================================================
+        # GATE 4: Slope Morphology Check
+        # ==========================================================
+        #BUG - Also might not needs this check if we're already doing the matrix
+            #profile for morphology checks
+            #NOTE: Firing on jagged slopes that may misrepresent slope.
+        lookbacks = r_peaks - int(last_med_p_sep * 0.75)
+        leftbases, slopes = [], []
+
+        for lookback, RP in zip(lookbacks, r_peaks):
+            # Apply a lightweight Hanning window to kill HF static before derivation
+            raw_seg = self.data.wave[max(0, lookback):RP+1].flatten()
+            if len(raw_seg) > 7:
+                window = np.hanning(7)
+                window /= window.sum()
+                # mode='same' keeps array length identical to raw_seg
+                smoothed_seg = np.convolve(raw_seg, window, mode='same')
+            else:
+                smoothed_seg = raw_seg
+            grad = np.diff(smoothed_seg)
+            signchange = np.roll(np.sign(grad), 1) - np.sign(grad)
+            np_inflections = np.where((signchange == -2) | (signchange == -1))[0]
+            
+            if np_inflections.size > 0:
+                leftbases.append(max(0, lookback) + np_inflections[-1])
+            else:
+                leftbases.append(lookback) # Fallback
+
+        if len(leftbases) == len(r_peaks) and len(leftbases) > 2:
+            slopes = [np.polyfit(range(x1, x2), self.data.wave[x1:x2], 1)[0].item() if x2 - x1 > 3 else 0 for x1, x2 in zip(leftbases, r_peaks)]
+            lower_bound_slope = np.median(slopes) * 0.20
+            upper_bound_slope = np.median(slopes) * 5.0
+            
+            slope_arr = np.array(slopes)
+            bad_slopes = np.where((slope_arr < lower_bound_slope) | (slope_arr > upper_bound_slope))[0]
+            
+            if bad_slopes.size > 0:
+                new_peaks_arr[bad_slopes, 1] = 0
+                fail_reason += "slope|"
+                sect_valid = False
+                plot_kwargs["leftbases"] = leftbases
+                plot_kwargs["slopes"] = slopes
+                plot_kwargs["upper_bound"] = upper_bound_slope
+                plot_kwargs["lower_bound"] = lower_bound_slope
+
+        if not sect_valid and self.gui.plot_errors:
+            self.gui.plot_validation_error(f"FAILED:Historical {fail_reason}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
+
+        return sect_valid, new_peaks_arr, fail_reason.strip("|")
 
     def extract_pqrst(self, new_peaks_arr, peak_info, rolled_med, start_p):
         """Placeholder for PQRST geometry extraction."""
