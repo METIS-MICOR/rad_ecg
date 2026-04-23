@@ -1,6 +1,6 @@
 {
-  "plot_section": true,
-  "plot_errors": true,
+  "plot_section": false,
+  "plot_errors": false,
   "live_term": false,
   "slider": false,
   "batch": false,

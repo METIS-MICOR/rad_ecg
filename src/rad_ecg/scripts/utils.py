@@ -1,4 +1,5 @@
 import numpy as np
+from dataclasses import dataclass
 from scipy.signal import savgol_filter
 
 #Dev note:Functions are organized most to least important
@@ -142,21 +143,20 @@ def label_formatter(x_ticks:list)->list:
     return ret
 
 #FUNCTION Valid QRS
-def valid_QRS(temp_arr:np.array, temp_counter:int)->int:
+def valid_QRS(beat:dataclass)->int:
     """Checks for valid PQRST peaks in ECG data by testing membership by set comparison
 
     Args:
-        temp_arr (np.array): [ECG data in question]
-        temp_counter (int): [index of current peak]
+        beat (dataclass): [ECG data in question]
 
     Returns:
         bool: Whether or not it has all PQST peaks for a valid_peak_type
     """	
 
-    if np.any(temp_arr[temp_counter, :5] == 0):
-        return 0
-    else:
+    if all([beat.p_peak, beat.q_peak, beat.r_peak, beat.s_peak, beat.t_peak]):
         return 1
+    else:
+        return 0
 
 #FUNCTION Load Log results
 def load_log_results(file_name:str)->list:

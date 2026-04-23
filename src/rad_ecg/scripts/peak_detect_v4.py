@@ -7,46 +7,69 @@ from numba import cuda
 from pathlib import Path
 import scipy.signal as ss
 from collections import deque
+from kneed import KneeLocator
 from scipy.signal import welch
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
+from scipy.interpolate import interp1d
 from dataclasses import dataclass, field
 # from scipy.fft import rfft, rfftfreq, irfft
+from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
 from scipy.stats import entropy, kurtosis, wasserstein_distance
 from support import logger, console, log_time, mainspinner, DATE_JSON
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
+@dataclass
+class HeartBeat:
+    """Dataclass to house beat information"""    
+    p_peak  : int = None
+    q_peak  : int = None
+    r_peak  : int = None
+    s_peak  : int = None
+    t_peak  : int = None
+    p_peak_a: int = None
+    q_peak_a: int = None
+    r_peak_a: int = None
+    s_peak_a: int = None
+    t_peak_a: int = None
+    p_onset : int = None
+    p_offset: int = None
+    q_onset : int = None
+    t_onset : int = None
+    t_offset: int = None
+    j_point : int = None
+    u_wave  : bool = None
 
 @dataclass
 class SectionStat:
     """Dataclass to house section data"""
-    avg_HR: float #bpm
-    SDNN  : float #ms
-    RMSSD : float #ms
-    PR    : float #ms
-    QRS   : float #ms
-    ST    : float #ms
-    QT    : float #ms
-    QTc   : float #ms
-    TpTe  : float #ms
-    QTVI  : float #ms
-    iso   : float #mV 
+    HR    : float = None #bpm
+    iso   : float = None #mV 
+    SDNN  : float = None #ms
+    RMSSD : float = None #ms
+    PR    : float = None #ms
+    QRS   : float = None #ms
+    ST    : float = None #ms
+    QT    : float = None #ms
+    QTc   : float = None #ms
+    QTVI  : float = None #ms
+    TpTe  : float = None #ms
 
 @dataclass
 class ECGData:
     """Stores the state and results of the ECG processing pipeline."""
-    fs             : float      = None
-    wave           : np.ndarray = None
-    sect_info      : np.ndarray = field(init=False)
-    rolling_med    : np.ndarray = field(init=False)
-    interior_peaks : np.ndarray = field(init=False)
-    peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32))
+    fs             : float      = None              #Sampling Frequency
+    wave           : np.ndarray = None              #ECG Signal
+    sect_info      : np.ndarray = field(init=False) #Section Averages
+    rolling_med    : np.ndarray = field(init=False) #Rolling Median
+    interior_peaks : np.ndarray = field(init=False) #All the other peaks
+    peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32)) # R peaks
     
     def __post_init__(self):
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
-        self.interior_peaks = np.zeros((0, 16), dtype=np.int32)
+        self.interior_peaks = np.zeros((0, len(setup_globals.SECTION_DTYPES)), dtype=np.int32)
 ###############################################################################
 # 2. Tool Classes
 ###############################################################################
@@ -108,7 +131,7 @@ class SignalLoader:
         """Loading data structures for RAD_ECG
 
         Returns:
-            ECGData (dataclass): Dataclass of ready objects.
+            ECGData (dataclass): Dataclass of data objects.
         """        
         logger.info(f"Loading data from {self.file_path}")
         rad = ECGData(
@@ -180,7 +203,6 @@ class CardiacFreqTools:
         # --- Metric 2: Wasserstein Distribution Shift ---
         f_target = freqs[qrs_band]
         psd_target = psd[qrs_band]
-        
         w_dist = 0.0
         is_stable = True
         
@@ -822,8 +844,6 @@ class SignalGUI:
         ax_spec.set_ylabel("Frequency (Hz)")
         ax_spec.set_title("Spectrogram (Full Section | 2s Window)")
         ax_spec.set_ylim(0, 50)
-
-
 ###############################################################################
 # 3. Main Extraction Engine
 ###############################################################################
@@ -1057,21 +1077,260 @@ class RadECG:
         return sect_valid, new_peaks_arr, fail_reason
         # Add HR stats for that secti
 
+    def _curve_line_dist(self, point:tuple, coef:tuple)->float:
+        """This function calculates the distance from every point
+        in our manufactured line, to the curve.  We use this to determine
+        where the elbow of a curve is at its maximal.
+
+        Args:
+            point (tuple): _description_
+            coef (tuple): _description_
+
+        Returns:
+            float: _description_
+        """			
+        d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
+        
+        return d
+
+    def _find_P_onset(self):
+        try:
+            slope_end = P_peak + 1
+            slope_start = slope_end - int(srch_width*2)
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            P_onset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 11] = P_onset
+            logger.debug(f'Adding P onset')
+            return P_onset
+        except Exception as e:
+            logger.warning(f'P onset error for Rpeak {R_peak:_d}\n{e}')
+
+    def _find_Q_onset(self):
+        try:
+            slope_start = Q_peak - int((Q_peak - P_peak)*.70)
+            slope_end = Q_peak + 1
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
+            Q_onset = slope_start + shoulder[0] + 1
+            temp_arr[temp_counter, 12] = Q_onset
+            logger.debug(f'Adding Q onset')
+            return Q_onset
+        
+        except Exception as e:
+            logger.warning(f'Q onset error for Rpeak {R_peak:_d}\n{e}')
+
+    def _find_T_offset(self):
+        slope_start = T_peak
+        slope_end = T_peak + int(srch_width*2) 
+
+        try:
+            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            T_offset = slope_start + np.argmax(lil_grads)
+            temp_arr[temp_counter, 14] = T_offset
+            logger.debug(f'Adding T offset')
+            return T_offset
+            
+        except Exception as e:
+            logger.warning(f'T Offset error for Rpeak {R_peak:_d}\n{e}')
+            logger.debug("secondary T_offset extraction")
+            # NOTE backup T_offset extract
+                # If the acceleration method fails.  Add in another check to look at
+                # the slope after the T peak.  Draw a line down to the isoelectric
+                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
+
+            try:
+                m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
+                x_intercept = -b / m
+                isoelectric = isoelectric if isoelectric is not None else x_intercept
+                x_tans = np.linspace(T_peak, T_offset, 100)
+                y_tans = m * x_tans + b
+                T_cross = np.abs(y_tans - isoelectric)
+                T_offset = x_tans[T_cross]
+                temp_arr[temp_counter, 14] = T_offset
+                logger.info(f'Adding T offset backup')
+                return T_offset
+
+            except Exception as e:
+                logger.warning(f'T Offset backup extraction error = \n{e}')
+                return None
+
+    def _find_j_point(self, s_peak: int, t_peak: int, rolled_med: np.ndarray, start_p: int) -> int:
+        if not s_peak or not t_peak: return None
+        try:
+            slope_start = s_peak
+            lil_wave = self.data.wave[slope_start:t_peak].flatten()
+            med_sect = rolled_med[slope_start - start_p : t_peak - start_p].flatten()
+            ecg_less_median = np.where(lil_wave < med_sect)[0]
+            
+            groups = np.split(ecg_less_median, np.where(np.diff(ecg_less_median) != 1)[0] + 1)
+            last_group = groups[0] if len(groups) > 0 and len(groups[0]) > 0 else [0]
+            slope_end = slope_start + last_group[-1]
+
+            X = np.arange(slope_start, slope_end)
+            y = self.data.wave[slope_start:slope_end].flatten()
+            
+            if X.shape[0] > 5:
+                knee = KneeLocator(X, y, curve="concave", direction="increasing")
+                if knee.elbow is not None:
+                    return int(knee.elbow) + 1
+            return None
+        except Exception as e:
+            logger.debug(f'J point error: {e}')
+            return None
+
+    def _find_t_onset(self, t_peak: int, j_point: int, s_peak: int, samp_min: int, rolled_med: np.ndarray, start_p: int) -> int:
+        if not t_peak: return None
+        try:
+            slope_end = t_peak + 1
+            if j_point:
+                slope_start = j_point
+            else:
+                slope_st = samp_min if samp_min else s_peak
+                if not slope_st: return None
+                lil_wave = self.data.wave[slope_st:slope_end].flatten()
+                med_sect = rolled_med[slope_st - start_p : slope_end - start_p].flatten()
+                ecg_less_median = np.where(lil_wave < med_sect)[0]
+                
+                groups = np.split(ecg_less_median, np.where(np.diff(ecg_less_median) != 1)[0] + 1)
+                first_group = groups[0] if len(groups) > 0 and len(groups[0]) > 0 else [0]
+                slope_start = slope_st + first_group[-1]
+
+            lil_wave = self.data.wave[slope_start:slope_end].flatten()
+            lil_grads = np.gradient(np.gradient(lil_wave))
+            return slope_start + int(np.argmax(lil_grads))
+        except Exception as e:
+            logger.debug(f'T onset error: {e}')
+            return None
+
     def extract_pqrst(self, new_peaks_arr, peak_info, rolled_med, start_p):
         """Placeholder for PQRST geometry extraction."""
-        pass
+        def grouper(arr):
+            """Mini function for splitting and grouping arrays where the
+            differences between values are not equal to 1, split the array at that
+            point and return a array of those one step arrays
+
+            Args:
+                arr (Section of the ecg): <-----
+
+            Returns:
+                array of np.arrays:
+
+            """		
+            return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
+    
+        
+        beats: List[HeartBeat] = [HeartBeat(r_peak=int(p)) for p in new_peaks_arr[:, 0]]
+        samp_mins = [None] * len(beats)
+
+        #Extract main peaks for PQRST
+        for i in range(len(beats) -1):
+            beat = beats[i]
+            next_beat = beats[i+1]
+            peak0 = beat.r_peak
+            peak1 = next_beat.r_peak
+            #Take the difference of each point
+            grad = np.diff(self.data.wave[peak0:peak1+1].flatten())
+            #Calculate a sign change for that difference
+            signchange = np.roll(np.sign(grad), 1) - np.sign(grad)
+            #Locate those changes where flipping from negative
+            np_inflections = np.where((signchange == -2) | (signchange == -1))[0]
+            #Std deviation check
+            std_dev_rng = self.data.wave[peak0:peak1][np_inflections[0]:np_inflections[-1]] if len(np_inflections) > 0 else []
+            std_dev_SQ = np.std(std_dev_rng) if len(std_dev_rng) > 0 else 0
+            reject_limit = 0.30 * np.mean(peak_info.get('prominences', [1]))
+            if std_dev_SQ >= reject_limit or len(np_inflections) == 0:
+                #TODO - I should probably fail the beat as well here. 
+                # self.data.peaks[peak0, 1] = 0
+                # self.data.peaks[peak1, 1] = 0
+                continue
+            
+            # Q peak
+            beat.q_peak = int(np_inflections[-1]) + peak0
+            beat.q_peak_a = self.data.wave[beat.q_peak]
+            # S peak
+            slope_start = peak0
+            slope_end = peak0 + int((peak1 - peak0) // 3)
+            lil_wave = self.data.wave[slope_start:slope_end].flatten()
+            if len(lil_wave) > 3:
+                f = interp1d(np.arange(slope_start, slope_end), lil_wave, kind="cubic")
+                x_vals = np.linspace(slope_start, slope_end-1, num=len(lil_wave*10))
+                y_vals = f(x_vals)
+                coeffs = np.polyfit((x_vals[0], x_vals[-1]), (y_vals[0], y_vals[-1]), 1)
+                p_dist = [self._curve_line_dist(pt, coeffs) for pt in zip(x_vals, y_vals)]
+                closest = int(np.round(p_dist.index(max(p_dist)) / 10) + peak0)
+                beat.s_peak = closest
+            else:
+                beat.s_peak = int(np.argmin(lil_wave)) + slope_start
+            if beat.s_peak:
+                beat.s_peak_a = self.data.wave[beat.s_peak]
+            
+            #Figure out the samp min for the T peak
+            samp_min = int(np.argmin(self.data.wave[peak0:slope_end]))
+            if (self.data.wave[peak0+samp_min].item() < rolled_med[samp_min]) and (samp_min in np_inflections[:6]):
+                samp_min = samp_min + peak0
+            else:
+                samp_min = int(min(np_inflections)) + peak0 if len(np_inflections) > 0 else peak0
+            samp_mins[i] = samp_min
+            
+            # T Peak & (Next) P Peak
+            SQ_range = self.data.wave[samp_min:beat.q_peak if beat.q_peak else peak1].flatten()
+            filt_rol_med = rolled_med[samp_min - start_p : (beat.q_peak if beat.q_peak else peak1) - start_p].flatten()
+            
+            if len(SQ_range) == len(filt_rol_med) and len(SQ_range) > 0:
+                SQ_med_reduced = SQ_range - filt_rol_med
+                half_idx = len(SQ_med_reduced) // 2
+                
+                # Assign T Peak to Current Beat
+                try:
+                    RR_first_half = SQ_med_reduced[:half_idx]
+                    peak_T_find = ss.find_peaks(RR_first_half, height=np.percentile(SQ_med_reduced, 60))
+                    if len(peak_T_find[0]) > 0:
+                        top_T = peak_T_find[0][np.argmax(peak_T_find[1]['peak_heights'])]
+                        beat.t_peak = peak0 + (samp_min - peak0) + top_T
+                        beat.t_peak_a = self.data.wave[beat.t_peak]
+                except Exception:
+                    pass
+
+                # Assign P Peak to Next Beat
+                try:
+                    RR_second_half = SQ_med_reduced[half_idx:]
+                    peak_P_find = ss.find_peaks(RR_second_half, height=np.percentile(SQ_med_reduced, 60))
+                    if len(peak_P_find[0]) > 0:
+                        top_P = peak_P_find[0][np.argmax(peak_P_find[1]['peak_heights'])] + half_idx
+                        next_beat.p_peak = peak0 + (samp_min - peak0) + top_P
+                        beat.p_peak_a = self.data.wave[beat.p_peak]
+                except Exception:
+                    pass
+
+        isoelectric = self.estimate_iso(beats)
+
+        temp_arr = []
+        for i, beat in enumerate(beats):
+            valid = utils.valid_QRS(beat)
+            if valid:
+                srch_width = (beat.s_peak - beat.q_peak) * 2
+                beat.p_onset = self._find_P_onset(beat.p_peak, srch_width)
+                beat.q_onset = self._find_Q_onset(beat.q_peak, beat.p_peak)
+                beat.t_offset = self._find_T_offset(beat.t_peak, srch_width, isoelectric)
+                beat.j_point = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
+                beat.t_onset = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
+
+        # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
 
     def section_stats(self, new_peaks_arr:np.ndarray):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
         if peak_check:
-            self.data.sect_info["section_info"][self.sect_id] = " inv_peak"
+            self.data.sect_info["section_info"][self.sect_id] += " inv_peak"
             bad_peaks = np.where(new_peaks_arr[:-1, 1] == 0)[0]
             logger.warning(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
         # Now see if we have the bare minimum for peaks to extract. 
         elif new_peaks_arr.size <= 2:
-            self.data['section_info'][self.sect_id]['fail_reason'] += " no_peaks"
+            self.data['section_info']['fail_reason'][self.sect_id] += " no_peaks"
             logger.warning(f'Not enough peaks to calculate section stats')
-
+        
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
         sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
@@ -1173,25 +1432,23 @@ class RadECG:
                 if not sect_valid:
                     self.data.sect_info["fail_reason"][self.sect_id] += f" | {fail_reason}"
             else:
-                # If we don't have enough consecutive valids, 
-                # Trust the matrix profile STFT are doing their jobs
+                # If we don't have enough consecutive valids, trust the matrix profile / STFT are doing their jobs
                 sect_valid = True 
 
             # Finalize Section
             if sect_valid:
                 self.data.sect_info[self.sect_id]["valid"] = 1
+                # Proceed to PQRST extract and stats if section valid
+                self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
+                # Generate Section Stats
+                self.section_stats()
+                #Add the data to our container.  Time it every 10k sections
                 if self.sect_id in self.stack_range:
                     self.data.peaks = self.peak_stack_test(new_peaks_arr)
                 else:
                     self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
                 #BUG - Memory
                     # You're going to still run into the vstack problem
-
-                # Proceed to PQRST extract and stats if section valid
-                int_peaks = self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
-                self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
-
-
             #Plot all section info
             if self.gui.plot_section and sect_valid:
                 self.gui.plot_fft_sect(
@@ -1199,14 +1456,11 @@ class RadECG:
                     self.sect_id, self.data.sect_info[self.sect_id],
                     post_metrics = post_metrics
                 )
-
-
             # Advance section id to next section
             del new_peaks_arr
             self.data.sect_info["valid"][self.sect_id] = 1
             self.sect_id += 1
             logger.debug(f'Section counter at {self.sect_id}')
-
 
 # --- Program Start ---
 def main():
