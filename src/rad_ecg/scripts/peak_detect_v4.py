@@ -64,7 +64,7 @@ class ECGData:
     wave           : np.ndarray = None              #ECG Signal
     sect_info      : np.ndarray = field(init=False) #Section Averages
     rolling_med    : np.ndarray = field(init=False) #Rolling Median
-    interior_peaks : np.ndarray = field(init=False) #All the other peaks
+    interior_peaks : np.ndarray = field(init=False) #All the other peaks/onsets/offsets
     peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32)) # R peaks
     
     def __post_init__(self):
@@ -1093,7 +1093,7 @@ class RadECG:
         
         return d
 
-    def _find_P_onset(self):
+    def _find_p_onset(self):
         try:
             slope_end = P_peak + 1
             slope_start = slope_end - int(srch_width*2)
@@ -1106,7 +1106,7 @@ class RadECG:
         except Exception as e:
             logger.warning(f'P onset error for Rpeak {R_peak:_d}\n{e}')
 
-    def _find_Q_onset(self):
+    def _find_q_onset(self):
         try:
             slope_start = Q_peak - int((Q_peak - P_peak)*.70)
             slope_end = Q_peak + 1
@@ -1121,7 +1121,7 @@ class RadECG:
         except Exception as e:
             logger.warning(f'Q onset error for Rpeak {R_peak:_d}\n{e}')
 
-    def _find_T_offset(self):
+    def _find_t_offset(self):
         slope_start = T_peak
         slope_end = T_peak + int(srch_width*2) 
 
@@ -1221,7 +1221,6 @@ class RadECG:
             """		
             return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
     
-        
         beats: List[HeartBeat] = [HeartBeat(r_peak=int(p)) for p in new_peaks_arr[:, 0]]
         samp_mins = [None] * len(beats)
 
@@ -1246,7 +1245,6 @@ class RadECG:
                 # self.data.peaks[peak0, 1] = 0
                 # self.data.peaks[peak1, 1] = 0
                 continue
-            
             # Q peak
             beat.q_peak = int(np_inflections[-1]) + peak0
             beat.q_peak_a = self.data.wave[beat.q_peak]
@@ -1291,9 +1289,8 @@ class RadECG:
                         top_T = peak_T_find[0][np.argmax(peak_T_find[1]['peak_heights'])]
                         beat.t_peak = peak0 + (samp_min - peak0) + top_T
                         beat.t_peak_a = self.data.wave[beat.t_peak]
-                except Exception:
-                    pass
-
+                except Exception as e:
+                    logger.info(f"T peak extraction error for {peak0}. Error message {e}")
                 # Assign P Peak to Next Beat
                 try:
                     RR_second_half = SQ_med_reduced[half_idx:]
@@ -1302,8 +1299,8 @@ class RadECG:
                         top_P = peak_P_find[0][np.argmax(peak_P_find[1]['peak_heights'])] + half_idx
                         next_beat.p_peak = peak0 + (samp_min - peak0) + top_P
                         beat.p_peak_a = self.data.wave[beat.p_peak]
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.info(f"P peak extraction error for {peak0}. Error message {e}")
 
         isoelectric = self.estimate_iso(beats)
 
@@ -1312,12 +1309,52 @@ class RadECG:
             valid = utils.valid_QRS(beat)
             if valid:
                 srch_width = (beat.s_peak - beat.q_peak) * 2
-                beat.p_onset = self._find_P_onset(beat.p_peak, srch_width)
-                beat.q_onset = self._find_Q_onset(beat.q_peak, beat.p_peak)
-                beat.t_offset = self._find_T_offset(beat.t_peak, srch_width, isoelectric)
+                beat.p_onset = self._find_p_onset(beat.p_peak, srch_width)
+                beat.q_onset = self._find_q_onset(beat.q_peak, beat.p_peak)
+                beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
                 beat.j_point = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
                 beat.t_onset = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
+        row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
+        row[0] = beat.p_peak or None
+        row[1] = beat.q_peak or None
+        row[2] = beat.r_peak or None
+        row[3] = beat.s_peak or None
+        row[4] = beat.t_peak or None
+        row[5] = valid
+        row[6] = beat.p_peak_a or None
+        row[7] = beat.q_peak_a or None
+        row[8] = beat.r_peak_a or None
+        row[9] = beat.s_peak_a or None
+        row[10] = beat.t_peak_a or None
+        row[17] = beat.p_onset or None
+        row[18] = beat.q_onset or None
+        row[19] = beat.t_onset or None
+        row[20] = beat.t_offset or None
+        row[21] = beat.j_point or None
+
+        # Map Intervals directly to milliseconds
+        # MEAS PR
+        if beat.q_onset and beat.p_onset:
+            row[11] = int(1000 * ((beat.q_onset - beat.p_onset) / self.fs))
+        # MEAS QRS
+        if beat.q_onset and beat.j_point:
+            row[12] = int(1000 * ((beat.j_point - beat.q_onset) / self.fs))
+        elif beat.q_onset and beat.s_peak:
+            row[13] = int(1000 * ((beat.s_peak - beat.q_onset) / self.fs))
+        # MEAS ST
+        if beat.t_onset and beat.j_point:
+            row[14] = int(1000 * ((beat.t_onset - beat.j_point) / self.fs))
+        elif beat.t_onset and beat.s_peak:
+            row[15] = int(1000 * ((beat.t_onset - beat.s_peak) / self.fs))
+        # MEAS QT
+        if beat.t_offset and beat.q_onset:
+            row[16] = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
+        
+        temp_arr.append(row)
+
+        if temp_arr:
+            self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=np.int32)))
         # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
 
     def section_stats(self, new_peaks_arr:np.ndarray):

@@ -48,6 +48,8 @@ Will be using poetry to package, so distribution will be cleaner.
 
 ## Base Data Containers
 
+#TODO - Update base containers for v4
+
 - ie what stores the data as it traverses the ECG
 - its stored as a dictionary (ecg_data) with these keys
   1. peaks

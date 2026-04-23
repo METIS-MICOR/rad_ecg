@@ -115,8 +115,8 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = True
-        self.view_models :bool  = False
+        self.view_pig    :bool  = False
+        self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 30       #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -821,7 +821,7 @@ class PigRAD:
                 pig_avg_data["pig_id"] = pig_id
                 pig_avg_data["start"]  = sections[:, 0]
                 pig_avg_data["end"]    = sections[:, 1]
-                pig_avg_data["invalid"]  = sections[:, 2] #0=no, 1=yes
+                pig_avg_data["invalid"] = sections[:, 2] #0=no, 1=yes
                 del sections
 
                 #Calc estimated blood volume for section. 
