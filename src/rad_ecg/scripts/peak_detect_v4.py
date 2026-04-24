@@ -906,7 +906,6 @@ class RadECG:
                 return arr[counts][::-1, 0]
         return False
 
-
     def historical_validation(
             self, 
             new_peaks_arr:np.ndarray, 
@@ -1303,10 +1302,10 @@ class RadECG:
                 # self.data.peaks[peak0, 1] = 0
                 # self.data.peaks[peak1, 1] = 0
                 continue
-            # Q peak
+            # MEAS Q peak
             beat.q_peak = int(np_inflections[-1]) + peak0
             beat.q_peak_a = self.data.wave[beat.q_peak]
-            # S peak
+            # MEAS S peak
             slope_start = peak0
             slope_end = peak0 + int((peak1 - peak0) // 3)
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
@@ -1339,7 +1338,7 @@ class RadECG:
                 SQ_med_reduced = SQ_range - filt_rol_med
                 half_idx = len(SQ_med_reduced) // 2
                 
-                # Assign T Peak to Current Beat
+                # MEAS T Peak
                 try:
                     RR_first_half = SQ_med_reduced[:half_idx]
                     peak_T_find = ss.find_peaks(RR_first_half, height=np.percentile(SQ_med_reduced, 60))
@@ -1349,7 +1348,7 @@ class RadECG:
                         beat.t_peak_a = self.data.wave[beat.t_peak]
                 except Exception as e:
                     logger.info(f"T peak extraction error for {peak0}. Error message {e}")
-                # Assign P Peak to Next Beat
+                # MEAS P Peak
                 try:
                     RR_second_half = SQ_med_reduced[half_idx:]
                     peak_P_find = ss.find_peaks(RR_second_half, height=np.percentile(SQ_med_reduced, 60))
@@ -1360,6 +1359,7 @@ class RadECG:
                 except Exception as e:
                     logger.info(f"P peak extraction error for {peak0}. Error message {e}")
         isoelectric = self.estimate_iso(beats)
+        self.data.interior_peaks["isoelectric"][self.sect_id] = isoelectric
         temp_arr = []
         for i, beat in enumerate(beats):
             valid = utils.valid_QRS(beat)
@@ -1372,22 +1372,22 @@ class RadECG:
                 beat.t_onset  = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
             row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
-            row[0]  = beat.p_peak or None
-            row[1]  = beat.q_peak or None
-            row[2]  = beat.r_peak or None
-            row[3]  = beat.s_peak or None
-            row[4]  = beat.t_peak or None
+            row[0]  = beat.p_peak or 0
+            row[1]  = beat.q_peak or 0
+            row[2]  = beat.r_peak or 0
+            row[3]  = beat.s_peak or 0
+            row[4]  = beat.t_peak or 0
             row[5]  = valid
-            row[6]  = beat.p_peak_a or None
-            row[7]  = beat.q_peak_a or None
-            row[8]  = beat.r_peak_a or None
-            row[9]  = beat.s_peak_a or None
-            row[10] = beat.t_peak_a or None
-            row[11] = beat.p_onset or None
-            row[12] = beat.q_onset or None
-            row[13] = beat.j_point or None
-            row[14] = beat.t_onset or None
-            row[15] = beat.t_offset or None
+            row[6]  = beat.p_peak_a or 0
+            row[7]  = beat.q_peak_a or 0
+            row[8]  = beat.r_peak_a or 0
+            row[9]  = beat.s_peak_a or 0
+            row[10] = beat.t_peak_a or 0
+            row[11] = beat.p_onset or 0
+            row[12] = beat.q_onset or 0
+            row[13] = beat.j_point or 0
+            row[14] = beat.t_onset or 0
+            row[15] = beat.t_offset or 0
             row[16] = beat.u_wave or False
 
             # Map Intervals directly to milliseconds
@@ -1418,7 +1418,7 @@ class RadECG:
                 row[22] = self._calc_tpte(beat.t_peak, beat.t_offset)
             temp_arr.append(row)
 
-        if temp_arr and self.sect_id in self.stack_range:
+        if temp_arr:
             self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)))
 
     def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
@@ -1445,7 +1445,7 @@ class RadECG:
             stats.SDNN  = np.round(np.std(HR), 5)
             stats.RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
 
-        # (PQRST) Averages
+        # PQRST Averages
         try:
             # Filter interior peaks that belong to this section
             inners = self.data.interior_peaks[
@@ -1489,7 +1489,7 @@ class RadECG:
         self.data.sect_info["QRS"][self.sect_id] = stats.QRS if not np.isnan(stats.QRS) else 0
         self.data.sect_info["ST"][self.sect_id]  = stats.ST if not np.isnan(stats.ST) else 0
         self.data.sect_info["QT"][self.sect_id]  = stats.QT if not np.isnan(stats.QT) else 0
-        self.data.sect_info["QTc"][self.sect_id]  = stats.QTc if not np.isnan(stats.QTc) else 0
+        self.data.sect_info["QTc"][self.sect_id] = stats.QTc if not np.isnan(stats.QTc) else 0
         self.data.sect_info["TpTe"][self.sect_id] = stats.TpTe if not np.isnan(stats.TpTe) else 0
 
         # Add the R peaks to the peaks container. Time it every 10k sections
@@ -1622,8 +1622,8 @@ class RadECG:
             # Advance section id to next section
             del new_peaks_arr
             self.data.sect_info["valid"][self.sect_id] = 1
-            self.sect_id += 1
             logger.debug(f'Section counter at {self.sect_id}')
+            self.sect_id += 1
 
 # --- Program Start ---
 def main():

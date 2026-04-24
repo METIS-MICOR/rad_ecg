@@ -14,7 +14,7 @@ from rich.filesize import decimal
 from rich.markup import escape
 
 ################################# Global Imports ############################################
-
+#Section Metrics
 SECTION_DTYPES = [
     ('wave_section', 'i4'),    # 0 
     ('start_point' , 'i4'),    # 1 
@@ -43,6 +43,7 @@ SECTION_DTYPES = [
     ('TpTe'        , 'f4'),    # 24
 ]
 
+#Interior Peaks
 PEAK_DTYPES = [
     ('p_peak'      , 'i4'),   # 0
     ('q_peak'      , 'i4'),   # 1
