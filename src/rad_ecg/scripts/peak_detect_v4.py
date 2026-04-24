@@ -868,6 +868,7 @@ class RadECG:
         self.sect_id:int = 0
         self.iqr_low_thresh:float = 1.0
         self.is_stable:bool = False
+
     
     @log_time
     def peak_stack_test(self, new_peaks_arr:np.array) -> np.array:
@@ -880,7 +881,14 @@ class RadECG:
             np.array: Stacked array
         """        
         return np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-
+    
+    def _yabig_meanie(self, values: list, precision: int = 4) -> float:
+        """Safely calculates the mean, ignoring Nones/NaNs. Returns np.nan if empty."""
+        clean_vals = [v for v in values if v is not None and not np.isnan(v)]
+        if not clean_vals:
+            return np.nan
+        return np.round(np.nanmean(clean_vals), precision).item()
+    
     def consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
         """Scans back in time to find consecutive validated R peaks."""
         arr = r_peaks[::-1]
@@ -1093,48 +1101,47 @@ class RadECG:
         
         return d
 
-    def _find_p_onset(self):
+    def _find_p_onset(self, P_peak:int, srch_width:int):
         try:
             slope_end = P_peak + 1
             slope_start = slope_end - int(srch_width*2)
-            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             P_onset = slope_start + np.argmax(lil_grads)
-            temp_arr[temp_counter, 11] = P_onset
             logger.debug(f'Adding P onset')
             return P_onset
         except Exception as e:
-            logger.warning(f'P onset error for Rpeak {R_peak:_d}\n{e}')
+            logger.warning(f'P onset error {e}')
 
-    def _find_q_onset(self):
+    def _find_q_onset(self, Q_peak:int, P_peak:int):
         try:
             slope_start = Q_peak - int((Q_peak - P_peak)*.70)
             slope_end = Q_peak + 1
-            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
             Q_onset = slope_start + shoulder[0] + 1
-            temp_arr[temp_counter, 12] = Q_onset
             logger.debug(f'Adding Q onset')
             return Q_onset
         
         except Exception as e:
-            logger.warning(f'Q onset error for Rpeak {R_peak:_d}\n{e}')
+            logger.warning(f'Q onset error {e}')
 
-    def _find_t_offset(self):
+    def _find_t_offset(self, T_peak:int, srch_width:int, isoelectric:float):
+        if not T_peak: 
+            return None
         slope_start = T_peak
         slope_end = T_peak + int(srch_width*2) 
 
         try:
-            lil_wave = wave[slope_start:slope_end].flatten()
+            lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             T_offset = slope_start + np.argmax(lil_grads)
-            temp_arr[temp_counter, 14] = T_offset
             logger.debug(f'Adding T offset')
             return T_offset
             
         except Exception as e:
-            logger.warning(f'T Offset error for Rpeak {R_peak:_d}\n{e}')
+            logger.warning(f'T Offset error {e}')
             logger.debug("secondary T_offset extraction")
             # NOTE backup T_offset extract
                 # If the acceleration method fails.  Add in another check to look at
@@ -1142,14 +1149,13 @@ class RadECG:
                 # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
 
             try:
-                m, b = np.polyfit(range(slope_start, slope_end), wave[slope_start:slope_end], 1)
+                m, b = np.polyfit(range(slope_start, slope_end), self.data.wave[slope_start:slope_end], 1)
                 x_intercept = -b / m
                 isoelectric = isoelectric if isoelectric is not None else x_intercept
                 x_tans = np.linspace(T_peak, T_offset, 100)
                 y_tans = m * x_tans + b
                 T_cross = np.abs(y_tans - isoelectric)
                 T_offset = x_tans[T_cross]
-                temp_arr[temp_counter, 14] = T_offset
                 logger.info(f'Adding T offset backup')
                 return T_offset
 
@@ -1182,18 +1188,19 @@ class RadECG:
             return None
 
     def _find_t_onset(self, t_peak: int, j_point: int, s_peak: int, samp_min: int, rolled_med: np.ndarray, start_p: int) -> int:
-        if not t_peak: return None
+        if not t_peak: 
+            return None
         try:
             slope_end = t_peak + 1
             if j_point:
                 slope_start = j_point
             else:
                 slope_st = samp_min if samp_min else s_peak
-                if not slope_st: return None
+                if not slope_st: 
+                    return None
                 lil_wave = self.data.wave[slope_st:slope_end].flatten()
                 med_sect = rolled_med[slope_st - start_p : slope_end - start_p].flatten()
                 ecg_less_median = np.where(lil_wave < med_sect)[0]
-                
                 groups = np.split(ecg_less_median, np.where(np.diff(ecg_less_median) != 1)[0] + 1)
                 first_group = groups[0] if len(groups) > 0 and len(groups[0]) > 0 else [0]
                 slope_start = slope_st + first_group[-1]
@@ -1205,22 +1212,44 @@ class RadECG:
             logger.debug(f'T onset error: {e}')
             return None
 
-    def extract_pqrst(self, new_peaks_arr, peak_info, rolled_med, start_p):
-        """Placeholder for PQRST geometry extraction."""
-        def grouper(arr):
-            """Mini function for splitting and grouping arrays where the
-            differences between values are not equal to 1, split the array at that
-            point and return a array of those one step arrays
+    def _calc_qtc(self, QT:int, RR:int, formula:str="Bazzett"):
+        """Calculates corrected QT in seconds
 
-            Args:
-                arr (Section of the ecg): <-----
+        Args:
+            QT (int): QT interval (seconds)
+            RR (int): R to R interval (seconds)
+            formula (str, optional): What type of QT correction you want. Defaults to "Bazzett".
 
-            Returns:
-                array of np.arrays:
-
-            """		
-            return np.split(arr, np.where(np.diff(arr) != 1)[0] + 1)
+        Returns:
+            QTc (int): Corrected QT in ms
+        """
+        if not QT or not RR or RR <= 0:
+            return 0
+            
+        # Clinical formulas require QT in milliseconds, and RR in seconds.
+        rr_sec = RR / 1000.0
+        match formula:
+            case "Bazzett":
+            # Bazett Formula: QTc = QT / sqrt(RR)
+                QTc = QT / np.sqrt(rr_sec)
+            case "Fridericia":
+            # Fridericia Formula: QTc = QT / (RR^(1/3))
+                QTc = QT / (rr_sec ** (1/3))
+            case "Framingham":
+            # Framingham Formula: QTc = QT + 0.154 * (1 - RR)
+                QTc = QT + 154 * (1 - rr_sec)
+        return int(QTc) 
     
+    def _calc_tpte(self, t_peak: int, t_offset: int) -> int:
+        """Calculates T-peak to T-end (Tp-Te) interval in milliseconds."""
+        if not t_peak or not t_offset:
+            return 0
+            
+        # TpTe is the distance from the peak of the T-wave to the end of the T-wave
+        return int(1000 * ((t_offset - t_peak) / self.fs))
+    
+    def extract_pqrst(self, new_peaks_arr:np.ndarray, peak_info:dict, rolled_med:np.ndarray, start_p:int):
+        """Routine for PQRST geometry extraction."""
         beats: List[HeartBeat] = [HeartBeat(r_peak=int(p)) for p in new_peaks_arr[:, 0]]
         samp_mins = [None] * len(beats)
 
@@ -1306,12 +1335,12 @@ class RadECG:
         for i, beat in enumerate(beats):
             valid = utils.valid_QRS(beat)
             if valid:
-                srch_width = (beat.s_peak - beat.q_peak) * 2
-                beat.p_onset = self._find_p_onset(beat.p_peak, srch_width)
-                beat.q_onset = self._find_q_onset(beat.q_peak, beat.p_peak)
+                srch_width    = (beat.s_peak - beat.q_peak) * 2
+                beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
+                beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
                 beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
-                beat.j_point = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
-                beat.t_onset = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
+                beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
+                beat.t_onset  = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
             row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
             row[0]  = beat.p_peak or None
@@ -1330,7 +1359,7 @@ class RadECG:
             row[13] = beat.j_point or None
             row[14] = beat.t_onset or None
             row[15] = beat.t_offset or None
-            row[16] = beat.u_wave or None
+            row[16] = beat.u_wave or False
 
             # Map Intervals directly to milliseconds
             # MEAS PR
@@ -1350,16 +1379,20 @@ class RadECG:
             # MEAS QT
             if beat.t_offset and beat.q_onset:
                 row[20] = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
-            # Meas QTc
-            
-            # Meas TpTe
-
+            # MEAS QTc
+            # Calculate the RR interval in ms using the current and next R peak
+            if row[20]:
+                rr_interval_ms = int(1000 * ((beats[i+1].r_peak - beat.r_peak) / self.fs))
+                row[21] = self._calc_qtc(QT=row[20], RR=rr_interval_ms, formula="Bazzett")
+            # MEAS TpTe
+            if beat.t_peak and beat.t_offset:
+                row[22] = self._calc_tpte(beat.t_peak, beat.t_offset)
             temp_arr.append(row)
 
         if temp_arr and self.sect_id in self.stack_range:
             self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)))
 
-    def section_stats(self, new_peaks_arr:np.ndarray):
+    def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
         if peak_check:
             self.data.sect_info["section_info"][self.sect_id] += " inv_peak"
@@ -1369,8 +1402,65 @@ class RadECG:
         elif new_peaks_arr.size <= 2:
             self.data['section_info']['fail_reason'][self.sect_id] += " no_peaks"
             logger.warning(f'Not enough peaks to calculate section stats')
-                        #Add the data to our container.  Time it every 10k sections
+                        
+        
+        # Initialize the dataclass
+        stats = SectionStat()
 
+        # --- Time Domain HR Measures ---
+        valid_peaks = new_peaks_arr[new_peaks_arr[:, 1] == 1, 0]
+        if len(valid_peaks) > 1:
+            RR_diffs = np.diff(valid_peaks)
+            RR_diffs_time = np.abs(RR_diffs / self.fs) * 1000 # Format to ms
+            HR = 60 / (RR_diffs / self.fs) # BPM
+            
+            stats.HR    = self._yabig_meanie(HR.tolist(), 2)
+            stats.SDNN  = np.round(np.std(HR), 5)
+            stats.RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
+
+        # --- Interval Averages (PQRST) ---
+        try:
+            # Filter interior peaks that belong strictly to this section
+            inners = self.data.interior_peaks[
+                (self.data.interior_peaks[:, 2] > start_p) & 
+                (self.data.interior_peaks[:, 2] < end_p)
+            ]
+            
+            if len(inners) > 0:
+                # Helper to extract a column and convert '0' (missed extraction) to NaN
+                def get_clean_col(col_idx):
+                    col_data = inners[:, col_idx].astype(float)
+                    col_data[col_data == 0] = np.nan
+                    return col_data.tolist()
+
+                # Use _yabig_meanie to safely average the extracted columns
+                stats.PR   = self._yabig_meanie(get_clean_col(17), 1)
+                stats.QRS  = self._yabig_meanie(get_clean_col(18), 1)
+                stats.ST   = self._yabig_meanie(get_clean_col(19), 1)
+                stats.QT   = self._yabig_meanie(get_clean_col(20), 1)
+                stats.QTc  = self._yabig_meanie(get_clean_col(21), 1)
+                
+                # Check if TpTe (column 22) exists before extracting
+                if inners.shape[1] > 22:
+                    stats.TpTe = self._yabig_meanie(get_clean_col(22), 1)
+
+        except Exception as e:
+            logger.warning(f'Unable to calculate segment interval averages: {e}')
+
+        # --- Map Dataclass Back to the NumPy Structured Array ---
+        # Note: Ensure the string keys perfectly match your setup_globals.py column names
+        self.data.sect_info["HR"][self.sect_id]    = stats.HR if not np.isnan(stats.HR) else 0
+        self.data.sect_info["SDNN"][self.sect_id]  = stats.SDNN if not np.isnan(stats.SDNN) else 0
+        self.data.sect_info["RMSSD"][self.sect_id] = stats.RMSSD if not np.isnan(stats.RMSSD) else 0
+        
+        # If your global dtypes use "Avg_PR", "Avg_QRS", etc., update these keys to match!
+        self.data.sect_info["PR"][self.sect_id]  = stats.PR if not np.isnan(stats.PR) else 0
+        self.data.sect_info["QRS"][self.sect_id] = stats.QRS if not np.isnan(stats.QRS) else 0
+        self.data.sect_info["ST"][self.sect_id]  = stats.ST if not np.isnan(stats.ST) else 0
+        self.data.sect_info["QT"][self.sect_id]  = stats.QT if not np.isnan(stats.QT) else 0
+        
+        # (Add QTc and TpTe assignment here if you add them to your SECTION_DTYPES list)
+        #Add the data to our container.  Time it every 10k sections
         if self.sect_id in self.stack_range:
             self.data.peaks = self.peak_stack_test(new_peaks_arr)
         else:
@@ -1488,7 +1578,7 @@ class RadECG:
                 # Proceed to PQRST extract and stats if section valid
                 self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
                 # Generate Section Stats
-                self.section_stats()
+                self.section_stats(new_peaks_arr)
 
             #Plot all section info
             if self.gui.plot_section and sect_valid:
