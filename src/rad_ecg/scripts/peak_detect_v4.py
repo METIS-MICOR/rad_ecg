@@ -906,30 +906,6 @@ class RadECG:
                 return arr[counts][::-1, 0]
         return False
 
-    def estimate_iso(self, r_peaks:np.ndarray) -> float:
-        iso = []
-        for idx, r_valid in enumerate(r_peaks): 
-            if r_valid:
-                try:
-                    T_pe = r_peaks[idx, 0]
-                    P_pe = r_peaks[idx + 1, 0]
-                    start = T_pe
-                    end = P_pe
-                    lil_wave = self.data.wave[start:end].flatten()
-                    lil_grads = np.gradient(np.gradient(lil_wave))
-                    half = lil_grads.shape[0]//2
-                    T_off = start + np.argmax(lil_grads[:half])
-                    P_on = start + half + np.argmax(lil_grads[half:])
-                    iso.append(np.nanmean(self.data.wave[T_off:P_on]))
-
-                except Exception as e:
-                    logger.warning(f'Iso extraction Error for Rpeak {r_peaks[idx, 0]:_d}\n{e} ')
-
-        if iso:
-            isoelectric = np.round(np.nanmean(iso), 6)
-            return isoelectric
-        else:
-            return None
 
     def historical_validation(
             self, 
@@ -1085,6 +1061,31 @@ class RadECG:
         return sect_valid, new_peaks_arr, fail_reason
         # Add HR stats for that secti
 
+    def estimate_iso(self, r_peaks:np.ndarray) -> float:
+        iso = []
+        for idx, r_valid in enumerate(r_peaks): 
+            if r_valid:
+                try:
+                    T_pe = r_peaks[idx, 0]
+                    P_pe = r_peaks[idx + 1, 0]
+                    start = T_pe
+                    end = P_pe
+                    lil_wave = self.data.wave[start:end].flatten()
+                    lil_grads = np.gradient(np.gradient(lil_wave))
+                    half = lil_grads.shape[0]//2
+                    T_off = start + np.argmax(lil_grads[:half])
+                    P_on = start + half + np.argmax(lil_grads[half:])
+                    iso.append(np.nanmean(self.data.wave[T_off:P_on]))
+
+                except Exception as e:
+                    logger.warning(f'Iso extraction Error for Rpeak {r_peaks[idx, 0]:_d}\n{e} ')
+
+        if iso:
+            isoelectric = np.round(np.nanmean(iso), 6)
+            return isoelectric
+        else:
+            return None
+        
     def _curve_line_dist(self, point:tuple, coef:tuple)->float:
         """This function calculates the distance from every point
         in our manufactured line, to the curve.  We use this to determine
@@ -1239,7 +1240,35 @@ class RadECG:
             # Framingham Formula: QTc = QT + 0.154 * (1 - RR)
                 QTc = QT + 154 * (1 - rr_sec)
         return int(QTc) 
-    
+
+    def _calc_qtvi(self, qt_intervals: list, rr_intervals: list) -> float:
+        """
+        Calculates QT Variability Index (QTVI) using Berger's formula:
+        QTVI = log10[(QTv / QTm^2) / (RRv / RRm^2)]
+        """
+        # Filter out missing extractions (NaNs/Nones)
+        clean_qt = [v for v in qt_intervals if v is not None and not np.isnan(v)]
+        clean_rr = [v for v in rr_intervals if v is not None and not np.isnan(v)]
+        
+        # Variance calculation requires at least 2 valid samples
+        if len(clean_qt) < 2 or len(clean_rr) < 2:
+            return np.nan
+            
+        qt_m = np.mean(clean_qt)
+        qt_v = np.var(clean_qt, ddof=1) # Sample variance
+        
+        rr_m = np.mean(clean_rr)
+        rr_v = np.var(clean_rr, ddof=1)
+        
+        # Prevent division by zero or log(0) crashes
+        if qt_m == 0 or rr_m == 0 or rr_v == 0 or qt_v == 0:
+            return np.nan
+            
+        qt_norm = qt_v / (qt_m ** 2)
+        rr_norm = rr_v / (rr_m ** 2)
+        
+        return np.round(np.log10(qt_norm / rr_norm), 2).item()
+
     def _calc_tpte(self, t_peak: int, t_offset: int) -> int:
         """Calculates T-peak to T-end (Tp-Te) interval in milliseconds."""
         if not t_peak or not t_offset:
@@ -1402,8 +1431,7 @@ class RadECG:
         elif new_peaks_arr.size <= 2:
             self.data['section_info']['fail_reason'][self.sect_id] += " no_peaks"
             logger.warning(f'Not enough peaks to calculate section stats')
-                        
-        
+
         # Initialize the dataclass
         stats = SectionStat()
 
@@ -1413,14 +1441,13 @@ class RadECG:
             RR_diffs = np.diff(valid_peaks)
             RR_diffs_time = np.abs(RR_diffs / self.fs) * 1000 # Format to ms
             HR = 60 / (RR_diffs / self.fs) # BPM
-            
             stats.HR    = self._yabig_meanie(HR.tolist(), 2)
             stats.SDNN  = np.round(np.std(HR), 5)
             stats.RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
 
-        # --- Interval Averages (PQRST) ---
+        # (PQRST) Averages
         try:
-            # Filter interior peaks that belong strictly to this section
+            # Filter interior peaks that belong to this section
             inners = self.data.interior_peaks[
                 (self.data.interior_peaks[:, 2] > start_p) & 
                 (self.data.interior_peaks[:, 2] < end_p)
@@ -1440,27 +1467,32 @@ class RadECG:
                 stats.QT   = self._yabig_meanie(get_clean_col(20), 1)
                 stats.QTc  = self._yabig_meanie(get_clean_col(21), 1)
                 
-                # Check if TpTe (column 22) exists before extracting
+                # Calc QTVI
+                qt_list = get_clean_col(20)
+                rr_list = RR_diffs_time.tolist() if len(RR_diffs_time) > 0 else []
+                stats.QTVI = self._calc_qtvi(qt_list, rr_list)
+
+                # Calc TpTe
                 if inners.shape[1] > 22:
                     stats.TpTe = self._yabig_meanie(get_clean_col(22), 1)
 
         except Exception as e:
-            logger.warning(f'Unable to calculate segment interval averages: {e}')
+            logger.warning(f'averages error in section: {self.sect_id} {e}')
 
-        # --- Map Dataclass Back to the NumPy Structured Array ---
-        # Note: Ensure the string keys perfectly match your setup_globals.py column names
+        # Move info back to the sect_info
         self.data.sect_info["HR"][self.sect_id]    = stats.HR if not np.isnan(stats.HR) else 0
         self.data.sect_info["SDNN"][self.sect_id]  = stats.SDNN if not np.isnan(stats.SDNN) else 0
         self.data.sect_info["RMSSD"][self.sect_id] = stats.RMSSD if not np.isnan(stats.RMSSD) else 0
         
-        # If your global dtypes use "Avg_PR", "Avg_QRS", etc., update these keys to match!
+        # Update Segment info
         self.data.sect_info["PR"][self.sect_id]  = stats.PR if not np.isnan(stats.PR) else 0
         self.data.sect_info["QRS"][self.sect_id] = stats.QRS if not np.isnan(stats.QRS) else 0
         self.data.sect_info["ST"][self.sect_id]  = stats.ST if not np.isnan(stats.ST) else 0
         self.data.sect_info["QT"][self.sect_id]  = stats.QT if not np.isnan(stats.QT) else 0
-        
-        # (Add QTc and TpTe assignment here if you add them to your SECTION_DTYPES list)
-        #Add the data to our container.  Time it every 10k sections
+        self.data.sect_info["QTc"][self.sect_id]  = stats.QTc if not np.isnan(stats.QTc) else 0
+        self.data.sect_info["TpTe"][self.sect_id] = stats.TpTe if not np.isnan(stats.TpTe) else 0
+
+        # Add the R peaks to the peaks container. Time it every 10k sections
         if self.sect_id in self.stack_range:
             self.data.peaks = self.peak_stack_test(new_peaks_arr)
         else:

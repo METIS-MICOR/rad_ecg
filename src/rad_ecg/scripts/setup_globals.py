@@ -44,29 +44,29 @@ SECTION_DTYPES = [
 ]
 
 PEAK_DTYPES = [
-    ('p_peak'      , 'i4'),  # 0
-    ('q_peak'      , 'i4'),  # 1
-    ('r_peak'      , 'i4'),  # 2
-    ('s_peak'      , 'i4'),  # 3
-    ('t_peak'      , 'i4'),  # 4
-    ('valid_qrs'   , 'bool'),# 5
-    ('p_peak_a'    , 'f4'),  # 6
-    ('q_peak_a'    , 'f4'),  # 7
-    ('r_peak_a'    , 'f4'),  # 8
-    ('s_peak_a'    , 'f4'),  # 9
-    ('t_peak_a'    , 'f4'),  # 10
-    ('p_onset'     , 'i4'),  # 11
-    ('q_onset'     , 'i4'),  # 12
-    ('j_point'     , 'i4'),  # 13
-    ('t_onset'     , 'i4'),  # 14
-    ('t_offset'    , 'i4'),  # 15
-    ('u_wave'      , 'bool') # 16
-    ('PR'          , 'i4'),  # 17
-    ('QRS'         , 'i4'),  # 18
-    ('ST'          , 'i4'),  # 19
-    ('QT'          , 'i4'),  # 20
-    ('QTc'         , 'i4'),  # 21
-    ('TpTe'        , 'f4'),  # 22
+    ('p_peak'      , 'i4'),   # 0
+    ('q_peak'      , 'i4'),   # 1
+    ('r_peak'      , 'i4'),   # 2
+    ('s_peak'      , 'i4'),   # 3
+    ('t_peak'      , 'i4'),   # 4
+    ('valid_qrs'   , 'bool'), # 5
+    ('p_peak_a'    , 'f4'),   # 6
+    ('q_peak_a'    , 'f4'),   # 7
+    ('r_peak_a'    , 'f4'),   # 8
+    ('s_peak_a'    , 'f4'),   # 9
+    ('t_peak_a'    , 'f4'),   # 10
+    ('p_onset'     , 'i4'),   # 11
+    ('q_onset'     , 'i4'),   # 12
+    ('j_point'     , 'i4'),   # 13
+    ('t_onset'     , 'i4'),   # 14
+    ('t_offset'    , 'i4'),   # 15
+    ('u_wave'      , 'bool')  # 16
+    ('PR'          , 'i4'),   # 17
+    ('QRS'         , 'i4'),   # 18
+    ('ST'          , 'i4'),   # 19
+    ('QT'          , 'i4'),   # 20
+    ('QTc'         , 'i4'),   # 21
+    ('TpTe'        , 'f4'),   # 22
 ]
 
 ################################# Custom INIT / Loading functions ############################################
