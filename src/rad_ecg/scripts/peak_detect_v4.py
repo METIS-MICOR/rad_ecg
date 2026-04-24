@@ -54,7 +54,7 @@ class SectionStat:
     ST    : float = None #ms
     QT    : float = None #ms
     QTc   : float = None #ms
-    QTVI  : float = None #ms
+    QTVI  : float = None #s
     TpTe  : float = None #ms
 
 @dataclass
@@ -869,7 +869,6 @@ class RadECG:
         self.iqr_low_thresh:float = 1.0
         self.is_stable:bool = False
 
-    
     @log_time
     def peak_stack_test(self, new_peaks_arr:np.array) -> np.array:
         """Times how long it takes to run the vstack.  Useful for debugging
@@ -940,7 +939,7 @@ class RadECG:
                 new_peaks_arr[bad_sep + 1, 1] = 0
                 fail_reason += "sep|"
                 sect_valid = False
-                logger.warning(f"Peak separation violation in section {self.sect_id}")
+                logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
                 plot_kwargs["bad_sep"] = bad_sep
         # ==========================================================
         # GATE 2: Peak Height Check (ECG to rolling diff)
@@ -959,7 +958,7 @@ class RadECG:
             new_peaks_arr[high_peaks, 1] = 0
             fail_reason += "height|"
             sect_valid = False
-            logger.warning(f"Peak height violation in section {self.sect_id}")
+            logger.warning(f"FAILED:Peak height violation in section {self.sect_id}")
             plot_kwargs["low_peaks"] = low_peaks
             plot_kwargs["high_peaks"] = high_peaks
         # ==========================================================
@@ -1007,6 +1006,7 @@ class RadECG:
                 sect_valid = False
                 plot_kwargs["outs"] = outs
                 plot_kwargs["iqr"] = iqr
+                logger.warning(f"FAILED:Rolling median in section {self.sect_id}")
 
         # ==========================================================
         # GATE 4: Slope Morphology Check
@@ -1052,6 +1052,7 @@ class RadECG:
                 plot_kwargs["slopes"] = slopes
                 plot_kwargs["upper_bound"] = upper_bound_slope
                 plot_kwargs["lower_bound"] = lower_bound_slope
+                logger.warning(f"FAILED:Slope in section {self.sect_id}")
 
         if not sect_valid and self.gui.plot_errors:
             fail_reason = fail_reason.strip("|")
