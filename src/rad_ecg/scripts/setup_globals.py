@@ -13,6 +13,62 @@ from rich.text import Text
 from rich.filesize import decimal
 from rich.markup import escape
 
+################################# Global Imports ############################################
+
+SECTION_DTYPES = [
+    ('wave_section', 'i4'),    # 0 
+    ('start_point' , 'i4'),    # 1 
+    ('end_point'   , 'i4'),    # 2 
+    ('valid'       , 'i4'),    # 3 
+    ('fail_reason' , str, 16), # 4 
+    ('isoelectric' , 'f4'),    # 5 
+    ('kurtosis'    , 'f4'),    # 6 
+    ('hjorth'      , 'f4'),    # 7 
+    ('spectral'    , 'f4'),    # 8 
+    ('bad_b_rat'   , 'f4'),    # 9
+    ('wdist'       , 'f4'),    # 10
+    ('power_ratio' , 'f4'),    # 11
+    ('spec_entropy', 'f4'),    # 12
+    ('HR'          , 'f4'),    # 13
+    ('SDNN'        , 'f4'),    # 14
+    ('RMSSD'       , 'f4'),    # 15
+    ('NN50'        , 'f4'),    # 16
+    ('PNN50'       , 'f4'),    # 17
+    ('PR'          , 'f4'),    # 18
+    ('QRS'         , 'f4'),    # 19
+    ('ST'          , 'f4'),    # 20
+    ('QT'          , 'f4'),    # 21
+    ('QTc'         , 'f4'),    # 22
+    ('QTVI'        , 'f4'),    # 23
+    ('TpTe'        , 'f4'),    # 24
+]
+
+PEAK_DTYPES = [
+    ('p_peak'      , 'i4'),  # 0
+    ('q_peak'      , 'i4'),  # 1
+    ('r_peak'      , 'i4'),  # 2
+    ('s_peak'      , 'i4'),  # 3
+    ('t_peak'      , 'i4'),  # 4
+    ('valid_qrs'   , 'bool'),# 5
+    ('p_peak_a'    , 'f4'),  # 6
+    ('q_peak_a'    , 'f4'),  # 7
+    ('r_peak_a'    , 'f4'),  # 8
+    ('s_peak_a'    , 'f4'),  # 9
+    ('t_peak_a'    , 'f4'),  # 10
+    ('p_onset'     , 'i4'),  # 11
+    ('q_onset'     , 'i4'),  # 12
+    ('j_point'     , 'i4'),  # 13
+    ('t_onset'     , 'i4'),  # 14
+    ('t_offset'    , 'i4'),  # 15
+    ('u_wave'      , 'bool') # 16
+    ('PR'          , 'i4'),  # 17
+    ('QRS'         , 'i4'),  # 18
+    ('ST'          , 'i4'),  # 19
+    ('QT'          , 'i4'),  # 20
+    ('QTc'         , 'i4'),  # 21
+    ('TpTe'        , 'f4'),  # 22
+]
+
 ################################# Custom INIT / Loading functions ############################################
 #FUNCTION Custom init
 def init(source:str):
@@ -229,7 +285,6 @@ def load_structures(source:str, datafile:Path):
     return ecg_data, wave, fs
 
 ################################# Size Funcs ############################################
-
 def sizeofobject(folder)->str:
     for unit in ["B", "KB", "MB", "GB"]:
         if abs(folder) < 1024:
@@ -390,51 +445,3 @@ def load_choices(fp:str, batch_process:bool=False):
             return sorted(f for f in Path(str(fp)).iterdir())
         else:
             return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
-
-SECTION_DTYPES = [
-    ('wave_section', 'i4'),
-    ('start_point' , 'i4'),
-    ('end_point'   , 'i4'),
-    ('valid'       , 'i4'),
-    ('fail_reason' , str, 16),
-    ('isoelectric' , 'f4'),
-    ('kurtosis'    , 'f4'),
-    ('hjorth'      , 'f4'),
-    ('spectral'    , 'f4'),
-    ('bad_b_rat'   , 'f4'),
-    ('wdist'       , 'f4'),
-    ('power_ratio' , 'f4'),
-    ('spec_entropy', 'f4'), 
-    ('HR'          , 'f4'), 
-    ('SDNN'        , 'f4'),
-    ('RMSSD'       , 'f4'),
-    ('NN50'        , 'f4'),
-    ('PNN50'       , 'f4'),
-    ('PR'          , 'f4'),
-    ('QRS'         , 'f4'),
-    ('ST'          , 'f4'),
-    ('QT'          , 'f4'),
-    ('QTc'         , 'f4'),
-    ('QTVI'        , 'f4'),
-    ('TpTe'        , 'f4'),
-]
-
-PEAK_DTYPES = [
-    ('p_peak'      , 'i4'),
-    ('q_peak'      , 'i4'),
-    ('r_peak'      , 'i4'),
-    ('s_peak'      , 'i4'),
-    ('t_peak'      , 'i4'),
-    ('valid_qrs'   , 'bool'),
-    ('p_peak_a'    , 'f4'),
-    ('q_peak_a'    , 'f4'),
-    ('r_peak_a'    , 'f4'),
-    ('s_peak_a'    , 'f4'),
-    ('t_peak_a'    , 'f4'),
-    ('p_onset'     , 'f4'),
-    ('q_onset'     , 'f4'),
-    ('j_point'     , 'i4'),
-    ('t_onset'     , 'f4'),
-    ('t_offset'    , 'f4'),
-    ('u_wave'      , 'bool'),
-]

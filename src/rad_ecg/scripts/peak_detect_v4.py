@@ -1301,9 +1301,7 @@ class RadECG:
                         beat.p_peak_a = self.data.wave[beat.p_peak]
                 except Exception as e:
                     logger.info(f"P peak extraction error for {peak0}. Error message {e}")
-
         isoelectric = self.estimate_iso(beats)
-
         temp_arr = []
         for i, beat in enumerate(beats):
             valid = utils.valid_QRS(beat)
@@ -1315,47 +1313,51 @@ class RadECG:
                 beat.j_point = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
                 beat.t_onset = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
-        row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
-        row[0] = beat.p_peak or None
-        row[1] = beat.q_peak or None
-        row[2] = beat.r_peak or None
-        row[3] = beat.s_peak or None
-        row[4] = beat.t_peak or None
-        row[5] = valid
-        row[6] = beat.p_peak_a or None
-        row[7] = beat.q_peak_a or None
-        row[8] = beat.r_peak_a or None
-        row[9] = beat.s_peak_a or None
-        row[10] = beat.t_peak_a or None
-        row[17] = beat.p_onset or None
-        row[18] = beat.q_onset or None
-        row[19] = beat.t_onset or None
-        row[20] = beat.t_offset or None
-        row[21] = beat.j_point or None
+            row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
+            row[0]  = beat.p_peak or None
+            row[1]  = beat.q_peak or None
+            row[2]  = beat.r_peak or None
+            row[3]  = beat.s_peak or None
+            row[4]  = beat.t_peak or None
+            row[5]  = valid
+            row[6]  = beat.p_peak_a or None
+            row[7]  = beat.q_peak_a or None
+            row[8]  = beat.r_peak_a or None
+            row[9]  = beat.s_peak_a or None
+            row[10] = beat.t_peak_a or None
+            row[11] = beat.p_onset or None
+            row[12] = beat.q_onset or None
+            row[13] = beat.j_point or None
+            row[14] = beat.t_onset or None
+            row[15] = beat.t_offset or None
+            row[16] = beat.u_wave or None
 
-        # Map Intervals directly to milliseconds
-        # MEAS PR
-        if beat.q_onset and beat.p_onset:
-            row[11] = int(1000 * ((beat.q_onset - beat.p_onset) / self.fs))
-        # MEAS QRS
-        if beat.q_onset and beat.j_point:
-            row[12] = int(1000 * ((beat.j_point - beat.q_onset) / self.fs))
-        elif beat.q_onset and beat.s_peak:
-            row[13] = int(1000 * ((beat.s_peak - beat.q_onset) / self.fs))
-        # MEAS ST
-        if beat.t_onset and beat.j_point:
-            row[14] = int(1000 * ((beat.t_onset - beat.j_point) / self.fs))
-        elif beat.t_onset and beat.s_peak:
-            row[15] = int(1000 * ((beat.t_onset - beat.s_peak) / self.fs))
-        # MEAS QT
-        if beat.t_offset and beat.q_onset:
-            row[16] = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
-        
-        temp_arr.append(row)
+            # Map Intervals directly to milliseconds
+            # MEAS PR
+            if beat.q_onset and beat.p_onset:
+                row[17] = int(1000 * ((beat.q_onset - beat.p_onset) / self.fs))
+            # MEAS QRS
+            # If we have a Jpoint, use that for QRS.  If not, use the S peak
+            if beat.q_onset and beat.j_point:
+                row[18] = int(1000 * ((beat.j_point - beat.q_onset) / self.fs))
+            elif beat.q_onset and beat.s_peak:
+                row[18] = int(1000 * ((beat.s_peak - beat.q_onset) / self.fs))
+            # MEAS ST
+            if beat.t_onset and beat.j_point:
+                row[19] = int(1000 * ((beat.t_onset - beat.j_point) / self.fs))
+            elif beat.t_onset and beat.s_peak:
+                row[19] = int(1000 * ((beat.t_onset - beat.s_peak) / self.fs))
+            # MEAS QT
+            if beat.t_offset and beat.q_onset:
+                row[20] = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
+            # Meas QTc
+            
+            # Meas TpTe
 
-        if temp_arr:
-            self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=np.int32)))
-        # self.data.interior_peaks = np.vstack((self.data.interior_peaks, int_peaks))
+            temp_arr.append(row)
+
+        if temp_arr and self.sect_id in self.stack_range:
+            self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)))
 
     def section_stats(self, new_peaks_arr:np.ndarray):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
@@ -1367,7 +1369,15 @@ class RadECG:
         elif new_peaks_arr.size <= 2:
             self.data['section_info']['fail_reason'][self.sect_id] += " no_peaks"
             logger.warning(f'Not enough peaks to calculate section stats')
-        
+                        #Add the data to our container.  Time it every 10k sections
+
+        if self.sect_id in self.stack_range:
+            self.data.peaks = self.peak_stack_test(new_peaks_arr)
+        else:
+            self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
+            #BUG - Memory
+                # You're going to still run into the vstack problem
+
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
         sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
@@ -1479,13 +1489,7 @@ class RadECG:
                 self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
                 # Generate Section Stats
                 self.section_stats()
-                #Add the data to our container.  Time it every 10k sections
-                if self.sect_id in self.stack_range:
-                    self.data.peaks = self.peak_stack_test(new_peaks_arr)
-                else:
-                    self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-                #BUG - Memory
-                    # You're going to still run into the vstack problem
+
             #Plot all section info
             if self.gui.plot_section and sect_valid:
                 self.gui.plot_fft_sect(
