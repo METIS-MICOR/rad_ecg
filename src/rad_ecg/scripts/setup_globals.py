@@ -27,20 +27,20 @@ SECTION_DTYPES = [
     ('spectral'    , 'f4'),    # 8 
     ('bad_b_rat'   , 'f4'),    # 9
     ('wdist'       , 'f4'),    # 10
-    ('power_ratio' , 'f4'),    # 11
-    ('spec_entropy', 'f4'),    # 12
-    ('HR'          , 'f4'),    # 13
-    ('SDNN'        , 'f4'),    # 14
-    ('RMSSD'       , 'f4'),    # 15
-    ('NN50'        , 'f4'),    # 16
-    ('PNN50'       , 'f4'),    # 17
-    ('PR'          , 'f4'),    # 18
-    ('QRS'         , 'f4'),    # 19
-    ('ST'          , 'f4'),    # 20
-    ('QT'          , 'f4'),    # 21
-    ('QTc'         , 'f4'),    # 22
-    ('QTVI'        , 'f4'),    # 23
-    ('TpTe'        , 'f4'),    # 24
+    # ('power_ratio' , 'f4'),    # 11
+    # ('spec_entropy', 'f4'),    # 12
+    ('HR'          , 'f4'),    # 11
+    ('SDNN'        , 'f4'),    # 12
+    ('RMSSD'       , 'f4'),    # 13
+    ('NN50'        , 'f4'),    # 14
+    ('PNN50'       , 'f4'),    # 15
+    ('PR'          , 'f4'),    # 16
+    ('QRS'         , 'f4'),    # 17
+    ('ST'          , 'f4'),    # 18
+    ('QT'          , 'f4'),    # 19
+    ('QTc'         , 'f4'),    # 20
+    ('QTVI'        , 'f4'),    # 21
+    ('TpTe'        , 'f4'),    # 22
 ]
 
 #Interior Peaks
