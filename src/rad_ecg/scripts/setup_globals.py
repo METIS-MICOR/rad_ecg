@@ -61,7 +61,7 @@ PEAK_DTYPES = [
     ('j_point'     , 'i4'),   # 13
     ('t_onset'     , 'i4'),   # 14
     ('t_offset'    , 'i4'),   # 15
-    ('u_wave'      , 'bool')  # 16
+    ('u_wave'      , 'bool'), # 16
     ('PR'          , 'i4'),   # 17
     ('QRS'         , 'i4'),   # 18
     ('ST'          , 'i4'),   # 19

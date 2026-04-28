@@ -29,11 +29,11 @@ class HeartBeat:
     r_peak  : int = None
     s_peak  : int = None
     t_peak  : int = None
-    p_peak_a: int = None
-    q_peak_a: int = None
-    r_peak_a: int = None
-    s_peak_a: int = None
-    t_peak_a: int = None
+    p_peak_a: float = None
+    q_peak_a: float = None
+    r_peak_a: float = None
+    s_peak_a: float = None
+    t_peak_a: float = None
     p_onset : int = None
     p_offset: int = None
     q_onset : int = None
@@ -41,6 +41,13 @@ class HeartBeat:
     t_offset: int = None
     j_point : int = None
     u_wave  : bool = None
+    PR      : float = None #ms
+    QRS     : float = None #ms
+    ST      : float = None #ms
+    QT      : float = None #ms
+    QTc     : float = None #ms
+    QTVI    : float = None #s
+    TpTe    : float = None #ms
 
 @dataclass
 class SectionStat:
@@ -69,83 +76,10 @@ class ECGData:
     
     def __post_init__(self):
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
-        self.interior_peaks = np.zeros((0, len(setup_globals.SECTION_DTYPES)), dtype=np.int32)
+        self.interior_peaks = np.zeros((0, self.peaks.shape[0]), dtype=setup_globals.SECTION_DTYPES)
 ###############################################################################
 # 2. Tool Classes
 ###############################################################################
-class SignalLoader:
-    """Handles loading and structuring of the data."""
-    def __init__(self, file_path: str):
-        self.file_path = file_path
-        self.fs = None
-        self.wave = None
-        self.window = None
-        self.dtypes = None
-
-    def load_signal_data(self):
-        """Loads the signal based on file type suffix
-        """        
-        record = None
-        #Load signal data
-        file_type = self.file_path.suffix
-
-        #Determine filetype and use appropriate library to load
-        try:
-            match file_type:
-                case "ebm": 
-                    from lib_ebm.pyebmreader import ebmreader
-                    record, header = ebmreader(
-                        filepath = self.file_path,
-                        onlyheader = False
-                    )
-                    self.wave = record[0]
-                    self.window = 2
-                    self.fs = float(header["frequency"])
-
-                case "ecg": 
-                    pass
-                case "h12": 
-                    pass            
-                #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
-                case "":
-                    if self.file_path.is_dir():
-                        from wfdb import rdrecord
-                        record = rdrecord(
-                            self.file_path / f"{self.file_path._tail[-1]}",
-                            sampfrom=0,
-                            sampto=None,
-                            channels=[0]
-                        )
-                        self.fs = record.fs
-                        self.wave = record.p_signal
-                        self.window = 10
-                        self.dtypes = setup_globals.SECTION_DTYPES
-
-        except Exception as e:
-            logger.critical(f"Unable to load file. Error {e}")
-
-        #Segment the signal
-        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)
-    
-    def load_structures(self) -> ECGData:
-        """Loading data structures for RAD_ECG
-
-        Returns:
-            ECGData (dataclass): Dataclass of data objects.
-        """        
-        logger.info(f"Loading data from {self.file_path}")
-        rad = ECGData(
-            wave = self.wave,
-            fs = self.fs,
-        )
-        rad.sect_info = np.zeros(shape=(self.segments.shape[0]), dtype=self.dtypes)
-        rad.sect_info["wave_section"] = np.arange(self.segments.shape[0])
-        rad.sect_info["start_point"] = self.segments[:,0]
-        rad.sect_info["end_point"] = self.segments[:,1]
-        rad.sect_info["valid"] = self.segments[:,2]
-        #Don't need segments anymore, so delete it. 
-        del self.segments
-        return rad
 
 class CardiacFreqTools:
     """Handles frequency domain evaluations and Signal Quality Indices (SQI)."""
@@ -406,6 +340,80 @@ class CardiacFreqTools:
         fail_reason = f"Bad Beats: {bad_beats} | {total_beats}" if not is_valid else ""
 
         return is_valid, fail_reason, metrics, valid_mask
+
+class SignalLoader:
+    """Handles loading and structuring of the data."""
+    def __init__(self, file_path: str):
+        self.file_path = file_path
+        self.fs = None
+        self.wave = None
+        self.window = None
+        self.dtypes = None
+
+    def load_signal_data(self):
+        """Loads the signal based on file type suffix
+        """        
+        record = None
+        #Load signal data
+        file_type = self.file_path.suffix
+
+        #Determine filetype and use appropriate library to load
+        try:
+            match file_type:
+                case "ebm": 
+                    from lib_ebm.pyebmreader import ebmreader
+                    record, header = ebmreader(
+                        filepath = self.file_path,
+                        onlyheader = False
+                    )
+                    self.wave = record[0]
+                    self.window = 2
+                    self.fs = float(header["frequency"])
+
+                case "ecg": 
+                    pass
+                case "h12": 
+                    pass            
+                #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
+                case "":
+                    if self.file_path.is_dir():
+                        from wfdb import rdrecord
+                        record = rdrecord(
+                            self.file_path / f"{self.file_path._tail[-1]}",
+                            sampfrom=0,
+                            sampto=None,
+                            channels=[0]
+                        )
+                        self.fs = record.fs
+                        self.wave = record.p_signal
+                        self.window = 10
+                        self.dtypes = setup_globals.SECTION_DTYPES
+
+        except Exception as e:
+            logger.critical(f"Unable to load file. Error {e}")
+
+        #Segment the signal
+        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)
+    
+    def load_structures(self) -> ECGData:
+        """Loading data structures for RAD_ECG
+
+        Returns:
+            ECGData (dataclass): Dataclass of data objects.
+        """        
+        logger.info(f"Loading data from {self.file_path}")
+        rad = ECGData(
+            wave = self.wave,
+            fs = self.fs,
+        )
+        rad.sect_info = np.zeros(shape=(self.segments.shape[0]), dtype=self.dtypes)
+        rad.sect_info["wave_section"] = np.arange(self.segments.shape[0])
+        rad.sect_info["start_point"] = self.segments[:,0]
+        rad.sect_info["end_point"] = self.segments[:,1]
+        rad.sect_info["valid"] = self.segments[:,2]
+        #Don't need segments anymore, so delete it. 
+        del self.segments
+        return rad
     
 class SignalGUI:
     """Handles all Matplotlib visualizations for debugging and validation."""
@@ -844,6 +852,7 @@ class SignalGUI:
         ax_spec.set_ylabel("Frequency (Hz)")
         ax_spec.set_title("Spectrogram (Full Section | 2s Window)")
         ax_spec.set_ylim(0, 50)
+
 ###############################################################################
 # 3. Main Extraction Engine
 ###############################################################################
@@ -880,13 +889,6 @@ class RadECG:
             np.array: Stacked array
         """        
         return np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-    
-    def _yabig_meanie(self, values: list, precision: int = 4) -> float:
-        """Safely calculates the mean, ignoring Nones/NaNs. Returns np.nan if empty."""
-        clean_vals = [v for v in values if v is not None and not np.isnan(v)]
-        if not clean_vals:
-            return np.nan
-        return np.round(np.nanmean(clean_vals), precision).item()
     
     def consecutive_valid_peaks(self, r_peaks: np.ndarray, lookback: int = 1500):
         """Scans back in time to find consecutive validated R peaks."""
@@ -1061,30 +1063,91 @@ class RadECG:
         return sect_valid, new_peaks_arr, fail_reason
         # Add HR stats for that secti
 
-    def estimate_iso(self, r_peaks:np.ndarray) -> float:
+    def estimate_iso(self, r_peaks:list) -> float:
         iso = []
-        for idx, r_valid in enumerate(r_peaks): 
-            if r_valid:
-                try:
-                    T_pe = r_peaks[idx, 0]
-                    P_pe = r_peaks[idx + 1, 0]
-                    start = T_pe
-                    end = P_pe
-                    lil_wave = self.data.wave[start:end].flatten()
-                    lil_grads = np.gradient(np.gradient(lil_wave))
-                    half = lil_grads.shape[0]//2
-                    T_off = start + np.argmax(lil_grads[:half])
-                    P_on = start + half + np.argmax(lil_grads[half:])
-                    iso.append(np.nanmean(self.data.wave[T_off:P_on]))
+        for idx, r_pe in enumerate(r_peaks[:-1]): 
+            try:
+                start = r_peaks[idx].t_peak
+                end = r_peaks[idx + 1].p_peak
+                lil_wave = self.data.wave[start:end].flatten()
+                lil_grads = np.gradient(np.gradient(lil_wave))
+                half = lil_grads.shape[0]//2
+                T_off = start + np.argmax(lil_grads[:half])
+                P_on = start + half + np.argmax(lil_grads[half:])
+                iso.append(np.nanmean(self.data.wave[T_off:P_on]))
 
-                except Exception as e:
-                    logger.warning(f'Iso extraction Error for Rpeak {r_peaks[idx, 0]:_d}\n{e} ')
+            except Exception as e:
+                logger.warning(f'Iso extraction Error for Rpeak {r_pe} {e} ')
 
         if iso:
             isoelectric = np.round(np.nanmean(iso), 6)
             return isoelectric
         else:
             return None
+
+    def _calc_qtc(self, QT:int, RR:int, formula:str="Bazzett"):
+        """Calculates corrected QT in seconds
+
+        Args:
+            QT (int): QT interval (seconds)
+            RR (int): R to R interval (seconds)
+            formula (str, optional): What type of QT correction you want. Defaults to "Bazzett".
+
+        Returns:
+            QTc (int): Corrected QT in ms
+        """
+        if not QT or not RR or RR <= 0:
+            return 0
+            
+        # Clinical formulas require QT in milliseconds, and RR in seconds.
+        rr_sec = RR / 1000.0
+        match formula:
+            case "Bazzett":
+            # Bazett Formula: QTc = QT / sqrt(RR)
+                QTc = QT / np.sqrt(rr_sec)
+            case "Fridericia":
+            # Fridericia Formula: QTc = QT / (RR^(1/3))
+                QTc = QT / (rr_sec ** (1/3))
+            case "Framingham":
+            # Framingham Formula: QTc = QT + 0.154 * (1 - RR)
+                QTc = QT + 154 * (1 - rr_sec)
+        return int(QTc) 
+
+    def _calc_qtvi(self, qt_intervals: list, rr_intervals: list) -> float:
+        """
+        Calculates QT Variability Index (QTVI) using Berger's formula:
+        QTVI = log10[(QTv / QTm^2) / (RRv / RRm^2)]
+        """
+        # Filter out missing extractions (NaNs/Nones)
+        clean_qt = [v for v in qt_intervals if v is not None and not np.isnan(v)]
+        clean_rr = [v for v in rr_intervals if v is not None and not np.isnan(v)]
+        
+        # Variance calculation requires at least 2 valid samples
+        if len(clean_qt) < 2 or len(clean_rr) < 2:
+            return np.nan
+            
+        qt_m = np.mean(clean_qt)
+        qt_v = np.var(clean_qt, ddof=1) # Sample variance
+        
+        rr_m = np.mean(clean_rr)
+        rr_v = np.var(clean_rr, ddof=1)
+        
+        # Prevent division by zero or log(0) crashes
+        if qt_m == 0 or rr_m == 0 or rr_v == 0 or qt_v == 0:
+            return np.nan
+            
+        qt_norm = qt_v / (qt_m ** 2)
+        rr_norm = rr_v / (rr_m ** 2)
+        
+        return np.round(np.log10(qt_norm / rr_norm), 2).item()
+
+    def _calc_tpte(self, t_peak: int, t_offset: int) -> int:
+        """Calculates T-peak to T-end (Tp-Te) interval in milliseconds."""
+        if not t_peak or not t_offset:
+            return 0
+            
+        # TpTe is the distance from the peak of the T-wave to the end of the T-wave
+        return int(1000 * ((t_offset - t_peak) / self.fs))
         
     def _curve_line_dist(self, point:tuple, coef:tuple)->float:
         """This function calculates the distance from every point
@@ -1152,7 +1215,7 @@ class RadECG:
             try:
                 m, b = np.polyfit(range(slope_start, slope_end), self.data.wave[slope_start:slope_end], 1)
                 x_intercept = -b / m
-                isoelectric = isoelectric if isoelectric is not None else x_intercept
+                isoelectric = self.data.sect_info["isoelectric"] if self.data.sect_info["isoelectric"] is not None else x_intercept
                 x_tans = np.linspace(T_peak, T_offset, 100)
                 y_tans = m * x_tans + b
                 T_cross = np.abs(y_tans - isoelectric)
@@ -1212,70 +1275,13 @@ class RadECG:
         except Exception as e:
             logger.debug(f'T onset error: {e}')
             return None
-
-    def _calc_qtc(self, QT:int, RR:int, formula:str="Bazzett"):
-        """Calculates corrected QT in seconds
-
-        Args:
-            QT (int): QT interval (seconds)
-            RR (int): R to R interval (seconds)
-            formula (str, optional): What type of QT correction you want. Defaults to "Bazzett".
-
-        Returns:
-            QTc (int): Corrected QT in ms
-        """
-        if not QT or not RR or RR <= 0:
-            return 0
-            
-        # Clinical formulas require QT in milliseconds, and RR in seconds.
-        rr_sec = RR / 1000.0
-        match formula:
-            case "Bazzett":
-            # Bazett Formula: QTc = QT / sqrt(RR)
-                QTc = QT / np.sqrt(rr_sec)
-            case "Fridericia":
-            # Fridericia Formula: QTc = QT / (RR^(1/3))
-                QTc = QT / (rr_sec ** (1/3))
-            case "Framingham":
-            # Framingham Formula: QTc = QT + 0.154 * (1 - RR)
-                QTc = QT + 154 * (1 - rr_sec)
-        return int(QTc) 
-
-    def _calc_qtvi(self, qt_intervals: list, rr_intervals: list) -> float:
-        """
-        Calculates QT Variability Index (QTVI) using Berger's formula:
-        QTVI = log10[(QTv / QTm^2) / (RRv / RRm^2)]
-        """
-        # Filter out missing extractions (NaNs/Nones)
-        clean_qt = [v for v in qt_intervals if v is not None and not np.isnan(v)]
-        clean_rr = [v for v in rr_intervals if v is not None and not np.isnan(v)]
-        
-        # Variance calculation requires at least 2 valid samples
-        if len(clean_qt) < 2 or len(clean_rr) < 2:
+    
+    def _yabig_meanie(self, values: list, precision: int = 4) -> float:
+        """Safely calculates the mean, ignoring Nones/NaNs. Returns np.nan if empty."""
+        clean_vals = [v for v in values if v is not None and not np.isnan(v)]
+        if not clean_vals:
             return np.nan
-            
-        qt_m = np.mean(clean_qt)
-        qt_v = np.var(clean_qt, ddof=1) # Sample variance
-        
-        rr_m = np.mean(clean_rr)
-        rr_v = np.var(clean_rr, ddof=1)
-        
-        # Prevent division by zero or log(0) crashes
-        if qt_m == 0 or rr_m == 0 or rr_v == 0 or qt_v == 0:
-            return np.nan
-            
-        qt_norm = qt_v / (qt_m ** 2)
-        rr_norm = rr_v / (rr_m ** 2)
-        
-        return np.round(np.log10(qt_norm / rr_norm), 2).item()
-
-    def _calc_tpte(self, t_peak: int, t_offset: int) -> int:
-        """Calculates T-peak to T-end (Tp-Te) interval in milliseconds."""
-        if not t_peak or not t_offset:
-            return 0
-            
-        # TpTe is the distance from the peak of the T-wave to the end of the T-wave
-        return int(1000 * ((t_offset - t_peak) / self.fs))
+        return np.round(np.nanmean(clean_vals), precision).item()
     
     def extract_pqrst(self, new_peaks_arr:np.ndarray, peak_info:dict, rolled_med:np.ndarray, start_p:int):
         """Routine for PQRST geometry extraction."""
@@ -1283,7 +1289,7 @@ class RadECG:
         samp_mins = [None] * len(beats)
 
         #Extract main peaks for PQRST
-        for i in range(len(beats) -1):
+        for i in range(len(beats)-1):
             beat = beats[i]
             next_beat = beats[i+1]
             peak0 = beat.r_peak
@@ -1300,12 +1306,15 @@ class RadECG:
             reject_limit = 0.30 * np.mean(peak_info.get('prominences', [1]))
             if std_dev_SQ >= reject_limit or len(np_inflections) == 0:
                 #TODO - I should probably fail the beat as well here. 
+                #This rejection may not be needed considering the matrix profile/inband tests
                 # self.data.peaks[peak0, 1] = 0
                 # self.data.peaks[peak1, 1] = 0
                 continue
-            # MEAS Q peak
-            beat.q_peak = int(np_inflections[-1]) + peak0
-            beat.q_peak_a = self.data.wave[beat.q_peak]
+
+            # MEAS Q peak (next)
+            next_beat.q_peak = int(np_inflections[-1]) + peak0
+            next_beat.q_peak_a = np.round(self.data.wave[next_beat.q_peak].item(), 6)
+            
             # MEAS S peak
             slope_start = peak0
             slope_end = peak0 + int((peak1 - peak0) // 3)
@@ -1321,7 +1330,7 @@ class RadECG:
             else:
                 beat.s_peak = int(np.argmin(lil_wave)) + slope_start
             if beat.s_peak:
-                beat.s_peak_a = self.data.wave[beat.s_peak]
+                beat.s_peak_a = np.round(self.data.wave[beat.s_peak].item(), 6)
             
             #Figure out the samp min for the T peak
             samp_min = int(np.argmin(self.data.wave[peak0:slope_end]))
@@ -1344,9 +1353,9 @@ class RadECG:
                     RR_first_half = SQ_med_reduced[:half_idx]
                     peak_T_find = ss.find_peaks(RR_first_half, height=np.percentile(SQ_med_reduced, 60))
                     if len(peak_T_find[0]) > 0:
-                        top_T = peak_T_find[0][np.argmax(peak_T_find[1]['peak_heights'])]
-                        beat.t_peak = peak0 + (samp_min - peak0) + top_T
-                        beat.t_peak_a = self.data.wave[beat.t_peak]
+                        top_T = peak_T_find[0][np.argmax(peak_T_find[1]['peak_heights'])].item()
+                        next_beat.t_peak = peak0 + (samp_min - peak0) + top_T
+                        next_beat.t_peak_a = np.round(self.data.wave[beat.t_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"T peak extraction error for {peak0}. Error message {e}")
                 # MEAS P Peak
@@ -1354,17 +1363,17 @@ class RadECG:
                     RR_second_half = SQ_med_reduced[half_idx:]
                     peak_P_find = ss.find_peaks(RR_second_half, height=np.percentile(SQ_med_reduced, 60))
                     if len(peak_P_find[0]) > 0:
-                        top_P = peak_P_find[0][np.argmax(peak_P_find[1]['peak_heights'])] + half_idx
+                        top_P = peak_P_find[0][np.argmax(peak_P_find[1]['peak_heights'])].item() + half_idx
                         next_beat.p_peak = peak0 + (samp_min - peak0) + top_P
-                        beat.p_peak_a = self.data.wave[beat.p_peak]
+                        next_beat.p_peak_a = np.round(self.data.wave[next_beat.p_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"P peak extraction error for {peak0}. Error message {e}")
         isoelectric = self.estimate_iso(beats)
-        self.data.interior_peaks["isoelectric"][self.sect_id] = isoelectric
+        self.data.sect_info["isoelectric"][self.sect_id] = isoelectric
         temp_arr = []
-        for i, beat in enumerate(beats):
-            valid = utils.valid_QRS(beat)
-            if valid:
+        for i, beat in enumerate(beats[:-1]):
+            beat.valid = utils.valid_QRS(beat)
+            if beat.valid:
                 srch_width    = (beat.s_peak - beat.q_peak) * 2
                 beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
                 beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
@@ -1372,52 +1381,33 @@ class RadECG:
                 beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
                 beat.t_onset  = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
-            row = np.zeros(len(setup_globals.PEAK_DTYPES), dtype=np.int32)
-            row[0]  = beat.p_peak or 0
-            row[1]  = beat.q_peak or 0
-            row[2]  = beat.r_peak or 0
-            row[3]  = beat.s_peak or 0
-            row[4]  = beat.t_peak or 0
-            row[5]  = valid
-            row[6]  = beat.p_peak_a or 0
-            row[7]  = beat.q_peak_a or 0
-            row[8]  = beat.r_peak_a or 0
-            row[9]  = beat.s_peak_a or 0
-            row[10] = beat.t_peak_a or 0
-            row[11] = beat.p_onset or 0
-            row[12] = beat.q_onset or 0
-            row[13] = beat.j_point or 0
-            row[14] = beat.t_onset or 0
-            row[15] = beat.t_offset or 0
-            row[16] = beat.u_wave or False
-
             # Map Intervals directly to milliseconds
             # MEAS PR
             if beat.q_onset and beat.p_onset:
-                row[17] = int(1000 * ((beat.q_onset - beat.p_onset) / self.fs))
+                beat.PR = int(1000 * ((beat.q_onset - beat.p_onset) / self.fs))
             # MEAS QRS
             # If we have a Jpoint, use that for QRS.  If not, use the S peak
             if beat.q_onset and beat.j_point:
-                row[18] = int(1000 * ((beat.j_point - beat.q_onset) / self.fs))
+                beat.QRS = int(1000 * ((beat.j_point - beat.q_onset) / self.fs))
             elif beat.q_onset and beat.s_peak:
-                row[18] = int(1000 * ((beat.s_peak - beat.q_onset) / self.fs))
+                beat.QRS = int(1000 * ((beat.s_peak - beat.q_onset) / self.fs))
             # MEAS ST
             if beat.t_onset and beat.j_point:
-                row[19] = int(1000 * ((beat.t_onset - beat.j_point) / self.fs))
+                beat.ST = int(1000 * ((beat.t_onset - beat.j_point) / self.fs))
             elif beat.t_onset and beat.s_peak:
-                row[19] = int(1000 * ((beat.t_onset - beat.s_peak) / self.fs))
+                beat.ST = int(1000 * ((beat.t_onset - beat.s_peak) / self.fs))
             # MEAS QT
             if beat.t_offset and beat.q_onset:
-                row[20] = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
+                beat.QT = int(1000 * ((beat.t_offset - beat.q_onset) / self.fs))
             # MEAS QTc
             # Calculate the RR interval in ms using the current and next R peak
-            if row[20]:
+            if beat.QT:
                 rr_interval_ms = int(1000 * ((beats[i+1].r_peak - beat.r_peak) / self.fs))
-                row[21] = self._calc_qtc(QT=row[20], RR=rr_interval_ms, formula="Bazzett")
+                beat.QTc = self._calc_qtc(QT=beat.QT, RR=rr_interval_ms, formula="Bazzett")
             # MEAS TpTe
             if beat.t_peak and beat.t_offset:
-                row[22] = self._calc_tpte(beat.t_peak, beat.t_offset)
-            temp_arr.append(row)
+                beat.TpTe = self._calc_tpte(beat.t_peak, beat.t_offset)
+            temp_arr.append(beat)
 
         if temp_arr:
             self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)))
@@ -1545,7 +1535,7 @@ class RadECG:
                 self.sect_id += 1
                 continue        
 
-            #Check each beat with the matrix profile and STFT. 
+            #Check each beat with the matrix profile and Welch's STFT. 
             is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
             self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_beat_ratio", 1.0)
 
