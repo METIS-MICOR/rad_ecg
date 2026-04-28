@@ -35,7 +35,6 @@ class HeartBeat:
     s_peak_a: float = None
     t_peak_a: float = None
     p_onset : int = None
-    p_offset: int = None
     q_onset : int = None
     t_onset : int = None
     t_offset: int = None
@@ -1069,15 +1068,17 @@ class RadECG:
             try:
                 start = r_peaks[idx].t_peak
                 end = r_peaks[idx + 1].p_peak
-                lil_wave = self.data.wave[start:end].flatten()
-                lil_grads = np.gradient(np.gradient(lil_wave))
-                half = lil_grads.shape[0]//2
-                T_off = start + np.argmax(lil_grads[:half])
-                P_on = start + half + np.argmax(lil_grads[half:])
-                iso.append(np.nanmean(self.data.wave[T_off:P_on]))
-
+                if start and end:
+                    lil_wave = self.data.wave[start:end].flatten()
+                    lil_grads = np.gradient(np.gradient(lil_wave))
+                    half = lil_grads.shape[0]//2
+                    T_off = start + np.argmax(lil_grads[:half])
+                    P_on = start + half + np.argmax(lil_grads[half:])
+                    iso.append(np.nanmean(self.data.wave[T_off:P_on]))
+                else:
+                    continue
             except Exception as e:
-                logger.warning(f'Iso extraction Error for Rpeak {r_pe} {e} ')
+                logger.warning(f'Iso extraction Error for Rpeak {r_pe.r_peak} {e} ')
 
         if iso:
             isoelectric = np.round(np.nanmean(iso), 6)
@@ -1171,7 +1172,7 @@ class RadECG:
             slope_start = slope_end - int(srch_width*2)
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-            P_onset = slope_start + np.argmax(lil_grads)
+            P_onset = slope_start + np.argmax(lil_grads).item()
             logger.debug(f'Adding P onset')
             return P_onset
         except Exception as e:
@@ -1184,7 +1185,7 @@ class RadECG:
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
             shoulder = np.where(np.abs(lil_grads) >= np.mean(np.abs(lil_grads)))[0]
-            Q_onset = slope_start + shoulder[0] + 1
+            Q_onset = slope_start + shoulder[0].item() + 1
             logger.debug(f'Adding Q onset')
             return Q_onset
         
@@ -1200,7 +1201,7 @@ class RadECG:
         try:
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-            T_offset = slope_start + np.argmax(lil_grads)
+            T_offset = slope_start + np.argmax(lil_grads).item()
             logger.debug(f'Adding T offset')
             return T_offset
             
@@ -1271,7 +1272,7 @@ class RadECG:
 
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
             lil_grads = np.gradient(np.gradient(lil_wave))
-            return slope_start + int(np.argmax(lil_grads))
+            return slope_start + np.argmax(lil_grads).item()
         except Exception as e:
             logger.debug(f'T onset error: {e}')
             return None
@@ -1293,7 +1294,9 @@ class RadECG:
             beat = beats[i]
             next_beat = beats[i+1]
             peak0 = beat.r_peak
+            beat.r_peak_a = np.round(self.data.wave[peak0].item(), 6)
             peak1 = next_beat.r_peak
+
             #Take the difference of each point
             grad = np.diff(self.data.wave[peak0:peak1+1].flatten())
             #Calculate a sign change for that difference
@@ -1313,7 +1316,8 @@ class RadECG:
 
             # MEAS Q peak (next)
             next_beat.q_peak = int(np_inflections[-1]) + peak0
-            next_beat.q_peak_a = np.round(self.data.wave[next_beat.q_peak].item(), 6)
+            if next_beat.q_peak:
+                next_beat.q_peak_a = np.round(self.data.wave[next_beat.q_peak].item(), 6)
             
             # MEAS S peak
             slope_start = peak0
@@ -1321,7 +1325,7 @@ class RadECG:
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
             if len(lil_wave) > 3:
                 f = interp1d(np.arange(slope_start, slope_end), lil_wave, kind="cubic")
-                x_vals = np.linspace(slope_start, slope_end-1, num=len(lil_wave*10))
+                x_vals = np.linspace(slope_start, slope_end-1, num=lil_wave.shape[0]*10)
                 y_vals = f(x_vals)
                 coeffs = np.polyfit((x_vals[0], x_vals[-1]), (y_vals[0], y_vals[-1]), 1)
                 p_dist = [self._curve_line_dist(pt, coeffs) for pt in zip(x_vals, y_vals)]
@@ -1341,8 +1345,8 @@ class RadECG:
             samp_mins[i] = samp_min
             
             # T Peak & (Next) P Peak
-            SQ_range = self.data.wave[samp_min:beat.q_peak if beat.q_peak else peak1].flatten()
-            filt_rol_med = rolled_med[samp_min - start_p : (beat.q_peak if beat.q_peak else peak1) - start_p].flatten()
+            SQ_range = self.data.wave[samp_min:next_beat.q_peak if next_beat.q_peak else peak1].flatten()
+            filt_rol_med = rolled_med[samp_min - start_p : (next_beat.q_peak if next_beat.q_peak else peak1) - start_p].flatten()
             
             if len(SQ_range) == len(filt_rol_med) and len(SQ_range) > 0:
                 SQ_med_reduced = SQ_range - filt_rol_med
@@ -1352,20 +1356,22 @@ class RadECG:
                 try:
                     RR_first_half = SQ_med_reduced[:half_idx]
                     peak_T_find = ss.find_peaks(RR_first_half, height=np.percentile(SQ_med_reduced, 60))
-                    if len(peak_T_find[0]) > 0:
+                    if peak_T_find[0].shape[0] > 0:
                         top_T = peak_T_find[0][np.argmax(peak_T_find[1]['peak_heights'])].item()
-                        next_beat.t_peak = peak0 + (samp_min - peak0) + top_T
-                        next_beat.t_peak_a = np.round(self.data.wave[beat.t_peak].item(), 6)
+                        beat.t_peak = peak0 + (samp_min - peak0) + top_T
+                        if beat.t_peak:
+                            beat.t_peak_a = np.round(self.data.wave[beat.t_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"T peak extraction error for {peak0}. Error message {e}")
                 # MEAS P Peak
                 try:
                     RR_second_half = SQ_med_reduced[half_idx:]
                     peak_P_find = ss.find_peaks(RR_second_half, height=np.percentile(SQ_med_reduced, 60))
-                    if len(peak_P_find[0]) > 0:
+                    if peak_P_find[0].shape[0] > 0:
                         top_P = peak_P_find[0][np.argmax(peak_P_find[1]['peak_heights'])].item() + half_idx
                         next_beat.p_peak = peak0 + (samp_min - peak0) + top_P
-                        next_beat.p_peak_a = np.round(self.data.wave[next_beat.p_peak].item(), 6)
+                        if next_beat.p_peak:
+                            next_beat.p_peak_a = np.round(self.data.wave[next_beat.p_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"P peak extraction error for {peak0}. Error message {e}")
         isoelectric = self.estimate_iso(beats)
@@ -1379,7 +1385,7 @@ class RadECG:
                 beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
                 beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
                 beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
-                beat.t_onset  = self._find_t_onset(beat.s_peak, beat.t_peak, beat.s_peak, samp_mins[i], rolled_med, start_p)
+                beat.t_onset  = self._find_t_onset(beat.t_peak, beat.j_point, beat.s_peak, samp_mins[i], rolled_med, start_p)
 
             # Map Intervals directly to milliseconds
             # MEAS PR
