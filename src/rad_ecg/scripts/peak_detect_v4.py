@@ -1591,7 +1591,9 @@ class RadECG:
             #Check each beat with the matrix profile and Welch's STFT. 
             is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
             self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
-
+            #BUG - Bad_b_ratio
+                #This doesn't take into account the later failures
+                #that you might encounter.  So, we might want to update this
             if not is_valid:
                 if self.gui.plot_errors:
                     self.gui.plot_post_error(
@@ -1655,7 +1657,11 @@ class RadECG:
                 self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
                 # Generate Section Stats
                 self.section_stats(new_peaks_arr, start_p, end_p)
-
+                #Update bad_b_ratio
+                #BUG - Fix this tomorrow
+                # self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(new_peaks_arr[new_peaks_arr[:, 1] == 0].shape[0] / new_peaks_arr.shape[0], 2)
+                #BUG - Might need to return new_peaks_arr
+                
             #Plot all section info
             if self.gui.plot_section and sect_valid:
                 self.gui.plot_fft_sect(
