@@ -566,26 +566,34 @@ class SignalGUI:
         x_range = np.arange(start_idx, end_idx, dtype=np.float64)
 
         fig = plt.figure(figsize=(12, 9))
-        grid = plt.GridSpec(2, 2, hspace=0.4, height_ratios=[1.5, 1])
+        grid = plt.GridSpec(2, 2, hspace=0.6, height_ratios=[1.5, 0.75])
         ax_ecg = fig.add_subplot(grid[0, :2])
         ax_freq = fig.add_subplot(grid[1, :1])
         ax_spec = fig.add_subplot(grid[1, 1:2])
         
         ax_mp_overlay = ax_ecg.twinx()
         ax_mp_overlay.set_visible(False)
+        
+        # State variables for toggles
         mp_line_drawn = False
+        pqrst_visible = False
+        pqrst_artists = []
         
         # ECG Plot
         ax_ecg.plot(x_range, wave_chunk, label='Full ECG', color='dodgerblue')
         ax_ecg.plot(x_range, rolled_med_chunk, label='Rolling Median', color='orange')
         
+        # Initialize R-Peaks
+        r_scatter = None
         if len(new_peaks_arr) > 0:
-            ax_ecg.scatter(new_peaks_arr[:, 0], peak_info.get('peak_heights', []), marker='D', color='red', label='R peaks', zorder=5)
-        
-        # Extract rejection reasons
+            r_scatter = ax_ecg.scatter(
+                new_peaks_arr[:, 0], peak_info.get('peak_heights', []), 
+                marker='D', color='red', label='R peaks', zorder=5, visible=False
+            )
+            pqrst_artists.append(r_scatter)
+
+        # Shade R-R intervals
         reasons = post_metrics.get("rejections", []) if post_metrics else []
-        
-        # Shade R-R intervals based on the valid_mask (column 1 of new_peaks_arr)
         for peak in range(new_peaks_arr.shape[0] - 1):
             is_valid = new_peaks_arr[peak, 1]
             band_color = 'lightgreen' if is_valid else 'red'
@@ -593,14 +601,12 @@ class SignalGUI:
             p1_x = new_peaks_arr[peak+1, 0]
             rect_height = np.max(self.data.wave[p0_x:p1_x])
             rect = Rectangle(
-                xy=(p0_x, 0), 
-                width=p1_x - p0_x, 
-                height=rect_height, 
-                facecolor=band_color, 
-                edgecolor="grey", alpha=0.7
+                xy=(p0_x, 0), width=p1_x - p0_x, height=rect_height, 
+                facecolor=band_color, edgecolor="grey", alpha=0.7
             )
             ax_ecg.add_patch(rect)
-            if not is_valid  and isinstance(reasons[peak], str): #and peak < len(reasons)
+            
+            if not is_valid and isinstance(reasons[peak], str):
                 mid_x = p0_x + (p1_x - p0_x) / 2
                 mid_y = rect_height / 2
                 ax_ecg.text(
@@ -608,40 +614,70 @@ class SignalGUI:
                     fontweight='bold', ha='center', va='center', 
                     bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2', edgecolor='none')
                 )
-        ax_ecg.set_title(f'Full ECG waveform for section {sect_id} indices {start_idx}:{end_idx} (Click R-R to update STFT)') 
+
+        ax_ecg.set_title(f'Section {sect_id} | {start_idx}:{end_idx} (Left/Right Arrows to toggle Overlays | Click R-R for STFT)') 
         ax_ecg.set_xlabel("Timesteps")
         ax_ecg.set_ylabel("ECG mV")
         ax_ecg.legend(loc='upper right')
 
-        # Add SQI Metrics Text Block
-        k_sqi = sqi_metrics["kurtosis"]
-        hjorth = sqi_metrics["hjorth"]
-        spectral = sqi_metrics["spectral"]
-        bad_ratio = sqi_metrics["bad_b_rat"]
-        wdist = sqi_metrics["wdist"]
+        # Interactive PQRST Overlay (Hidden)
+        # Filter interior peaks belonging strictly to this section
+        inners = self.data.interior_peaks[
+            (self.data.interior_peaks['r_peak'] >= start_idx) & 
+            (self.data.interior_peaks['r_peak'] <= end_idx)
+        ]
+        
+        # Helper to plot arrays safely and add to the toggle list
+        def plot_inners(col_name: str, color: str, marker: str, size: int = 40):
+            valid_x = inners[col_name][inners[col_name] > 0]
+            if len(valid_x) > 0:
+                valid_y = self.data.wave[valid_x]
+                scat = ax_ecg.scatter(
+                    valid_x, valid_y, color=color, marker=marker, 
+                    s=size, zorder=6, visible=False, label=col_name.capitalize()
+                )
+                pqrst_artists.append(scat)
 
+        plot_inners('p_peak', 'green', 'o')
+        plot_inners('q_peak', 'cyan', 'v')
+        plot_inners('s_peak', 'magenta', '^')
+        plot_inners('t_peak', 'black', 'o')
+        plot_inners('p_onset', 'purple', '|', size=150)
+        plot_inners('q_onset', 'darkgoldenrod', '|', size=150)
+        plot_inners('j_point', 'dodgerblue', 'o', size=80)
+        plot_inners('t_onset', 'teal', '|', size=150)
+        plot_inners('t_offset', 'orange', '|', size=150)
+
+        # Stacked SQI & Interval Metrics Text Block
         stat_text = (
-            f"Kurtosis: {k_sqi:.2f}   |   "
-            f"Hjorth Complexity: {hjorth:.2f}   |   "
-            f"Wasserstein Dist {wdist:.2f}   |   "
-            f"QRS Ratio: {spectral:.2f}   |   "
-            f"Bad Beat Ratio: {bad_ratio:.1%}   |   "
+            f"Kurtosis: {sqi_metrics["kurtosis"]:.2f}   |   "
+            f"Hjorth Complexity: {sqi_metrics["hjorth"]:.2f}   |   "
+            f"Wasserstein Dist: {sqi_metrics["wdist"]:.2f}   |   "
+            f"QRS Ratio: {sqi_metrics["spectral"]:.2f}   |   "
+            f"Bad Beat Ratio: {sqi_metrics["bad_b_rat"]:.1%}\n"
+            f"PR: {sqi_metrics["PR"]:.0f}ms   |   "
+            f"QRS: {sqi_metrics["QRS"]:.0f}ms   |   "
+            f"ST: {sqi_metrics["ST"]:.0f}ms   |   "
+            f"QT: {sqi_metrics["QT"]:.0f}ms   |   "
+            f"QTc: {sqi_metrics["QTc"]:.0f}ms   |   "
+            f"QTVI: {sqi_metrics["QTVI"]:.2f}   |   "
+            f"TpTe: {sqi_metrics["TpTe"]:.0f}ms"
         )
         
-        # Place text at the bottom center of the ECG plot
         ax_ecg.text(
-            0.5, -0.20, stat_text, 
+            0.5, -0.3, stat_text, 
             transform=ax_ecg.transAxes, 
             fontsize=11, fontweight='bold', 
             ha='center', va='bottom', zorder=10,
             bbox=dict(boxstyle='round,pad=0.5', facecolor='white', alpha=0.9, edgecolor='gray')
         )
 
-        # Initialize the spectral plots using the last two peaks
+        # Spectral Plots
         if new_peaks_arr.shape[0] >= 2:
             p0, p1 = new_peaks_arr[-2, 0], new_peaks_arr[-1, 0]
             self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
 
+        # Event Handlers 
         def onClick(event):
             if event.inaxes == ax_ecg:
                 rects = [i for i in ax_ecg.patches if isinstance(i, Rectangle)]
@@ -654,8 +690,8 @@ class SignalGUI:
                         self._draw_freq_and_spec(ax_freq, ax_spec, p0, p1, start_idx, end_idx)
                         fig.canvas.draw_idle()
 
-        def onRightArrowToggle(event):
-            nonlocal mp_line_drawn
+        def onKeyPress_local(event):
+            nonlocal mp_line_drawn, pqrst_visible
             if event.key == "right":
                 if ax_mp_overlay.get_visible():
                     ax_mp_overlay.set_visible(False)
@@ -664,7 +700,6 @@ class SignalGUI:
                     if not mp_line_drawn and post_metrics and "mp_distances" in post_metrics:
                         mp_dist = post_metrics["mp_distances"]
                         mp_thresh = post_metrics["mp_threshold"]
-
                         pad_len = len(wave_chunk) - len(mp_dist)
                         padded_mp = np.pad(mp_dist, (0, pad_len), constant_values=np.nan)
                         ax_mp_overlay.plot(x_range, padded_mp, color='purple', alpha=0.6, linestyle='-', linewidth=2)
@@ -672,15 +707,18 @@ class SignalGUI:
                         ax_mp_overlay.set_ylabel("Matrix Profile Distance", color='purple')
                         ax_mp_overlay.tick_params(axis='y', labelcolor='purple')
                         mp_line_drawn = True
-                    
                     ax_mp_overlay.set_visible(True)
                     ax_mp_overlay.set_axis_on()
                 fig.canvas.draw_idle()
+                
+            elif event.key == "left":
+                pqrst_visible = not pqrst_visible
+                for artist in pqrst_artists:
+                    artist.set_visible(pqrst_visible)
+                fig.canvas.draw_idle()
 
-        #Click Event to view fft        
         fig.canvas.mpl_connect("button_press_event", onClick)
-        fig.canvas.mpl_connect('key_press_event', onRightArrowToggle)
-        # Auto-close timer
+        fig.canvas.mpl_connect('key_press_event', onKeyPress_local)
         self._apply_timer_and_show(fig, timeout=3000)
 
     def plot_validation_error(
@@ -1430,13 +1468,13 @@ class RadECG:
     def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
         if peak_check:
-            self.data.sect_info["section_info"][self.sect_id] += " inv_peak"
+            self.data.sect_info["fail_reason"][self.sect_id] += " inv_peak|" 
             bad_peaks = np.where(new_peaks_arr[:-1, 1] == 0)[0]
             logger.warning(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
         # Now see if we have the bare minimum for peaks to extract. 
         elif new_peaks_arr.size <= 2:
-            self.data['section_info']['fail_reason'][self.sect_id] += " no_peaks"
-            logger.warning(f'Not enough peaks to calculate section stats')
+            self.data.sect_info["fail_reason"][self.sect_id] += " no_peaks|"
+            logger.warning(f"Not enough peaks to calculate section stats")
 
         # Initialize the dataclass
         stats = SectionStat()
