@@ -12,7 +12,7 @@ from scipy.signal import welch
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 from scipy.interpolate import interp1d
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, astuple
 # from scipy.fft import rfft, rfftfreq, irfft
 from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
@@ -24,29 +24,36 @@ from support import logger, console, log_time, mainspinner, DATE_JSON
 @dataclass
 class HeartBeat:
     """Dataclass to house beat information"""    
-    p_peak  : int = None
-    q_peak  : int = None
-    r_peak  : int = None
-    s_peak  : int = None
-    t_peak  : int = None
-    p_peak_a: float = None
-    q_peak_a: float = None
-    r_peak_a: float = None
-    s_peak_a: float = None
-    t_peak_a: float = None
-    p_onset : int = None
-    q_onset : int = None
-    t_onset : int = None
-    t_offset: int = None
-    j_point : int = None
-    u_wave  : bool = None
-    PR      : float = None #ms
-    QRS     : float = None #ms
-    ST      : float = None #ms
-    QT      : float = None #ms
-    QTc     : float = None #ms
-    QTVI    : float = None #s
-    TpTe    : float = None #ms
+    p_peak   : int = None
+    q_peak   : int = None
+    r_peak   : int = None
+    s_peak   : int = None
+    t_peak   : int = None
+    valid_qrs: bool = False
+    p_peak_a : float = None
+    q_peak_a : float = None
+    r_peak_a : float = None
+    s_peak_a : float = None
+    t_peak_a : float = None
+    p_onset  : int = None
+    q_onset  : int = None
+    j_point  : int = None
+    t_onset  : int = None
+    t_offset : int = None
+    u_wave   : bool = False
+    PR       : float = None #ms
+    QRS      : float = None #ms
+    ST       : float = None #ms
+    QT       : float = None #ms
+    QTc      : float = None #ms
+    TpTe     : float = None #ms
+
+    def to_row(self) -> tuple:
+        """
+        Dumps the dataclass to a tuple for NumPy structured array stacking.
+        Safely converts any un-extracted 'None' values to 0 to prevent dtype crashes.
+        """
+        return tuple(0 if val is None else val for val in astuple(self))
 
 @dataclass
 class SectionStat:
@@ -75,7 +82,7 @@ class ECGData:
     
     def __post_init__(self):
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
-        self.interior_peaks = np.zeros((0, self.peaks.shape[0]), dtype=setup_globals.SECTION_DTYPES)
+        self.interior_peaks = np.empty((0,), dtype=setup_globals.PEAK_DTYPES)
 ###############################################################################
 # 2. Tool Classes
 ###############################################################################
@@ -326,7 +333,7 @@ class CardiacFreqTools:
 
         bad_beat_ratio = bad_beats / total_beats
         metrics = {
-            "bad_beat_ratio": bad_beat_ratio, 
+            "bad_b_ratio": bad_beat_ratio, 
             "mp_distances": distances,
             "mp_threshold": mp_threshold,
             "rejections" : reject_reasons
@@ -1378,8 +1385,8 @@ class RadECG:
         self.data.sect_info["isoelectric"][self.sect_id] = isoelectric
         temp_arr = []
         for i, beat in enumerate(beats[:-1]):
-            beat.valid = utils.valid_QRS(beat)
-            if beat.valid:
+            beat.valid_qrs = utils.valid_QRS(beat)
+            if beat.valid_qrs:
                 srch_width    = (beat.s_peak - beat.q_peak) * 2
                 beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
                 beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
@@ -1413,10 +1420,12 @@ class RadECG:
             # MEAS TpTe
             if beat.t_peak and beat.t_offset:
                 beat.TpTe = self._calc_tpte(beat.t_peak, beat.t_offset)
-            temp_arr.append(beat)
+            temp_arr.append(beat.to_row())
 
+        #Add the peak data to the interior_peaks structured array
         if temp_arr:
-            self.data.interior_peaks = np.vstack((self.data.interior_peaks, np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)))
+            new_interior_peaks = np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)
+            self.data.interior_peaks = np.concatenate((self.data.interior_peaks, new_interior_peaks))
 
     def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
@@ -1446,32 +1455,31 @@ class RadECG:
         try:
             # Filter interior peaks that belong to this section
             inners = self.data.interior_peaks[
-                (self.data.interior_peaks[:, 2] > start_p) & 
-                (self.data.interior_peaks[:, 2] < end_p)
+                (self.data.interior_peaks["r_peak"] > start_p) & 
+                (self.data.interior_peaks["r_peak"] < end_p)
             ]
             
             if len(inners) > 0:
                 # Helper to extract a column and convert '0' (missed extraction) to NaN
                 def get_clean_col(col_idx):
-                    col_data = inners[:, col_idx].astype(float)
+                    col_data = inners[col_idx].astype(float)
                     col_data[col_data == 0] = np.nan
                     return col_data.tolist()
 
                 # Use _yabig_meanie to safely average the extracted columns
-                stats.PR   = self._yabig_meanie(get_clean_col(17), 1)
-                stats.QRS  = self._yabig_meanie(get_clean_col(18), 1)
-                stats.ST   = self._yabig_meanie(get_clean_col(19), 1)
-                stats.QT   = self._yabig_meanie(get_clean_col(20), 1)
-                stats.QTc  = self._yabig_meanie(get_clean_col(21), 1)
-                
+                stats.PR   = self._yabig_meanie(get_clean_col("PR"), 1)
+                stats.QRS  = self._yabig_meanie(get_clean_col("QRS"), 1)
+                stats.ST   = self._yabig_meanie(get_clean_col("ST"), 1)
+                stats.QT   = self._yabig_meanie(get_clean_col("QT"), 1)
+                stats.QTc  = self._yabig_meanie(get_clean_col("QTc"), 1)
+
                 # Calc QTVI
-                qt_list = get_clean_col(20)
+                qt_list = get_clean_col("QT")
                 rr_list = RR_diffs_time.tolist() if len(RR_diffs_time) > 0 else []
                 stats.QTVI = self._calc_qtvi(qt_list, rr_list)
 
                 # Calc TpTe
-                if inners.shape[1] > 22:
-                    stats.TpTe = self._yabig_meanie(get_clean_col(22), 1)
+                stats.TpTe = self._yabig_meanie(get_clean_col("TpTe"), 1)
 
         except Exception as e:
             logger.warning(f'averages error in section: {self.sect_id} {e}')
@@ -1487,6 +1495,7 @@ class RadECG:
         self.data.sect_info["ST"][self.sect_id]  = stats.ST if not np.isnan(stats.ST) else 0
         self.data.sect_info["QT"][self.sect_id]  = stats.QT if not np.isnan(stats.QT) else 0
         self.data.sect_info["QTc"][self.sect_id] = stats.QTc if not np.isnan(stats.QTc) else 0
+        self.data.sect_info["QTVI"][self.sect_id] = stats.QTVI if not np.isnan(stats.QTc) else 0
         self.data.sect_info["TpTe"][self.sect_id] = stats.TpTe if not np.isnan(stats.TpTe) else 0
 
         # Add the R peaks to the peaks container. Time it every 10k sections
@@ -1517,7 +1526,7 @@ class RadECG:
             is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
             self.data.sect_info["kurtosis"][self.sect_id] = pre_metrics.get("kurtosis", 0)
             self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
-            self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spec_ratio", 0)
+            self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spectral", 0)
             self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
             if not is_valid:
                 logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
@@ -1543,7 +1552,7 @@ class RadECG:
 
             #Check each beat with the matrix profile and Welch's STFT. 
             is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
-            self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_beat_ratio", 1.0)
+            self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
 
             if not is_valid:
                 if self.gui.plot_errors:
@@ -1607,7 +1616,7 @@ class RadECG:
                 # Proceed to PQRST extract and stats if section valid
                 self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
                 # Generate Section Stats
-                self.section_stats(new_peaks_arr)
+                self.section_stats(new_peaks_arr, start_p, end_p)
 
             #Plot all section info
             if self.gui.plot_section and sect_valid:
