@@ -1019,7 +1019,7 @@ class RadECG:
             self.low_counts += 1
             if self.low_counts > 6: 
                 iqr *= 3
-                logger.warning(f'Bumped up IQR 3x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
+                logger.info(f'Bumped up IQR 3x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
             elif self.low_counts > 3: 
                 iqr *= 1.5
                 logger.info(f'Bumped up IQR 1.5x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
