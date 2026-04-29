@@ -215,64 +215,73 @@ class NumpyArrayEncoder(json.JSONEncoder):
             case _:
                 return super(NumpyArrayEncoder, self).default(obj)
 
-#FUNCTION save results
-def save_results(ecg_data:dict, configs:dict, current_date:datetime, tobucket:bool=False):
-    #Because structured arrays will do(ecg_data['section_info']) have mixed dtypes. You
-    #have to feed the types back to the save routine when you save it.
-    #(╯°□°）╯︵ ┻━┻
+def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = False):
+    """Saves all arrays into a single compressed NPZ file and uploads to GCP.(╯°□°）╯︵ ┻━┻
 
-    #Export the CSV files
-    logger.info("Savings CSV's")
-    #Eventually need a folder existence check here.  If it doesn't, create it. 
+    Args:
+        ecg_data (ECGData): main data container
+        configs (dict): configuration dict
+        current_date (str): current date
+        tobucket (bool, optional): Whether to send the data to a GCP bucket. Defaults to False.
+
+    Raises:
+        e: _description_
+        e: _description_
+        e: _description_
+    """    
+    logger.info("Saving results to compressed NPZ ...")
     camname = configs["cam_name"]
     configs["last_run"] = current_date
-    for x in ["peaks", "interior_peaks", "section_info"]:
-        file_path = "/".join([configs["save_path"], camname, current_date]) + "_" + x + ".csv"
-        if x == "section_info":
-            save_format = '%i, '*4 + '%s, ' + '%.2f, '*12
-        else:
-            save_format = '%i, '*ecg_data[x].shape[1]
-        try:
-            np.savetxt(
-                fname = file_path,
-                X = ecg_data[x], 
-                fmt = save_format,
-                delimiter=',',
-            )
-            logger.warning(f"Saved {x} to {file_path}")
-            
-            if tobucket:
-                gcp_path  = file_path[file_path.index(f"{current_date}"):]
-                bucket_name = configs["bucket_name"]
-                destination_gcp = f'gs://{bucket_name}/results/{camname}/{gcp_path}'
-                gsutil_command = ['gsutil', 'cp', file_path, destination_gcp]
-                try:
-                    subprocess.run(gsutil_command, check=True)
-                    logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
-                #Trapping FNF error specifically
-                except FileNotFoundError as e:
-                    logger.warning(f"FileNotFound:\n{e}")
-                    raise e
-                except Exception as e:
-                    logger.warning(f"Exception:\n{e}\nType:{type(e)}")
-                    raise e
-                
-        except FileNotFoundError as e:
-            logger.warning(f"{x}.csv file saving error {e}")
-            raise e
-        except Exception as e:
-            logger.warning(f"a general error has occured {e}")
-            raise e
+    
+    # Safely construct the directory path and ensure it exists
+    save_dir = Path(configs["save_path"]) / camname
+    save_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Define the single .npz file path
+    file_path = save_dir / f"{current_date}_results.npz"
 
-    #Save configs
+    try:
+        # np.savez_compressed takes the filepath and then **kwargs for the arrays.
+        # The kwargs keys ('peaks', 'interior_peaks', 'section_info') become the variable names inside the file.
+        np.savez_compressed(
+            file_path,
+            peaks=ecg_data.peaks,
+            interior_peaks=ecg_data.interior_peaks,
+            section_info=ecg_data.sect_info
+        )
+        logger.warning(f"Saved all arrays to {file_path}")
+        
+        # GCP Upload Logic
+        if tobucket:
+            bucket_name = configs["bucket_name"]
+            # file_path.name automatically grabs just the filename (e.g., '10-25-2024_results.npz')
+            destination_gcp = f'gs://{bucket_name}/results/{camname}/{file_path.name}'
+            gsutil_command = ['gsutil', 'cp', str(file_path), destination_gcp]
+            
+            try:
+                subprocess.run(gsutil_command, check=True)
+                logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
+            except FileNotFoundError as e:
+                logger.warning(f"FileNotFound (Is gsutil installed/in PATH?):\n{e}")
+                raise e
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"GCP Upload Failed with error code {e.returncode}:\n{e}")
+                raise e
+                
+    except Exception as e:
+        logger.warning(f"A general error has occurred during saving: {e}")
+        raise e
+
+    # Save configs
     save_configs(configs, "./src/rad_ecg/config.json")
     logger.info("Configs updated and saved")
 
-    # logger.warning(f'Size of rolling median as {ecg_data["rolling_med"].dtype} {sys.getsizeof(ecg_data["rolling_med"])*.000_001:.2f} MB')
-    logger.critical(f"Wave section counts{np.unique(ecg_data['section_info']['valid'], return_counts=True)}")
-    fail_counts = Counter(ecg_data['section_info']['fail_reason'])
-    logger.critical(f"Fail reasons found:{list(fail_counts.items())}")
-    logger.critical(f"Runtime configuration {list(configs.items())}")
+    # Log Final Stats
+    logger.critical(f"Wave section counts: {np.unique(ecg_data.sect_info['valid'], return_counts=True)}")
+    fail_counts = Counter(ecg_data.sect_info['fail_reason'])
+    logger.critical(f"Fail reasons found: {list(fail_counts.items())}")
+    logger.critical(f"Runtime configuration: {list(configs.items())}")
+    
     if tobucket:
         transfer_logfile(logger, configs, camname, current_date)
 
