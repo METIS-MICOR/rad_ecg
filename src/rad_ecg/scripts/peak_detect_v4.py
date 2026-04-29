@@ -988,7 +988,7 @@ class RadECG:
                         orig_1 = valid_idx[b_idx]
                         orig_2 = valid_idx[b_idx + 1]
                         new_peaks_arr[orig_1, 1] = 0
-                        new_peaks_arr[orig_2 + 1, 1] = 0
+                        new_peaks_arr[orig_2, 1] = 0
                     fail_reason += "sep | "
                     sect_valid = False
                     logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
@@ -1019,18 +1019,17 @@ class RadECG:
         # ==========================================================
         q1 = np.quantile(med_arr, 0.20) if len(med_arr) > 0 else 0
         q3 = np.quantile(med_arr, 0.80) if len(med_arr) > 0 else 0
-        raw_iqr = q3 - q1
+        raw_iqr = max(q3 - q1, 0.05)
         iqr = raw_iqr
 
         # Prevent vanishing gradient for IQR
         if iqr <= self.iqr_low_thresh:
             self.low_counts += 1
-            if self.low_counts > 6: 
-                iqr *= 3
-                logger.info(f'Bumped up IQR 3x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
-            elif self.low_counts > 3: 
-                iqr *= 1.5
-                logger.info(f'Bumped up IQR 1.5x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
+            if self.low_counts > 3: 
+                multiplier = 1.5 *(self.low_counts - 3)
+                iqr *= multiplier
+                logger.info(f'Increased IQR {multiplier:.3f} to {iqr:.4f} for section {self.sect_id}')
+
             self.iqr_low_thresh = min(self.iqr_low_thresh, raw_iqr)
 
         else:
