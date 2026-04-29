@@ -238,7 +238,7 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
     save_dir.mkdir(parents=True, exist_ok=True)
     
     # Define the single .npz file path
-    file_path = save_dir / f"{current_date}_results.npz"
+    file_path = save_dir / f"{camname}_{current_date}_results.npz"
 
     try:
         # np.savez_compressed takes the filepath and then **kwargs for the arrays.
