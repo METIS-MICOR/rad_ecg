@@ -58,17 +58,17 @@ class HeartBeat:
 @dataclass
 class SectionStat:
     """Dataclass to house section data"""
-    HR    : float = None #bpm
-    iso   : float = None #mV 
-    SDNN  : float = None #ms
-    RMSSD : float = None #ms
-    PR    : float = None #ms
-    QRS   : float = None #ms
-    ST    : float = None #ms
-    QT    : float = None #ms
-    QTc   : float = None #ms
-    QTVI  : float = None #s
-    TpTe  : float = None #ms
+    HR    : float = np.nan #bpm
+    iso   : float = np.nan #mV 
+    SDNN  : float = np.nan #ms
+    RMSSD : float = np.nan #ms
+    PR    : float = np.nan #ms
+    QRS   : float = np.nan #ms
+    ST    : float = np.nan #ms
+    QT    : float = np.nan #ms
+    QTc   : float = np.nan #ms
+    QTVI  : float = np.nan #s
+    TpTe  : float = np.nan #ms
 
 @dataclass
 class ECGData:
