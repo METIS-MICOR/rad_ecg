@@ -1541,7 +1541,7 @@ class RadECG:
 
                 # Calc QTVI
                 qt_list = get_clean_col("QT")
-                rr_list = RR_diffs_time.tolist() if len(RR_diffs_time) > 0 else []
+                rr_list = RR_diffs_time.tolist() if len(valid_intervals) > 0 else []
                 stats.QTVI = self._calc_qtvi(qt_list, rr_list)
 
                 # Calc TpTe
