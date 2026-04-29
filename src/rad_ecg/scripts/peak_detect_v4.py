@@ -78,11 +78,16 @@ class ECGData:
     sect_info      : np.ndarray = field(init=False) #Section Averages
     rolling_med    : np.ndarray = field(init=False) #Rolling Median
     interior_peaks : np.ndarray = field(init=False) #All the other peaks/onsets/offsets
-    peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32)) # R peaks
+    peaks          : np.ndarray = field(init=False) #R peaks
+    # peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32)) # R peaks
     
     def __post_init__(self):
+        # Calculate mathematical maximum possible peaks (200ms minimum distance)
+        max_peaks = int(len(self.wave) / (self.fs * 0.200)) + 1000 # +1000 for safety
+        self.peaks = np.zeros((max_peaks, 2), dtype=np.int32)
         self.rolling_med = np.zeros_like(self.wave, dtype=np.float32)
-        self.interior_peaks = np.empty((0,), dtype=setup_globals.PEAK_DTYPES)
+        self.interior_peaks = np.empty((max_peaks,), dtype=setup_globals.PEAK_DTYPES)
+
 ###############################################################################
 # 2. Tool Classes
 ###############################################################################
@@ -921,6 +926,9 @@ class RadECG:
         self.sect_id:int = 0
         self.iqr_low_thresh:float = 1.0
         self.is_stable:bool = False
+        #Pointers 
+        self.p_ptr:int = 0
+        self.ip_ptr:int = 0
 
     @log_time
     def peak_stack_test(self, new_peaks_arr:np.array) -> np.array:
@@ -1069,11 +1077,13 @@ class RadECG:
                 logger.warning(f"FAILED:Rolling median in section {self.sect_id}")
 
         # ==========================================================
-        # GATE 4: Slope Morphology Check
+        # GATE 4: Slope / Morphology Check
         # ==========================================================
         #BUG - Also might not needs this check if we're already doing the matrix
             #profile for morphology checks
             #NOTE: Firing on jagged slopes that may misrepresent slope.
+            #Stumpy is also very slow, this could be a low cost replacement.
+
         lookbacks = r_peaks - int(last_med_p_sep * 0.75)
         leftbases, slopes = [], []
 
@@ -1477,7 +1487,11 @@ class RadECG:
         #Add the peak data to the interior_peaks structured array
         if temp_arr:
             new_interior_peaks = np.array(temp_arr, dtype=setup_globals.PEAK_DTYPES)
-            self.data.interior_peaks = np.concatenate((self.data.interior_peaks, new_interior_peaks))
+            n_ip = len(new_interior_peaks)
+            self.data.interior_peaks[self.ip_ptr: self.ip_ptr + n_ip] = new_interior_peaks
+            self.ip_ptr += n_ip
+
+            # self.data.interior_peaks = np.concatenate((self.data.interior_peaks, new_interior_peaks))
 
     def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
@@ -1519,9 +1533,10 @@ class RadECG:
         # PQRST Averages
         try:
             # Filter interior peaks that belong to this section
-            inners = self.data.interior_peaks[
-                (self.data.interior_peaks["r_peak"] > start_p) & 
-                (self.data.interior_peaks["r_peak"] < end_p)
+            live_inners = self.data.interior_peaks[:self.ip_ptr]
+            inners = live_inners[
+                (live_inners["r_peak"] > start_p) & 
+                (live_inners["r_peak"] < end_p)
             ]
             
             if len(inners) > 0:
@@ -1564,12 +1579,15 @@ class RadECG:
         self.data.sect_info["TpTe"][self.sect_id] = stats.TpTe if not np.isnan(stats.TpTe) else 0
 
         # Add the R peaks to the peaks container. Time it every 10k sections
-        if self.sect_id in self.stack_range:
-            self.data.peaks = self.peak_stack_test(new_peaks_arr)
-        else:
-            self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-            #BUG - Memory
-                # You're going to still run into the vstack problem
+        n_p = len(new_peaks_arr)
+        self.data.peaks[self.p_ptr:self.p_ptr + n_p] = new_peaks_arr
+        self.p_ptr += n_p
+         # if self.sect_id in self.stack_range:
+        #     self.data.peaks = self.peak_stack_test(new_peaks_arr)
+        # else:
+        #     self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
+        #     #BUG - Memory
+        #         # You're going to still run into the vstack problem
 
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
@@ -1643,7 +1661,10 @@ class RadECG:
 
                 # Shift peak array to present section start/end indexes.  Check for overlap with history
                 r_peaks_shifted = r_peaks + start_p
-                same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
+                recent_peaks = self.data.peaks[max(0, self.p_ptr - 20):self.p_ptr, 0]
+                same_peaks = sorted(list(set(r_peaks_shifted) & set(recent_peaks)))
+                # same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
+
                 #BUG 
                     #Could speed above line up with np.intersect.
                 #If there's peak overlap, find the intersection and shift which peaks to evaluate
@@ -1662,13 +1683,15 @@ class RadECG:
                         post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
                     
                     #Don't process the last peak. That will get indexed in the next section. 
-                    self.data.peaks = self.data.peaks[:-1, :]
+                    # self.data.peaks = self.data.peaks[:-1, :]
+                    #Don't process the last peak by walking the pointer back one
+                    self.p_ptr -= 1
                 else:
                     new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
                 # Historical data Validation
                 lookback = int(self.fs * 10) 
-                last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks, lookback=lookback)
+                last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
                 if last_keys is not False:
                     sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
                         new_peaks_arr, last_keys, peak_info, 
@@ -1705,7 +1728,10 @@ class RadECG:
                 logger.debug(f'Section counter at {self.sect_id}')
                 progbar.advance(job_id, advance=1)
                 self.sect_id += 1
-                
+            #Trim the array's back to their true size
+            self.data.peaks = self.data.peaks[:self.p_ptr]
+            self.data.interior_peaks = self.data.interior_peaks[:self.ip_ptr]
+
 # --- Program Start ---
 def main():
     configs      :dict = setup_globals.load_config()
