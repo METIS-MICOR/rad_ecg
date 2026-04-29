@@ -343,7 +343,7 @@ class CardiacFreqTools:
         if is_valid:
             self.mp_med_history.append(local_med)
             self.mp_mad_history.append(local_mad)
-        fail_reason = f"Bad Beats: {bad_beats} | {total_beats}" if not is_valid else ""
+        fail_reason = f"Bad Beats: {bad_beats}/{total_beats}" if not is_valid else ""
 
         return is_valid, fail_reason, metrics, valid_mask
 
@@ -360,10 +360,10 @@ class SignalLoader:
         """Loads the signal based on file type suffix
         """        
         record = None
-        #Load signal data
+        # Load signal data
         file_type = self.file_path.suffix
 
-        #Determine filetype and use appropriate library to load
+        # Determine filetype and use appropriate library to load
         try:
             match file_type:
                 case "ebm": 
@@ -1408,7 +1408,7 @@ class RadECG:
                             beat.t_peak_a = np.round(self.data.wave[beat.t_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"T peak extraction error for {peak0}. Error message {e}")
-                # MEAS P Peak
+                # MEAS P Peak (next)
                 try:
                     RR_second_half = SQ_med_reduced[half_idx:]
                     peak_P_find = ss.find_peaks(RR_second_half, height=np.percentile(SQ_med_reduced, 60))
@@ -1550,7 +1550,7 @@ class RadECG:
         progbar, job_id = mainspinner(console, len(sect_que))
         with progbar:
             while len(sect_que) > 0:
-                progbar.update(task_id=job_id, description=f"[green] searching sect {self.sect_id}")
+                progbar.update(task_id=job_id, description=f"[green] searching sect {self.sect_id}/{self.data.sect_info.shape[0]}")
                 curr_section = sect_que.popleft()
                 start_p = curr_section[0].item()
                 end_p = curr_section[1].item()
