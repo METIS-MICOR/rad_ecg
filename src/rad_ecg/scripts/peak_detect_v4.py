@@ -983,7 +983,7 @@ class RadECG:
                 #Invalidate the peaks
                 new_peaks_arr[bad_sep, 1] = 0
                 new_peaks_arr[bad_sep + 1, 1] = 0
-                fail_reason += "sep|"
+                fail_reason += "sep | "
                 sect_valid = False
                 logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
                 plot_kwargs["bad_sep"] = bad_sep
@@ -1002,7 +1002,7 @@ class RadECG:
         if low_peaks.size > 0 or high_peaks.size > 0:
             new_peaks_arr[low_peaks, 1] = 0
             new_peaks_arr[high_peaks, 1] = 0
-            fail_reason += "height|"
+            fail_reason += "height | "
             sect_valid = False
             logger.warning(f"FAILED:Peak height violation in section {self.sect_id}")
             plot_kwargs["low_peaks"] = low_peaks
@@ -1019,23 +1019,30 @@ class RadECG:
             self.low_counts += 1
             if self.low_counts > 6: 
                 iqr *= 3
+                logger.warning(f'Bumped up IQR 3x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
             elif self.low_counts > 3: 
                 iqr *= 1.5
+                logger.info(f'Bumped up IQR 1.5x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
+            self.iqr_low_thresh = min(self.iqr_low_thresh, iqr)
+
         else:
             self.iqr_low_thresh = iqr
             self.low_counts = 0
         
-        upper_med_bound = np.quantile(med_arr, 0.80) + 1.5 * iqr
-        lower_med_bound = np.quantile(med_arr, 0.20) - 1.5 * iqr
-        out_above = np.where(med_arr > upper_med_bound)[0]
-        out_below = np.where(med_arr < lower_med_bound)[0]
+        #Grab Current roll median for eval
+        curr_rolled_med = self.data.rolling_med[start_idx:end_idx].flatten()
+
+        upper_med_bound = np.quantile(curr_rolled_med, 0.80) + 1.5 * iqr
+        lower_med_bound = np.quantile(curr_rolled_med, 0.20) - 1.5 * iqr
+        out_above = np.where(curr_rolled_med > upper_med_bound)[0]
+        out_below = np.where(curr_rolled_med < lower_med_bound)[0]
 
         if out_above.size > 0 or out_below.size > 0:
             bad_pandas = 0
             outs = []
             for i in range(len(r_peaks) - 1):
                 p0_rel, p1_rel = r_peaks[i] - start_idx, r_peaks[i+1] - start_idx
-                samp_section = med_arr[p0_rel:p1_rel]
+                samp_section = curr_rolled_med[p0_rel:p1_rel]
                 
                 if np.any(samp_section > upper_med_bound):
                     outs.append(('above', r_peaks[i], r_peaks[i+1]))
@@ -1048,7 +1055,7 @@ class RadECG:
 
             #BUG - Consider bumping this down possibly...Previous gates are at 25% sect failure
             if bad_pandas > (round(0.50 * (len(r_peaks) - 1))):
-                fail_reason += "roll_med|"
+                fail_reason += "roll_med | "
                 sect_valid = False
                 plot_kwargs["outs"] = outs
                 plot_kwargs["iqr"] = iqr
@@ -1092,7 +1099,7 @@ class RadECG:
             
             if bad_slopes.size > 0:
                 new_peaks_arr[bad_slopes, 1] = 0
-                fail_reason += "slope|"
+                fail_reason += "slope | "
                 sect_valid = False
                 plot_kwargs["leftbases"] = leftbases
                 plot_kwargs["slopes"] = slopes
