@@ -4047,9 +4047,10 @@ class ModelTraining(object):
     @log_time
     def fit(self, model_name:str):
         """This module handles the fit functions for each of the sklearn models. 
-        Logic:\n
-            1. Extracts model parameters from _model_params dictionary.\n
-            2. Unpacks said dictionary, into the model being run.\n
+        
+        Logic:
+            1. Extracts model parameters from _model_params dictionary.
+            2. Unpacks said dictionary, into the model being run.
 
         Args:
             model_name (str): abbreviated name of the model to run
@@ -5176,7 +5177,6 @@ if __name__ == "__main__":
 
 #Problem statement.  
 # We're looking to classify the 4 stages of hemorhagic shock. 
-# We'll look for 5 regime changes and hope for the best!  
 
 #Workflow
 #File choice and signal loading

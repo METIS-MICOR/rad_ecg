@@ -932,7 +932,8 @@ class RadECG:
 
     @log_time
     def peak_stack_test(self, new_peaks_arr:np.array) -> np.array:
-        """Times how long it takes to run the vstack.  Useful for debugging
+        """Times how long it takes to run the vstack.  Useful for debugging.  
+        4/29/26-Changed stacking to pointers for faster runtime. May not need this func anymore
 
         Args:
             new_peaks_arr (np.array): new array
@@ -989,18 +990,29 @@ class RadECG:
             if len(valid_idx) > 1:
                 valid_r_peaks = new_peaks_arr[valid_idx, 0]
                 diffs = np.diff(valid_r_peaks)
-                bad_sep = np.where((diffs < lower_bound_sep) | (diffs > upper_bound_sep))[0]
-                if bad_sep.size > 0:
-                    for b_idx in bad_sep:
+                bad_sep_short = np.where(diffs < lower_bound_sep)[0]
+                bad_sep_long = np.where(diffs > upper_bound_sep)[0]
+                bad_idxs = []
+                #Quick spikes ie - short gaps
+                if bad_sep_short.size > 0:
+                    for b_idx in bad_sep_short:
                         #Invalidate the peaks
                         orig_1 = valid_idx[b_idx]
                         orig_2 = valid_idx[b_idx + 1]
                         new_peaks_arr[orig_1, 1] = 0
                         new_peaks_arr[orig_2, 1] = 0
-                    fail_reason += "sep | "
+                        bad_idxs.extend([orig_1, orig_2])
+                    fail_reason += "short_sep | "
                     sect_valid = False
                     logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
-                    plot_kwargs["bad_sep"] = list(set(bad_sep))
+
+                if bad_sep_long.size > 0:
+                    fail_reason += "long_sep | "
+                    sect_valid = False
+                    logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
+                
+                if bad_idxs:
+                    plot_kwargs["bad_sep"] = list(set(bad_sep_short))
                     
         # ==========================================================
         # GATE 2: Peak Height Check (ECG to rolling diff)
@@ -1031,12 +1043,12 @@ class RadECG:
         iqr = raw_iqr
 
         # Prevent vanishing gradient for IQR
-        if iqr <= self.iqr_low_thresh:
+        if iqr <= self.iqr_low_thresh + 0.001:
             self.low_counts += 1
             if self.low_counts > 3: 
-                multiplier = 1.5 *(self.low_counts - 3)
+                multiplier = min(1.5**(self.low_counts - 3), 15.0)
                 iqr *= multiplier
-                logger.info(f'Increased IQR {multiplier:.3f} to {iqr:.4f} for section {self.sect_id}')
+                logger.info(f'Increased IQR {multiplier:.3f}x to {iqr:.4f} for section {self.sect_id}')
 
             self.iqr_low_thresh = min(self.iqr_low_thresh, raw_iqr)
 
