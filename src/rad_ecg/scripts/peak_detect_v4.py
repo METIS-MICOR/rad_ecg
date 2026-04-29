@@ -974,19 +974,26 @@ class RadECG:
         # ==========================================================
         med_diff = np.diff(last_keys)
         if len(med_diff) > 0:
-            last_med_p_sep = np.median(med_diff) if len(med_diff) > 0 else 1.0
-            lower_bound_sep = last_med_p_sep * 0.5
+            last_med_p_sep = np.median(med_diff) if len(med_diff) > 0 else (self.data.fs * 0.8)
+            lower_bound_sep = last_med_p_sep * 0.4
             upper_bound_sep = last_med_p_sep * 4.0
-            diffs = np.diff(r_peaks)
-            bad_sep = np.where((diffs < lower_bound_sep) | (diffs > upper_bound_sep))[0]
-            if bad_sep.size > 0:
-                #Invalidate the peaks
-                new_peaks_arr[bad_sep, 1] = 0
-                new_peaks_arr[bad_sep + 1, 1] = 0
-                fail_reason += "sep | "
-                sect_valid = False
-                logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
-                plot_kwargs["bad_sep"] = bad_sep
+            valid_idx = np.where(new_peaks_arr[:, 1] == 1)[0]
+            if len(valid_idx) > 1:
+                valid_r_peaks = new_peaks_arr[valid_idx, 0]
+                diffs = np.diff(valid_r_peaks)
+                bad_sep = np.where((diffs < lower_bound_sep) | (diffs > upper_bound_sep))[0]
+                if bad_sep.size > 0:
+                    for b_idx in bad_sep:
+                        #Invalidate the peaks
+                        orig_1 = valid_idx[b_idx]
+                        orig_2 = valid_idx[b_idx + 1]
+                        new_peaks_arr[orig_1, 1] = 0
+                        new_peaks_arr[orig_2 + 1, 1] = 0
+                    fail_reason += "sep | "
+                    sect_valid = False
+                    logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
+                    plot_kwargs["bad_sep"] = list(set(bad_sep))
+                    
         # ==========================================================
         # GATE 2: Peak Height Check (ECG to rolling diff)
         # ==========================================================
@@ -1012,7 +1019,8 @@ class RadECG:
         # ==========================================================
         q1 = np.quantile(med_arr, 0.20) if len(med_arr) > 0 else 0
         q3 = np.quantile(med_arr, 0.80) if len(med_arr) > 0 else 0
-        iqr = q3 - q1
+        raw_iqr = q3 - q1
+        iqr = raw_iqr
 
         # Prevent vanishing gradient for IQR
         if iqr <= self.iqr_low_thresh:
@@ -1023,7 +1031,7 @@ class RadECG:
             elif self.low_counts > 3: 
                 iqr *= 1.5
                 logger.info(f'Bumped up IQR 1.5x to {iqr:.4f} for section {self.sect_id} low_count at {self.low_counts}')
-            self.iqr_low_thresh = min(self.iqr_low_thresh, iqr)
+            self.iqr_low_thresh = min(self.iqr_low_thresh, raw_iqr)
 
         else:
             self.iqr_low_thresh = iqr
@@ -1475,26 +1483,39 @@ class RadECG:
     def section_stats(self, new_peaks_arr:np.ndarray, start_p:int, end_p:int):
         peak_check = np.any(new_peaks_arr[:-1, 1] == 0)
         if peak_check:
-            self.data.sect_info["fail_reason"][self.sect_id] += " inv_peak|" 
             bad_peaks = np.where(new_peaks_arr[:-1, 1] == 0)[0]
-            logger.warning(f'Failed to extract HR due to invalid peaks {new_peaks_arr[bad_peaks, 0]}')
+            logger.info(f'Ignored {len(bad_peaks)} invalid peaks for HR calc in section {self.sect_id}')
+        
         # Now see if we have the bare minimum for peaks to extract. 
-        elif new_peaks_arr.size <= 2:
-            self.data.sect_info["fail_reason"][self.sect_id] += " no_peaks|"
+        if new_peaks_arr.size <= 2:
+            self.data.sect_info["fail_reason"][self.sect_id] += " no_peaks | "
             logger.warning(f"Not enough peaks to calculate section stats")
 
         # Initialize the dataclass
         stats = SectionStat()
 
         # --- Time Domain HR Measures ---
-        valid_peaks = new_peaks_arr[new_peaks_arr[:, 1] == 1, 0]
+        valid_intervals = []
+        #Isolate beats that are valid, adjacent beats
+        for i in range(len(new_peaks_arr) - 1):
+            if new_peaks_arr[i,1] == 1 and new_peaks_arr[i+1, 1] == 1:
+                gap = new_peaks_arr[i+1, 0] - new_peaks_arr[i, 0]
+                valid_intervals.append(gap)
+
+        # valid_peaks = new_peaks_arr[new_peaks_arr[:, 1] == 1, 0]
+        valid_peaks = np.array(valid_intervals)
         if len(valid_peaks) > 1:
-            RR_diffs = np.diff(valid_peaks)
-            RR_diffs_time = np.abs(RR_diffs / self.fs) * 1000 # Format to ms
-            HR = 60 / (RR_diffs / self.fs) # BPM
+            # RR_diffs = np.diff(valid_peaks)
+            RR_diffs_time = np.abs(valid_peaks / self.fs) * 1000 # Format to ms
+            HR = 60 / (valid_peaks / self.fs) # BPM
             stats.HR    = self._yabig_meanie(HR.tolist(), 2)
             stats.SDNN  = np.round(np.std(HR), 5)
-            stats.RMSSD = np.round(np.sqrt(np.mean(np.power(RR_diffs_time, 2))), 5)
+
+            if len(valid_peaks) > 1:
+                rr_time_diffs = np.abs(np.diff(RR_diffs_time))
+                stats.RMSSD = np.round(np.sqrt(np.mean(np.power(rr_time_diffs, 2))), 5)
+            else:
+                stats.RMSSD = 0.0
 
         # PQRST Averages
         try:
