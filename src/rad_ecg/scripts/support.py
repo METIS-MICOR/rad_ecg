@@ -159,7 +159,7 @@ def mainspinner(console:Console, totalstops:int):
     """
     prog_bar = Progress(
         TextColumn("{task.description}"),
-        SpinnerColumn("aesthetic"),
+        SpinnerColumn("dots"),
         BarColumn(),
         TextColumn("*"),
         "time elapsed:",

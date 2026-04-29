@@ -1,3 +1,4 @@
+import gc
 import utils
 import stumpy
 import support
@@ -463,6 +464,8 @@ class SignalGUI:
         timer.start()
         plt.show()
         plt.close(fig)
+        plt.close('all')
+        gc.collect()
 
     def plot_pre_error(
             self, 
@@ -1702,9 +1705,17 @@ class RadECG:
                     new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
                 # Historical data Validation
+                stale = False
                 lookback = int(self.fs * 10) 
                 last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
+
                 if last_keys is not False:
+                    time_since_valid = (start_p - last_keys[-1]) / self.fs
+                    if time_since_valid > 30:
+                        stale = True
+                        logger.warning(f"history deadlocked {time_since_valid:.2f}s")
+
+                if last_keys is not False and not stale:
                     sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
                         new_peaks_arr, last_keys, peak_info, 
                         start_idx=start_p, end_idx=end_p
@@ -1726,7 +1737,13 @@ class RadECG:
                     #BUG - Fix this tomorrow
                     # self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(new_peaks_arr[new_peaks_arr[:, 1] == 0].shape[0] / new_peaks_arr.shape[0], 2)
                     #BUG - Might need to return new_peaks_arr
-                    
+                else:
+                    self.data.sect_info["valid"][self.sect_id] = 0
+                    new_peaks_arr[:, 1] = 0 
+                    n_p = len(new_peaks_arr)
+                    self.data.peaks[self.p_ptr : self.p_ptr + n_p] = new_peaks_arr
+                    self.p_ptr += n_p
+
                 #Plot all section info
                 if self.gui.plot_section and sect_valid:
                     self.gui.plot_fft_sect(
@@ -1736,10 +1753,10 @@ class RadECG:
                     )
                 # Advance section id/progbar to next section
                 del new_peaks_arr
-                self.data.sect_info["valid"][self.sect_id] = 1
                 logger.debug(f'Section counter at {self.sect_id}')
                 progbar.advance(job_id, advance=1)
                 self.sect_id += 1
+
             #Trim the array's back to their true size
             self.data.peaks = self.data.peaks[:self.p_ptr]
             self.data.interior_peaks = self.data.interior_peaks[:self.ip_ptr]
