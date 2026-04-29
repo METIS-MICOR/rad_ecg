@@ -195,22 +195,22 @@ class CardiacFreqTools:
         # Gate 1: Is there a heartbeat shape? (Low Kurtosis = flatline or Gaussian noise)
         if k_sqi < 4:
             is_valid = False
-            fail_reason += f"Low Kurtosis {k_sqi:.2f} | " #(Missing QRS / Flatline)
+            fail_reason += f"Low Kurtosis | " #(Missing QRS / Flatline)
             
         # Gate 2: Is the window drowning in static?
         if complexity > 3.0: 
             is_valid = False
-            fail_reason += f"High Hjorth Complexity {complexity:.2f} | " #(Severe HF Static)
+            fail_reason += f"High Hjorth Complexity | " #(Severe HF Static)
         
         # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
         if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False
-            fail_reason += f"Low QRS Power {spectral:.2f}"
+            fail_reason += f"Low QRS Power | "
 
         # Gate 4: Wasserstein Distribution Shift (Global sensor degradation)
         if not is_stable:
             is_valid = False
-            fail_reason += f"Shift in W-Dist: {wdist:.2f})"
+            fail_reason += f"Shift in W-Dist | )"
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
@@ -224,12 +224,12 @@ class CardiacFreqTools:
         m = int(self.fs * .30) #.12
         m = max(m, int(np.median(np.diff(r_peaks // 2)))) 
 
-        try:
-            device_id = cuda.list_devices()[0].id
-            mp = stumpy.gpu_stump(wave_chunk.astype(np.float64), m=m, device_id=device_id)
-        except Exception as e:
-            logger.error(f"GPU Stumpy failed, falling back to CPU: {e}")
-            mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
+        # try:
+        #     device_id = cuda.list_devices()[0].id
+        #     mp = stumpy.gpu_stump(wave_chunk.astype(np.float64), m=m, device_id=device_id)
+        # except Exception as e:
+        #     logger.error(f"GPU Stumpy failed, falling back to CPU: {e}")
+        mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
 
         distances = mp[:, 0]
         # med_dist = np.median(distances)
@@ -1571,6 +1571,7 @@ class RadECG:
                     self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
                     if self.gui.plot_errors:
                         self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id)
+                    progbar.advance(job_id, advance=1)
                     self.sect_id += 1
                     continue
 
@@ -1584,7 +1585,8 @@ class RadECG:
                 #Basic count check (we shouldn't need this anymore)
                 if r_peaks.size < 4 or r_peaks.size > 100:
                     logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
-                    self.data.sect_info["fail_reason"][self.sect_id] += " no_sig"
+                    self.data.sect_info["fail_reason"][self.sect_id] += " no_sig | "
+                    progbar.advance(job_id, advance=1)
                     self.sect_id += 1
                     continue        
 
@@ -1608,6 +1610,7 @@ class RadECG:
                         )
                     logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                     self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
+                    progbar.advance(job_id, advance=1)
                     self.sect_id += 1
                     continue
 
@@ -1684,6 +1687,7 @@ def main():
     selected     :int  = setup_globals.load_choices(fp, batch_process)
     loader       :SignalLoader = SignalLoader(selected)
     configs["cam_name"] = loader.file_path.stem
+    configs["samp_freq"] = loader.fs
     loader.load_signal_data()
     ECG = loader.load_structures()
     RAD = RadECG(ECG, configs, fp)
