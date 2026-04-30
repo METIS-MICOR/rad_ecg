@@ -614,7 +614,7 @@ class SignalGUI:
             )
             ax_ecg.add_patch(rect)
             
-            if not is_valid and isinstance(reasons[peak], str):
+            if not is_valid and peak < len(reasons) and isinstance(reasons[peak], str):
                 mid_x = p0_x + (p1_x - p0_x) / 2
                 mid_y = rect_height / 2
                 ax_ecg.text(
@@ -928,7 +928,7 @@ class RadECG:
         self.low_counts:int = 0
         self.sect_id:int = 0
         self.iqr_low_thresh:float = 1.0
-        self.is_stable:bool = False
+        # self.is_stable:bool = False Only used in CardiacFT class. 
         #Pointers 
         self.p_ptr:int = 0
         self.ip_ptr:int = 0
@@ -1015,7 +1015,7 @@ class RadECG:
                     logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
                 
                 if bad_idxs:
-                    plot_kwargs["bad_sep"] = list(set(bad_sep_short))
+                    plot_kwargs["bad_sep"] = list(set(bad_idxs))
                     
         # ==========================================================
         # GATE 2: Peak Height Check (ECG to rolling diff)
@@ -1650,72 +1650,96 @@ class RadECG:
                     self.sect_id += 1
                     continue        
 
-                #Check each beat with the matrix profile and Welch's STFT. 
-                is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_peaks)
-                self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
-                #BUG - Bad_b_ratio
-                    #This doesn't take into account the later failures
-                    #that you might encounter.  So, we might want to update this
-                if not is_valid:
-                    if self.gui.plot_errors:
-                        self.gui.plot_post_error(
-                            error_type=fail_reason, 
-                            start_idx=start_p, 
-                            end_idx=end_p, 
-                            r_peaks_abs=(r_peaks + start_p), 
-                            peak_info=peak_info, 
-                            sect_id=self.sect_id, 
-                            post_metrics=post_metrics,
-                            val_mask = val_mask
-                        )
-                    logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
-                    self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
-                    progbar.advance(job_id, advance=1)
-                    self.sect_id += 1
-                    continue
 
                 # Shift peak array to present section start/end indexes.  Check for overlap with history
                 r_peaks_shifted = r_peaks + start_p
                 recent_peaks = self.data.peaks[max(0, self.p_ptr - 20):self.p_ptr, 0]
                 same_peaks = sorted(list(set(r_peaks_shifted) & set(recent_peaks)))
-                # same_peaks = sorted(list(set(r_peaks_shifted) & set(self.data.peaks[-20:,0])))
 
-                #BUG 
-                    #Could speed above line up with np.intersect.
-                #If there's peak overlap, find the intersection and shift which peaks to evaluate
                 if len(same_peaks) > 0:
                     #Find the last peak in common. 
                     f_peak = max(same_peaks)
                     #Index those peaks from the last same peak, to the end of the r_peaks_shifted
                     keepers = r_peaks_shifted >= f_peak
                     #Stack the mask to create the 1x1 array
-                    new_peaks_arr = np.hstack((r_peaks_shifted[keepers].reshape(-1, 1), val_mask[keepers].reshape(-1, 1)))
+                    
+                    r_p_shift = r_peaks_shifted[keepers]
+                    r_p_new = r_peaks[keepers]
+
                     peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                     peak_info['prominences'] = peak_info['prominences'][keepers]
-                    # Count how many False values are in the mask
-                    num_dropped = np.sum(~keepers) 
-                    if "rejections" in post_metrics:
-                        post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
+                    #BUG - rejection
+                        #- No longer have acces to the post rejections
+                    # # Count how many False values are in the mask
+                    # num_dropped = np.sum(~keepers) 
+                    #     #pOST ME
+                    # if "rejections" in post_metrics:
+                    #     post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
                     
-                    #Don't process the last peak. That will get indexed in the next section. 
-                    # self.data.peaks = self.data.peaks[:-1, :]
                     #Don't process the last peak by walking the pointer back one
                     self.p_ptr -= 1
                 else:
-                    new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
+                    r_p_shift = r_peaks_shifted
+                    r_p_new = r_peaks
+
+                    # new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
                 # Historical data Validation
-                stale = False
+                is_stale = False
                 lookback = int(self.fs * 10) 
                 last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
 
                 if last_keys is not False:
+                    #See if the last keys are more than 60 seconds in the past
                     time_since_valid = (start_p - last_keys[-1]) / self.fs
-                    if time_since_valid > 30:
-                        stale = True
+                    if time_since_valid > 60:
+                        is_stale = True
                         logger.warning(f"history deadlocked {time_since_valid:.2f}s")
+                else:
+                    #No history yet
+                    is_stale = True
+                
+                is_turbulent = (
+                    pre_metrics.get("hjorth", 0) > 2 or 
+                    pre_metrics.get("wdist", 0) > 2
+                )
 
-                if last_keys is not False and not stale:
+                val_mask = np.ones(len(r_p_new), dtype=int) # Default all valid
+                post_metrics = {}
+
+                if is_turbulent or is_stale:
+                    if is_stale:
+                        logger.info(f"History stale/missing. Running heavy vetting on section {self.sect_id}")
+                    
+                    #Check each beat with the matrix profile and Welch's STFT. 
+                    is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
+                    self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
+
+                    if not is_valid:
+                        if self.gui.plot_errors:
+                            self.gui.plot_post_error(
+                                error_type=fail_reason, 
+                                start_idx=start_p, 
+                                end_idx=end_p, 
+                                r_peaks_abs=r_p_shift, 
+                                peak_info=peak_info, 
+                                sect_id=self.sect_id, 
+                                post_metrics=post_metrics,
+                                val_mask = val_mask
+                            )
+                        logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
+                        self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
+                        progbar.advance(job_id, advance=1)
+                        self.sect_id += 1
+                        continue
+                else:
+                    self.data.sect_info["bad_b_rat"][self.sect_id] = 0
+
+                new_peaks_arr = np.hstack((r_p_shift.reshape(-1, 1), val_mask.reshape(-1, 1)))
+                # new_peaks_arr = np.hstack((r_peaks_shifted_new.reshape(-1, 1), val_mask.reshape(-1, 1)))
+
+
+                if not is_stale:
                     sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
                         new_peaks_arr, last_keys, peak_info, 
                         start_idx=start_p, end_idx=end_p
