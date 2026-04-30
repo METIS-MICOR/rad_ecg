@@ -132,9 +132,10 @@ class CardiacFreqTools:
         freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg, detrend="linear")
         total_power = np.sum(psd)
 
+        #BUG here.  Return for zero power doesn't fit.  Need additional logic
         if total_power == 0:
-            return 0
-
+            return 0, 0, False
+        
         # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
         qrs_band = (freqs >= 5.0) & (freqs <= self.freq_lim)
         qrs_power = np.sum(psd[qrs_band])
@@ -188,6 +189,7 @@ class CardiacFreqTools:
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
         spectral, wdist, is_stable = self.calc_spec_metrics(wave_chunk)
+        
         metrics = {
             "kurtosis" :np.round(k_sqi, 2),
             "hjorth"   :np.round(complexity, 2),
