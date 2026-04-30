@@ -109,6 +109,9 @@ class CardiacFreqTools:
         self.mp_mad_history = deque(maxlen=self.history_size)
         self.freq_lim = freq_lim
         self.qrs_lim = qrs_lim
+    #TODO -  adding ENTROPY to your meaures. 
+        #Shannon Entropy didnt work as well. 
+        #Look at paper Bob sent. 
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -185,11 +188,11 @@ class CardiacFreqTools:
         """
         if len(wave_chunk) == 0:
             return False, "Empty Chunk", {}
-
+          
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
         spectral, wdist, is_stable = self.calc_spec_metrics(wave_chunk)
-        
+       #BUG May need to recode this section return from total_power=0
         metrics = {
             "kurtosis" :np.round(k_sqi, 2),
             "hjorth"   :np.round(complexity, 2),
