@@ -1268,8 +1268,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            # console.print("[green]launch gridsearch...[/]")
-            # modeltraining._grid_search("xgboost")
+            console.print("[green]launch gridsearch...[/]")
+            modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3813,14 +3813,15 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "n_estimators": 800,
+                    "n_estimators": 50,
                     "alpha": 0.5,
                     "device":"cpu",
-                    "gamma":0,
+                    "gamma":0.1,
                     "objective":"multi:softprob",
-                    "max_depth":4,
-                    "learning_rate": 0.05,
-                    "colsample_bytree": 0.80,
+                    "max_depth":2,
+                    "learning_rate": 0.1,
+                    "colsample_bytree": 0.60,
+                    "min_child_weight": 5,
                     "subsample": 0.80, 
                     "num_class":5,
                 },
