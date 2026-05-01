@@ -404,7 +404,7 @@ class SignalLoader:
                     if self.file_path.is_dir():
                         from wfdb import rdrecord
                         record = rdrecord(
-                            self.file_path / f"{self.file_path._tail[-1]}",
+                            self.file_path / f"{self.file_path.name}",
                             sampfrom=0,
                             sampto=None,
                             channels=[0]

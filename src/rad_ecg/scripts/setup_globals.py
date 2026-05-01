@@ -450,8 +450,19 @@ def load_choices(fp:str, batch_process:bool=False):
         else:
             raise ValueError("Invalid choice. Please enter a number.")
     else:
-        # If batch process, return all valid folders or files based on context
-        if Path(fp).name == "inputdata":
-            return [p for p in valid_paths if p.is_dir()]
-        else:
-            return [p for p in valid_paths if p.is_file()]
+        # --- BATCH PROCESS LOGIC ---
+        # If the folder is full of subdirectories, assume the folders are the targets
+        dirs = [p for p in valid_paths if p.is_dir()]
+        if dirs:
+            return dirs
+            
+        # If the folder has files, filter smartly
+        files = [p for p in valid_paths if p.is_file()]
+        
+        # If WFDB files exist, only return the .hea headers so it doesn't double-count the .dat files
+        heas = [p for p in files if p.suffix.lower() == '.hea']
+        if heas:
+            return heas
+            
+        # Otherwise, return all valid files (e.g., .ebm files)
+        return files
