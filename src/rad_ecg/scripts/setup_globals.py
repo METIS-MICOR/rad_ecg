@@ -190,24 +190,24 @@ def load_structures(source:str, datafile:Path):
             os.makedirs(test_sp, exist_ok=True)
             logger.info(f"folder created @ {test_sp} ")
 
-        if configs["gcp_bucket"]:
-            #Test for endpoint in gcp bucket
-            test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
-            passed = test_endpoint(test_sp)
-            if passed:
-                logger.warning(f"{datafile.name} path exists in gcp")
-                logger.warning("Do you want to overwrite results?")
-                overwrite = input("(y/n)?")
-                if overwrite.lower() == "n":
-                    logger.warning("Shutting down program")
-                    exit()
-            else:
-                created = create_endpoint(test_sp)
-                if created:
-                    logger.info(f"folder created @ {test_sp}")
-                else:
-                    logger.warning(f"Error {created}")
-                    exit()
+        # if configs["gcp_bucket"]:
+        #     #Test for endpoint in gcp bucket
+        #     test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
+        #     passed = test_endpoint(test_sp)
+        #     if passed:
+        #         logger.warning(f"{datafile.name} path exists in gcp")
+        #         logger.warning("Do you want to overwrite results?")
+        #         overwrite = input("(y/n)?")
+        #         if overwrite.lower() == "n":
+        #             logger.warning("Shutting down program")
+        #             exit()
+        #     else:
+        #         created = create_endpoint(test_sp)
+        #         if created:
+        #             logger.info(f"folder created @ {test_sp}")
+        #         else:
+        #             logger.warning(f"Error {created}")
+        #             exit()
 
         if not "." in datafile.name:
             configs["cam"] = os.path.join(datafile, datafile.name)
@@ -303,43 +303,43 @@ def getfoldersize(folder:Path):
     return sizeofobject(fsize)
 
 ################################# GCP Client Funcs ############################################
+# gcsfuse does all this now.  So easy to use!!! 
+# def authenticate_with_gcs(credentials_path:str):
+#     """Set up Google Cloud authentication
 
-def authenticate_with_gcs(credentials_path:str):
-    """Set up Google Cloud authentication
+#     Args:
+#         credentials_path (_type_): _description_
+#     """ 
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
 
-    Args:
-        credentials_path (_type_): _description_
-    """ 
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-
-def test_endpoint(test_sp:str):
-    try:
-        command = ["gsutil", "ls", f"gs://{test_sp}"]
-        runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
-        return True
-    except subprocess.CalledProcessError as e:
-        if "One or more URLs matched no objects" in e.stderr:
-            return False
-        else:
-            raise e
+# def test_endpoint(test_sp:str):
+#     try:
+#         command = ["gsutil", "ls", f"gs://{test_sp}"]
+#         runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
+#         return True
+#     except subprocess.CalledProcessError as e:
+#         if "One or more URLs matched no objects" in e.stderr:
+#             return False
+#         else:
+#             raise e
         
-def create_endpoint(test_sp:str):
-    try:
-        #TODO - check this the next time you run a full cam
-        create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
-        subprocess.run(create_command, capture_output=True, text=True, check=True)
+# def create_endpoint(test_sp:str):
+#     try:
+#         #TODO - check this the next time you run a full cam
+#         create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
+#         subprocess.run(create_command, capture_output=True, text=True, check=True)
 
-        # Optionally remove the dummy file:
-        # remove_command = ["gsutil", "rm", f"gs://{test_sp}/test.txt"]
-        # subprocess.run(remove_command, capture_output=True, text=True, check=True)
+#         # Optionally remove the dummy file:
+#         # remove_command = ["gsutil", "rm", f"gs://{test_sp}/test.txt"]
+#         # subprocess.run(remove_command, capture_output=True, text=True, check=True)
 
-        return True
+#         return True
 
-    except subprocess.CalledProcessError as e:
-        if "One or more URLs matched no objects" in e.stderr:
-            return False
-        else:
-            return e
+#     except subprocess.CalledProcessError as e:
+#         if "One or more URLs matched no objects" in e.stderr:
+#             return False
+#         else:
+#             return e
 
 ################################# TUI Funcs ############################################
 #FUNCTION Launch TUI
