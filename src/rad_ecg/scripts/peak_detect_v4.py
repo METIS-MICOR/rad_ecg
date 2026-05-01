@@ -671,18 +671,18 @@ class SignalGUI:
 
         # Stacked SQI & Interval Metrics Text Block
         stat_text = (
-            f"Kurtosis: {sqi_metrics["kurtosis"]:.2f}   |   "
-            f"Hjorth Complexity: {sqi_metrics["hjorth"]:.2f}   |   "
-            f"Wasserstein Dist: {sqi_metrics["wdist"]:.2f}   |   "
-            f"QRS Ratio: {sqi_metrics["spectral"]:.2f}   |   "
-            f"Bad Beat Ratio: {sqi_metrics["bad_b_rat"]:.1%}\n"
-            f"PR: {sqi_metrics["PR"]:.0f}ms   |   "
-            f"QRS: {sqi_metrics["QRS"]:.0f}ms   |   "
-            f"ST: {sqi_metrics["ST"]:.0f}ms   |   "
-            f"QT: {sqi_metrics["QT"]:.0f}ms   |   "
-            f"QTc: {sqi_metrics["QTc"]:.0f}ms   |   "
-            f"QTVI: {sqi_metrics["QTVI"]:.2f}   |   "
-            f"TpTe: {sqi_metrics["TpTe"]:.0f}ms"
+            f"Kurtosis: {sqi_metrics['kurtosis']:.2f}   |   "
+            f"Hjorth Complexity: {sqi_metrics['hjorth']:.2f}   |   "
+            f"Wasserstein Dist: {sqi_metrics['wdist']:.2f}   |   "
+            f"QRS Ratio: {sqi_metrics['spectral']:.2f}   |   "
+            f"Bad Beat Ratio: {sqi_metrics['bad_b_rat']:.1%}\n"
+            f"PR: {sqi_metrics['PR']:.0f}ms   |   "
+            f"QRS: {sqi_metrics['QRS']:.0f}ms   |   "
+            f"ST: {sqi_metrics['ST']:.0f}ms   |   "
+            f"QT: {sqi_metrics['QT']:.0f}ms   |   "
+            f"QTc: {sqi_metrics['QTc']:.0f}ms   |   "
+            f"QTVI: {sqi_metrics['QTVI']:.2f}   |   "
+            f"TpTe: {sqi_metrics['TpTe']:.0f}ms"
         )
         
         ax_ecg.text(
@@ -1060,7 +1060,7 @@ class RadECG:
 
         # Prevent vanishing gradient for IQR
         if iqr <= self.iqr_low_thresh + 0.001:
-            self.low_counts += 1
+            self.low_counts = min(self.low_counts + 1, 20) # Cap at 20 to prevent OverflowError before min() evaluates
             if self.low_counts > 3: 
                 multiplier = min(1.5**(self.low_counts - 3), 15.0)
                 iqr *= multiplier
@@ -1386,6 +1386,15 @@ class RadECG:
         beats: List[HeartBeat] = [HeartBeat(r_peak=int(p)) for p in new_peaks_arr[:, 0]]
         samp_mins = [None] * len(beats)
 
+        # Recover P and Q from the previous section's overlap beat to prevent data loss!
+        if self.ip_ptr > 0 and len(beats) > 0:
+            old_peak = self.data.interior_peaks[self.ip_ptr]
+            if old_peak['r_peak'] == beats[0].r_peak:
+                beats[0].p_peak = old_peak['p_peak'] if old_peak['p_peak'] != 0 else None
+                beats[0].q_peak = old_peak['q_peak'] if old_peak['q_peak'] != 0 else None
+                beats[0].p_peak_a = old_peak['p_peak_a'] if old_peak['p_peak_a'] != 0 else None
+                beats[0].q_peak_a = old_peak['q_peak_a'] if old_peak['q_peak_a'] != 0 else None
+
         #Extract main peaks for PQRST
         for i in range(len(beats)-1):
             beat = beats[i]
@@ -1471,18 +1480,32 @@ class RadECG:
                             next_beat.p_peak_a = np.round(self.data.wave[next_beat.p_peak].item(), 6)
                 except Exception as e:
                     logger.info(f"P peak extraction error for {peak0}. Error message {e}")
+
         isoelectric = self.estimate_iso(beats)
         self.data.sect_info["isoelectric"][self.sect_id] = isoelectric
         temp_arr = []
-        for i, beat in enumerate(beats[:-1]):
+        
+        # Iterate over beats to ensure no overlap data is lost
+        for i, beat in enumerate(beats):
             beat.valid_qrs = utils.valid_QRS(beat)
             if beat.valid_qrs:
-                srch_width    = (beat.s_peak - beat.q_peak) * 2
-                beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
-                beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
-                beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
-                beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
-                beat.t_onset  = self._find_t_onset(beat.t_peak, beat.j_point, beat.s_peak, samp_mins[i], rolled_med, start_p)
+                # Provide a fallback width if peaks are missing to prevent crash
+                if beat.s_peak and beat.q_peak:
+                    srch_width = (beat.s_peak - beat.q_peak) * 2
+                else:
+                    srch_width = int(self.fs * 0.1)
+
+                if beat.p_peak:
+                    beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
+                if beat.q_peak and beat.p_peak:
+                    beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
+                if beat.t_peak:
+                    beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
+                if beat.s_peak and beat.t_peak:
+                    beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
+                if beat.t_peak and (beat.j_point or beat.s_peak):
+                    samp_m = samp_mins[i] if i < len(samp_mins) else None
+                    beat.t_onset  = self._find_t_onset(beat.t_peak, beat.j_point, beat.s_peak, samp_m, rolled_med, start_p)
 
             # Map Intervals directly to milliseconds
             # MEAS PR
@@ -1510,6 +1533,7 @@ class RadECG:
             # MEAS TpTe
             if beat.t_peak and beat.t_offset:
                 beat.TpTe = self._calc_tpte(beat.t_peak, beat.t_offset)
+                
             temp_arr.append(beat.to_row())
 
         #Add the peak data to the interior_peaks structured array
@@ -1610,12 +1634,6 @@ class RadECG:
         n_p = len(new_peaks_arr)
         self.data.peaks[self.p_ptr:self.p_ptr + n_p] = new_peaks_arr
         self.p_ptr += n_p
-         # if self.sect_id in self.stack_range:
-        #     self.data.peaks = self.peak_stack_test(new_peaks_arr)
-        # else:
-        #     self.data.peaks = np.vstack((self.data.peaks, new_peaks_arr)).astype(np.int32)
-        #     #BUG - Memory
-        #         # You're going to still run into the vstack problem
 
     @log_time
     def run_extraction(self):
@@ -1640,7 +1658,7 @@ class RadECG:
                 self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
                 self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spectral", 0)
                 self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
-                self.data.sect_info["spec_entropy"][self.sect_id] = pre_metrics.get("spec_ent", 0)
+                self.data.sect_info["spec_entropy"][self.sect_id] = pre_metrics.get("spect_ent", 0)
 
                 if not is_valid:
                     logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
@@ -1666,7 +1684,6 @@ class RadECG:
                     self.sect_id += 1
                     continue        
 
-
                 # Shift peak array to present section start/end indexes.  Check for overlap with history
                 r_peaks_shifted = r_peaks + start_p
                 recent_peaks = self.data.peaks[max(0, self.p_ptr - 20):self.p_ptr, 0]
@@ -1681,8 +1698,11 @@ class RadECG:
                     r_p_new = r_peaks[keepers]
                     peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                     peak_info['prominences'] = peak_info['prominences'][keepers]
-                    #Don't process the last peak by walking the pointer back one
-                    self.p_ptr -= 1
+                    
+                    # SYNCHRONIZE POINTERS: Step both pointers back by the overlap amount
+                    overlap_count = np.sum(recent_peaks >= f_peak)
+                    self.p_ptr -= overlap_count
+                    self.ip_ptr -= overlap_count
                 else:
                     r_p_shift = r_peaks_shifted
                     r_p_new = r_peaks
@@ -1739,8 +1759,6 @@ class RadECG:
                     self.data.sect_info["bad_b_rat"][self.sect_id] = 0
 
                 new_peaks_arr = np.hstack((r_p_shift.reshape(-1, 1), val_mask.reshape(-1, 1)))
-                # new_peaks_arr = np.hstack((r_peaks_shifted_new.reshape(-1, 1), val_mask.reshape(-1, 1)))
-
 
                 if not is_stale:
                     sect_valid, new_peaks_arr, fail_reason = self.historical_validation(

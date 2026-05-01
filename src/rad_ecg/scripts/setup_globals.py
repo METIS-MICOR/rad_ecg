@@ -425,24 +425,33 @@ def load_choices(fp:str, batch_process:bool=False):
         tree = Tree(f":open_file_folder: [link file://{fp}]{fp}", guide_style="bold bright_blue")
         walk_directory(Path(fp), tree)
         pprint(tree)
-
     except Exception as e:
         logger.warning(f"{e}")
+    
+    # Build the Tree
+    paths = sorted(
+        Path(fp).iterdir(),
+        key=lambda path: (path.is_file(), path.name.lower())
+    )
+    # Filter out hidden files just like the Tree does
+    valid_paths = [p for p in paths if not p.name.startswith(".")]
     
     if not batch_process:
         question = "What file would you like to load?\n"
         file_choice = console.input(f"{question}")
         if file_choice.isnumeric():
-            if fp._tail[-1] == "inputdata":
-                folders = sorted(f for f in Path(str(fp)).iterdir())
-                return folders[int(file_choice)]
+            choice_idx = int(file_choice)
+            if 0 <= choice_idx < len(valid_paths):
+                # If we are looking at the root inputdata folder, return the folder.
+                # If we are inside a specific folder, return the file. 
+                return valid_paths[choice_idx]
             else:
-                files = sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
-                return files[int(file_choice)]
+                raise IndexError(f"Choice {choice_idx} is out of bounds for the available files.")
         else:
-            raise ValueError("Invalid choice")
+            raise ValueError("Invalid choice. Please enter a number.")
     else:
-        if fp._tail[-1] == "inputdata":
-            return sorted(f for f in Path(str(fp)).iterdir())
+        # If batch process, return all valid folders or files based on context
+        if Path(fp).name == "inputdata":
+            return [p for p in valid_paths if p.is_dir()]
         else:
-            return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
+            return [p for p in valid_paths if p.is_file()]
