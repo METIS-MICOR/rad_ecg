@@ -1805,14 +1805,21 @@ def main():
     fp           :Path = Path.cwd() / configs["data_path"]
     batch_process:bool = configs["batch"]
     selected     :int  = setup_globals.load_choices(fp, batch_process)
-    loader       :SignalLoader = SignalLoader(selected)
-    configs["cam_name"] = loader.file_path.stem
-    configs["samp_freq"] = loader.fs
-    loader.load_signal_data()
-    ECG = loader.load_structures()
-    RAD = RadECG(ECG, configs, fp)
-    RAD.run_extraction()
-    support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
+    
+    if not isinstance(selected, list):
+        file_list = [selected]
+    else:
+        file_list = selected
+    for file_path in file_list:
+        logger.info(f"Processing file {file_path.stem}")
+        loader:SignalLoader = SignalLoader(file_path)
+        configs["cam_name"] = file_path.stem
+        loader.load_signal_data()
+        configs["samp_freq"] = loader.fs
+        ECG = loader.load_structures()
+        RAD = RadECG(ECG, configs, fp)
+        RAD.run_extraction()
+        support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
 
 if __name__ == "__main__":
     main()
