@@ -3,7 +3,7 @@
   "plot_errors": false,
   "live_term": false,
   "slider": false,
-  "batch": true,
+  "batch": false,
   "run_anomalyd": false,
   "samp_freq": 200.0,
   "data_path": "./src/rad_ecg/data/inputdata",

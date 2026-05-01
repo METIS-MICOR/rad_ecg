@@ -135,7 +135,6 @@ class CardiacFreqTools:
         freqs, psd = welch(signal, fs=self.fs, nperseg=nperseg, detrend="linear")
         total_power = np.sum(psd)
 
-        #BUG here.  Return for zero power doesn't fit.  Need additional logic
         if total_power == 0:
             return 0, 0, False, 0
         
@@ -1618,6 +1617,7 @@ class RadECG:
         #     #BUG - Memory
         #         # You're going to still run into the vstack problem
 
+    @log_time
     def run_extraction(self):
         """Iterates through the ECG waveform in overlapping sections."""
         sect_que = deque(self.data.sect_info[['start_point', 'end_point']])
@@ -1640,11 +1640,13 @@ class RadECG:
                 self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
                 self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spectral", 0)
                 self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
+                self.data.sect_info["spec_entropy"][self.sect_id] = pre_metrics("spec_ent", 0)
+
                 if not is_valid:
                     logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
                     self.data.sect_info["fail_reason"][self.sect_id] = fail_reason
                     if self.gui.plot_errors:
-                        self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id)
+                        self.gui.plot_pre_error(fail_reason, start_p, end_p, self.sect_id, pre_metrics)
                     progbar.advance(job_id, advance=1)
                     self.sect_id += 1
                     continue
@@ -1675,28 +1677,15 @@ class RadECG:
                     f_peak = max(same_peaks)
                     #Index those peaks from the last same peak, to the end of the r_peaks_shifted
                     keepers = r_peaks_shifted >= f_peak
-                    #Stack the mask to create the 1x1 array
-                    
                     r_p_shift = r_peaks_shifted[keepers]
                     r_p_new = r_peaks[keepers]
-
                     peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                     peak_info['prominences'] = peak_info['prominences'][keepers]
-                    #BUG - rejection
-                        #- No longer have acces to the post rejections
-                    # # Count how many False values are in the mask
-                    # num_dropped = np.sum(~keepers) 
-                    #     #pOST ME
-                    # if "rejections" in post_metrics:
-                    #     post_metrics["rejections"] = post_metrics["rejections"][num_dropped:]
-                    
                     #Don't process the last peak by walking the pointer back one
                     self.p_ptr -= 1
                 else:
                     r_p_shift = r_peaks_shifted
                     r_p_new = r_peaks
-
-                    # new_peaks_arr = np.hstack((r_peaks_shifted.reshape(-1, 1), val_mask.reshape(-1, 1)))
 
                 # Historical data Validation
                 is_stale = False
@@ -1820,6 +1809,7 @@ def main():
         RAD = RadECG(ECG, configs, fp)
         RAD.run_extraction()
         support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
+        gc.collect()
 
 if __name__ == "__main__":
     main()
