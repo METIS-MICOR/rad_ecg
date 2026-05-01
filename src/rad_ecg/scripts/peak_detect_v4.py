@@ -137,7 +137,7 @@ class CardiacFreqTools:
 
         #BUG here.  Return for zero power doesn't fit.  Need additional logic
         if total_power == 0:
-            return 0, 0, False
+            return 0, 0, False, 0
         
         # QRS Power Ratio: Power strictly in the 5 - 15 Hz band
         qrs_band = (freqs >= 5.0) & (freqs <= self.freq_lim)
@@ -150,6 +150,12 @@ class CardiacFreqTools:
         hf_sqi = hf_power / total_power
         spec_ratio =  qrs_sqi / hf_sqi
         
+        # --- Spectral Shannon Entropy ---
+        # Normalize the full PSD into a probability mass function
+        psd_norm = psd / total_power
+        # Calculate Shannon entropy (base 2 is standard for bits of information)
+        spec_entropy = entropy(psd_norm, base=2)
+
         # --- Metric 2: Wasserstein Distribution Shift ---
         f_target = freqs[qrs_band]
         psd_target = psd[qrs_band]
@@ -179,7 +185,7 @@ class CardiacFreqTools:
                 if is_stable:
                     self.psd_history.append(normalized_psd)
 
-        return spec_ratio, w_dist, is_stable
+        return spec_ratio, w_dist, is_stable, spec_entropy
 
     def pre_peak_sqi(self, wave_chunk: np.ndarray) -> tuple:
         """
@@ -191,13 +197,14 @@ class CardiacFreqTools:
           
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
-        spectral, wdist, is_stable = self.calc_spec_metrics(wave_chunk)
+        spectral, wdist, is_stable, spect_ent = self.calc_spec_metrics(wave_chunk)
        #BUG May need to recode this section return from total_power=0
         metrics = {
             "kurtosis" :np.round(k_sqi, 2),
             "hjorth"   :np.round(complexity, 2),
             "spectral" :np.round(spectral, 2), 
             "wdist"    :np.round(wdist, 2),
+            "spect_ent":np.round(spect_ent, 2)
         }
 
         is_valid = True
@@ -212,16 +219,18 @@ class CardiacFreqTools:
         if complexity > 3.0: 
             is_valid = False
             fail_reason += f"High Hjorth Complexity | " #(Severe HF Static)
-        
         # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
         if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False
             fail_reason += f"Low QRS Power | "
-
-        # Gate 4: Wasserstein Distribution Shift (Global sensor degradation)
+        # Gate 4: Broadband noise (Spectral Entropy)
+        if spect_ent > 6.5:
+            is_valid = False
+            fail_reason += "High Spec Entropy | "
+        # Gate 5: Wasserstein Distribution Shift (Global sensor degradation)
         if not is_stable:
             is_valid = False
-            fail_reason += f"Shift in W-Dist | )"
+            fail_reason += f"Shift in W-Dist | "
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
@@ -1027,7 +1036,7 @@ class RadECG:
         # ==========================================================
         hist_peak_heights = self.data.wave[last_keys] - self.data.rolling_med[last_keys]
         med_heights = np.median(hist_peak_heights)
-        lower_bound_ht = med_heights * 0.5
+        lower_bound_ht = med_heights * 0.4
         upper_bound_ht = med_heights * 4.0
 
         curr_peak_heights = self.data.wave[r_peaks] - self.data.rolling_med[r_peaks]
@@ -1128,7 +1137,7 @@ class RadECG:
 
         if len(leftbases) == len(r_peaks) and len(leftbases) > 2:
             slopes = [np.polyfit(range(x1, x2), self.data.wave[x1:x2], 1)[0].item() if x2 - x1 > 3 else 0 for x1, x2 in zip(leftbases, r_peaks)]
-            lower_bound_slope = np.median(slopes) * 0.20
+            lower_bound_slope = np.median(slopes) * 0.1
             upper_bound_slope = np.median(slopes) * 5.0
             
             slope_arr = np.array(slopes)

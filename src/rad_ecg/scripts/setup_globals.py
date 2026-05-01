@@ -28,7 +28,7 @@ SECTION_DTYPES = [
     ('bad_b_rat'   , 'f4'),    # 9
     ('wdist'       , 'f4'),    # 10
     # ('power_ratio' , 'f4'),    # 11
-    # ('spec_entropy', 'f4'),    # 12
+    ('spec_entropy', 'f4'),    # 11
     ('HR'          , 'f4'),    # 11
     ('SDNN'        , 'f4'),    # 12
     ('RMSSD'       , 'f4'),    # 13
