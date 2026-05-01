@@ -1640,7 +1640,7 @@ class RadECG:
                 self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
                 self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spectral", 0)
                 self.data.sect_info["wdist"][self.sect_id] = pre_metrics.get("wdist", 0)
-                self.data.sect_info["spec_entropy"][self.sect_id] = pre_metrics("spec_ent", 0)
+                self.data.sect_info["spec_entropy"][self.sect_id] = pre_metrics.get("spec_ent", 0)
 
                 if not is_valid:
                     logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")

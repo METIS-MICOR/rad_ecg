@@ -208,12 +208,14 @@ class AnimatedECGViewer:
             f"PR:       {sect_data['PR']:.0f} ms\n"
             f"QRS:      {sect_data['QRS']:.0f} ms\n"
             f"QTc:      {sect_data['QTc']:.0f} ms\n"
+            f"TpTe:     {sect_data['TpTe']:.2f} ms\n"
             f"QTVI:     {sect_data['QTVI']:.2f}"
+            
         )
         
         self.ax_stats.text(
-            0.05, 0.95, stat_text, transform=self.ax_stats.transAxes,
-            fontsize=11, family='monospace', va='top', ha='left',
+            0.05, 0.98, stat_text, transform=self.ax_stats.transAxes,
+            fontsize=10, family='monospace', va='top', ha='left',
             bbox=dict(boxstyle='round', facecolor='whitesmoke', alpha=0.8)
         )
 
@@ -238,7 +240,7 @@ class AnimatedECGViewer:
             
             # Shade the backgrounds
             self.ax_main.axvspan(5.0, 15.0, color='lightgreen', alpha=0.2, label='QRS Band (5-15Hz)')
-            self.ax_main.axvspan(15.0, 40.0, color='orange', alpha=0.1) # Unlabeled high frequency noise band
+            self.ax_main.axvspan(15.0, 40.0, color='orange', alpha=0.1) 
             
             spectral_ratio = self.data.sect_info['spectral'][sect_id]
             title_str = f"Frequency Spectrum | Section {sect_id} | Spectral Pwr (5-15Hz): {spectral_ratio:.1%}"
@@ -347,7 +349,7 @@ class AnimatedECGViewer:
             plot_inners('t_peak', 'black', 'o')
             plot_inners('p_onset', 'purple', '|', size=150)
             plot_inners('q_onset', 'darkgoldenrod', '|', size=150)
-            plot_inners('j_point', 'dodgerblue', 'o', size=80)
+            plot_inners('j_point', 'dodgerblue', 'o', size=70)
             plot_inners('t_onset', 'teal', '|', size=150)
             plot_inners('t_offset', 'orange', '|', size=150)
 
