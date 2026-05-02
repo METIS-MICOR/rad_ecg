@@ -362,8 +362,9 @@ class CardiacFreqTools:
         if is_valid:
             self.mp_med_history.append(local_med)
             self.mp_mad_history.append(local_mad)
-        fail_reason = f"Bad Beats: {bad_beats}/{total_beats}" if not is_valid else ""
-
+        fail_reason = f"Bad Beat: " if not is_valid else ""
+        if bad_beats > 0:
+            logger.info(f"bad beat ratio: {bad_beats}/{total_beats}")
         return is_valid, fail_reason, metrics, valid_mask
 
 class SignalLoader:
