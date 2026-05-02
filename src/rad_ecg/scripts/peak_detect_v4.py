@@ -1818,6 +1818,10 @@ def main():
     else:
         file_list = selected
     for file_path in file_list:
+        save_dir = Path(configs["save_path"]) / file_path.stem
+        if save_dir.exists() and list(save_dir.glob("*.npz")):
+            logger.warning(f"Results for {file_path.stem} exist. Skipping to next file...")
+            continue
         logger.info(f"Processing file {file_path.stem}")
         loader:SignalLoader = SignalLoader(file_path)
         configs["cam_name"] = file_path.stem

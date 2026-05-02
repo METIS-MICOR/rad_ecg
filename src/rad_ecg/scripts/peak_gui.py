@@ -162,7 +162,7 @@ class AnimatedECGViewer:
             if self.anim: self.anim.event_source.stop()
         else:
             self.is_playing = True
-            self.btn_playpause.label.set_text('⏸ PAUSE')
+            self.btn_playpause.label.set_text('|| PAUSE')
             self.btn_playpause.color = 'lightcoral'
             if not self.anim:
                 self.anim = FuncAnimation(self.fig, self._animate_step, interval=50, blit=False, cache_frame_data=False)
