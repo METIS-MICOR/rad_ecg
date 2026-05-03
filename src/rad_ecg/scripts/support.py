@@ -239,7 +239,7 @@ class NumpyArrayEncoder(json.JSONEncoder):
             case _:
                 return super(NumpyArrayEncoder, self).default(obj)
 
-def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = False):
+def save_results(ecg_data, configs: dict, current_date: str):
     """Saves all arrays into a single compressed NPZ file and uploads to GCP.(╯°□°）╯︵ ┻━┻
 
     Args:
@@ -253,7 +253,6 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
         e: _description_
         e: _description_
     """  
-    #TODO - Update this to remove tobucket
     logger.info("Saving results to compressed NPZ ...")
     camname = configs["cam_name"]
     configs["last_run"] = current_date
@@ -319,8 +318,8 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
     logger.critical(f"Fail reasons found: {list(fail_counts.items())}")
     logger.critical(f"Runtime configuration: {list(configs.items())}")
     
-    if tobucket:
-        transfer_logfile(logger, configs, camname, current_date)
+    # if tobucket:
+        # transfer_logfile(logger, configs, camname, current_date)
 
 #FUNCTION Transfer Logfile
 def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:str):

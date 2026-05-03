@@ -1850,7 +1850,7 @@ def main():
             RAD.run_extraction()
             
             # Save results 
-            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON, tobucket=False)
+            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
             
         except Exception as e:
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
