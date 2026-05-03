@@ -132,19 +132,38 @@ export_theme = TerminalTheme(
         (0, 0, 255), (255, 0, 255), (0, 255, 255), (255, 255, 255)
     ]
 )
-# Determine if we are in the Main Process or a Worker Process
-if multiprocessing.current_process().name == "MainProcess":
-    # MAIN PROCESS: Calculate time and create the log file
-    logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log")
-else:
-    # WORKER PROCESS: Do NOT create a file. Just attach the console handler.
-    # This prevents workers from generating new log files with new timestamps.
-    logger = logging.getLogger()
-    logger.setLevel(logging.INFO)
-    logger.addHandler(get_rich_handler(console))
+
+#####
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+if not logger.handlers:
+    if multiprocessing.current_process().name == "MainProcess":
+        # Main Process: Gets terminal output (FileHandler added later in main script)
+        logger.addHandler(get_rich_handler(console))
+    else:
+        # Worker Process: Also gets terminal output, but safely isolated
+        logger.addHandler(get_rich_handler(console))
+
+# Ensure DATE_JSON is globally available
+if "DATE_JSON" not in locals():
+    DATE_JSON = get_time().strftime("%m-%d-%Y_%H-%M-%S")
+#######
+#old log load
+# # Determine if we are in the Main Process or a Worker Process
+# if multiprocessing.current_process().name == "MainProcess":
+#     # MAIN PROCESS: Calculate time and create the log file
+#     logger = get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log")
+# else:
+#     # WORKER PROCESS: Do NOT create a file. Just attach the console handler.
+#     # This prevents workers from generating new log files with new timestamps.
+#     logger = logging.getLogger()
+#     logger.setLevel(logging.INFO)
+#     logger.addHandler(get_rich_handler(console))
     
-    # If you need DATE_JSON defined to avoid NameErrors in workers (though unlikely used there):
-    DATE_JSON = "WORKER_PROCESS"
+#     # If you need DATE_JSON defined to avoid NameErrors in workers (though unlikely used there):
+#     DATE_JSON = "WORKER_PROCESS"
 
 ################################# Rich Spinner Control ####################################
 #FUNCTION Progress bar
