@@ -1,8 +1,8 @@
 import gc
 import utils
+import shutil
 import stumpy
 import support
-import logging
 import numpy as np
 import setup_globals
 from numba import cuda
@@ -1807,7 +1807,6 @@ class RadECG:
             #Trim the array's back to their true size
             self.data.peaks = self.data.peaks[:self.p_ptr]
             self.data.interior_peaks = self.data.interior_peaks[:self.ip_ptr]
-
 # --- Program Start ---
 def main():
     configs      :dict = setup_globals.load_config()
@@ -1823,18 +1822,23 @@ def main():
     for file_path in file_list:
         logger.info(f"--- Checking {file_path.stem} ---")
         
-        # Look ahead: Check if the output folder and NPZ file already exist
         save_dir = Path(configs["save_path"]) / file_path.stem
         if save_dir.exists() and list(save_dir.glob("*.npz")):
             logger.warning(f"Results for {file_path.stem} already exist. Skipping to next file...")
             continue
             
-        # Ensure the directory exists so we can route the log file into it
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # BATCH LOGGING
-        cam_log_path = save_dir / f"{file_path.stem}_{DATE_JSON}.log"
-        cam_handler = get_file_handler(cam_log_path)
+        # --- LOCAL LOGGING ---
+        # Save permanently to the local data/logs folder
+        local_log_dir = Path.cwd() / "src/rad_ecg/data/logs"
+        local_log_dir.mkdir(parents=True, exist_ok=True)
+        
+        local_cam_log_path = local_log_dir / f"{file_path.stem}_{DATE_JSON}.log"
+        configs["log_path"] = str(local_cam_log_path) # Update config just in case
+        
+        # Use your custom support.py function to create the handler locally
+        cam_handler = get_file_handler(local_cam_log_path)
         logger.addHandler(cam_handler)
         
         try:
@@ -1846,18 +1850,27 @@ def main():
             ECG = loader.load_structures()
             RAD = RadECG(ECG, configs, fp)
             RAD.run_extraction()
-            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
+            
+            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON, tobucket=False)
             
         except Exception as e:
-            # If a file crashes, log the traceback directly into its dedicated log file!
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
             
         finally:
-            # Detach the log handler so the next file gets a clean slate
+            # CLEANUP & LOG TRANSFER
             logger.removeHandler(cam_handler)
             cam_handler.close()
+            
+            # If the user toggled GCP Bucket, copy the local log to the FUSE bucket
+            if configs.get("gcp_bucket", False) or "/mnt/" in str(save_dir):
+                final_cam_log_path = save_dir / f"{file_path.stem}_{DATE_JSON}.log"
+                if local_cam_log_path.exists():
+                    shutil.copy2(local_cam_log_path, final_cam_log_path)
+                    logger.info(f"Log seamlessly copied to bucket: {final_cam_log_path}")
+            
             # Flush memory
             import matplotlib.pyplot as plt
+            import gc
             plt.close('all')
             gc.collect()
 
