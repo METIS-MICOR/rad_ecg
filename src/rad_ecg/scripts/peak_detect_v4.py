@@ -2,6 +2,7 @@ import gc
 import utils
 import stumpy
 import support
+import logging
 import numpy as np
 import setup_globals
 from numba import cuda
@@ -18,7 +19,7 @@ from dataclasses import dataclass, field, astuple
 from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
 from scipy.stats import entropy, kurtosis, wasserstein_distance
-from support import logger, console, log_time, mainspinner, DATE_JSON
+from support import logger, console, log_time, mainspinner, DATE_JSON, get_file_handler
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
@@ -1812,27 +1813,53 @@ def main():
     configs      :dict = setup_globals.load_config()
     fp           :Path = Path.cwd() / configs["data_path"]
     batch_process:bool = configs["batch"]
-    selected     :int  = setup_globals.load_choices(fp, batch_process)
+    selected     = setup_globals.load_choices(fp, batch_process)
     
     if not isinstance(selected, list):
         file_list = [selected]
     else:
         file_list = selected
+        
     for file_path in file_list:
+        logger.info(f"--- Checking {file_path.stem} ---")
+        
+        # Look ahead: Check if the output folder and NPZ file already exist
         save_dir = Path(configs["save_path"]) / file_path.stem
         if save_dir.exists() and list(save_dir.glob("*.npz")):
-            logger.warning(f"Results for {file_path.stem} exist. Skipping to next file...")
+            logger.warning(f"Results for {file_path.stem} already exist. Skipping to next file...")
             continue
-        logger.info(f"Processing file {file_path.stem}")
-        loader:SignalLoader = SignalLoader(file_path)
-        configs["cam_name"] = file_path.stem
-        loader.load_signal_data()
-        configs["samp_freq"] = loader.fs
-        ECG = loader.load_structures()
-        RAD = RadECG(ECG, configs, fp)
-        RAD.run_extraction()
-        support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
-        gc.collect()
+            
+        # Ensure the directory exists so we can route the log file into it
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # BATCH LOGGING
+        cam_log_path = save_dir / f"{file_path.stem}_{DATE_JSON}.log"
+        cam_handler = get_file_handler(cam_log_path)
+        logger.addHandler(cam_handler)
+        
+        try:
+            logger.info(f"Processing file {file_path.stem}")
+            loader:SignalLoader = SignalLoader(file_path)
+            configs["cam_name"] = file_path.stem
+            loader.load_signal_data()
+            configs["samp_freq"] = loader.fs
+            ECG = loader.load_structures()
+            RAD = RadECG(ECG, configs, fp)
+            RAD.run_extraction()
+            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
+            
+        except Exception as e:
+            # If a file crashes, log the traceback directly into its dedicated log file!
+            logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
+            
+        finally:
+            # Detach the log handler so the next file gets a clean slate
+            logger.removeHandler(cam_handler)
+            cam_handler.close()
+            # Flush memory
+            import matplotlib.pyplot as plt
+            plt.close('all')
+            gc.collect()
 
 if __name__ == "__main__":
     main()
