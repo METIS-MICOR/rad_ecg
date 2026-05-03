@@ -71,28 +71,6 @@ PEAK_DTYPES = [
 ]
 
 ################################# Custom INIT / Loading functions ############################################
-#FUNCTION Custom init
-def init(source:str):
-    """Custom init
-
-    Args:
-        source (str): Where the init was called from (test/main)
-
-    Returns:
-        tuple (ecg_data, wave, fs): Returns the data containers to run software. 
-            - ecg_data = dict of various measures
-            - wave = EKG to analyze in question
-            - fs = Sampling Frequency of the wave
-            - configs = global configuration settings
-    """
-    #Load config variables
-    global configs
-    configs = load_config()
-    datafile = launch_tui(configs)
-    ecg_data, wave, fs = load_structures(source, datafile)
-    
-    return ecg_data, wave, fs, configs
-
 #FUNCTION Load Config
 def load_config()->json:
     """Load global variable configs
@@ -164,127 +142,6 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     folderp = os.listdir(PurePath(Path(configs["save_path"], Path(datafile.name))))
     return wave, fs, folderp
 
-#FUNCTION Load Structures
-def load_structures(source:str, datafile:Path):
-    if source == "test":
-        #Set paths and global variables
-        fpath = "./src/rad_ecg/data/sample/scipy_sample.csv"
-        fs = 360
-        wave = np.loadtxt(
-            fpath,
-            dtype=np.float64
-        )
-        wave = wave.reshape(-1, 1)
-        windowsi = 9
-
-    elif source == "__main__":
-        #Load all possibles in the input dir or gcp and check existence
-        test_sp = os.path.join(configs["save_path"], datafile.name)
-        if os.path.exists(test_sp):
-            logger.critical(f"{datafile.name} output folder already exists")
-            logger.critical("Do you want to overwrite results?")
-            overwrite = input("(y/n)?")
-            if overwrite.lower() == "n":
-                exit()
-        else:
-            os.makedirs(test_sp, exist_ok=True)
-            logger.info(f"folder created @ {test_sp} ")
-
-        # if configs["gcp_bucket"]:
-        #     #Test for endpoint in gcp bucket
-        #     test_sp = os.path.join(configs["bucket_name"], "results", datafile.name)
-        #     passed = test_endpoint(test_sp)
-        #     if passed:
-        #         logger.warning(f"{datafile.name} path exists in gcp")
-        #         logger.warning("Do you want to overwrite results?")
-        #         overwrite = input("(y/n)?")
-        #         if overwrite.lower() == "n":
-        #             logger.warning("Shutting down program")
-        #             exit()
-        #     else:
-        #         created = create_endpoint(test_sp)
-        #         if created:
-        #             logger.info(f"folder created @ {test_sp}")
-        #         else:
-        #             logger.warning(f"Error {created}")
-        #             exit()
-
-        if not "." in datafile.name:
-            configs["cam"] = os.path.join(datafile, datafile.name)
-        else:
-            configs["cam"] = os.path.join(datafile)
-
-        configs["cam_name"] = datafile.name
-        record, header = load_signal_data(configs["cam"])
-        #Match filetype (could also use suffix)
-        ftype = datafile.suffix
-        match ftype:
-            #ECG data
-            case ".dat":
-                #Signal
-                wave = record.p_signal
-                
-                # sampling frequency
-                fs = record.fs
-
-                #Size of timing segment window
-                windowsi = 10
-
-                #Divide waveform into even segments (Leave off the last 1000 or so, usually unreliable)
-                wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)[:-1000]
-
-            case ".ebm":
-                wave = record
-                fs =  float(header["frequency"])
-                windowsi = 2
-                wave_sections = utils.segment_ECG(wave, fs, windowsize=windowsi)
-
-        #Frequency
-        configs["samp_freq"] = fs
-
-    else:
-        logger.CRITICAL("New runtime environment detected outside of normal operating params.\nPlease rerun with appropriate configuration")
-        exit()
-
-    #BUG - Getting some errors in the start recently.  lastkeys[- not being estimated on line 1359]
-    #Setting mixed datatypes (structured array) for ecg_data['section_info']
-    wave_sect_dtype = [
-        ('wave_section', 'i4'),
-        ('start_point' , 'i4'),
-        ('end_point'   , 'i4'),
-        ('valid'       , 'i4'),
-        ('fail_reason' , str, 16),
-        ('Avg_HR'      , 'f4'), 
-        ('SDNN'        , 'f4'),
-        ('min_HR_diff' , 'f4'), 
-        ('max_HR_diff' , 'f4'), 
-        ('RMSSD'       , 'f4'),
-        ('NN50'        , 'f4'),
-        ('PNN50'       , 'f4'),
-        ('isoelectric' , 'f4'),
-        ('Avg_QRS'     , 'f4'),
-        ('Avg_QT'      , 'f4'),
-        ('Avg_PR'      , 'f4'),
-        ('Avg_ST'      , 'f4')
-    ]
-
-    #Base data container keys
-    ecg_data = {
-        'peaks': np.zeros(shape=(0, 2), dtype=np.int32),
-        'rolling_med': np.zeros(shape=(wave.shape[0]), dtype=np.float32),
-        'section_info': np.zeros(shape=(wave_sections.shape[0]), dtype=wave_sect_dtype),
-        'interior_peaks': np.zeros(shape=(0, 16), dtype=np.int32)
-    }
-
-    ecg_data['section_info']['wave_section'] = np.arange(0, wave_sections.shape[0], 1)
-    ecg_data['section_info']['start_point'] = wave_sections[:,0]
-    ecg_data['section_info']['end_point'] = wave_sections[:,1]
-    ecg_data['section_info']['valid'] = wave_sections[:,2]
-
-    del wave_sections
-    
-    return ecg_data, wave, fs
-
 ################################# Size Funcs ############################################
 def sizeofobject(folder)->str:
     for unit in ["B", "KB", "MB", "GB"]:
@@ -302,44 +159,6 @@ def getfoldersize(folder:Path):
 
     return sizeofobject(fsize)
 
-################################# GCP Client Funcs ############################################
-# gcsfuse does all this now.  So easy to use!!! 
-# def authenticate_with_gcs(credentials_path:str):
-#     """Set up Google Cloud authentication
-
-#     Args:
-#         credentials_path (_type_): _description_
-#     """ 
-#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
-
-# def test_endpoint(test_sp:str):
-#     try:
-#         command = ["gsutil", "ls", f"gs://{test_sp}"]
-#         runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
-#         return True
-#     except subprocess.CalledProcessError as e:
-#         if "One or more URLs matched no objects" in e.stderr:
-#             return False
-#         else:
-#             raise e
-        
-# def create_endpoint(test_sp:str):
-#     try:
-#         #TODO - check this the next time you run a full cam
-#         create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
-#         subprocess.run(create_command, capture_output=True, text=True, check=True)
-
-#         # Optionally remove the dummy file:
-#         # remove_command = ["gsutil", "rm", f"gs://{test_sp}/test.txt"]
-#         # subprocess.run(remove_command, capture_output=True, text=True, check=True)
-
-#         return True
-
-#     except subprocess.CalledProcessError as e:
-#         if "One or more URLs matched no objects" in e.stderr:
-#             return False
-#         else:
-#             return e
 
 ################################# TUI Funcs ############################################
 #FUNCTION Launch TUI
@@ -466,3 +285,42 @@ def load_choices(fp:str, batch_process:bool=False):
             
         # Otherwise, return all valid files (e.g., .ebm files)
         return files
+
+################################# GCP Client Funcs ############################################
+# gcsfuse does all this now.  So easy to use!!! 
+# def authenticate_with_gcs(credentials_path:str):
+#     """Set up Google Cloud authentication
+
+#     Args:
+#         credentials_path (_type_): _description_
+#     """ 
+#     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+
+# def test_endpoint(test_sp:str):
+#     try:
+#         command = ["gsutil", "ls", f"gs://{test_sp}"]
+#         runcommand = subprocess.run(command, capture_output=True, text=True, check=True)
+#         return True
+#     except subprocess.CalledProcessError as e:
+#         if "One or more URLs matched no objects" in e.stderr:
+#             return False
+#         else:
+#             raise e
+        
+# def create_endpoint(test_sp:str):
+#     try:
+#         #TODO - check this the next time you run a full cam
+#         create_command = ["gsutil", "touch", f"gs://{test_sp}/test.txt"]
+#         subprocess.run(create_command, capture_output=True, text=True, check=True)
+
+#         # Optionally remove the dummy file:
+#         # remove_command = ["gsutil", "rm", f"gs://{test_sp}/test.txt"]
+#         # subprocess.run(remove_command, capture_output=True, text=True, check=True)
+
+#         return True
+
+#     except subprocess.CalledProcessError as e:
+#         if "One or more URLs matched no objects" in e.stderr:
+#             return False
+#         else:
+#             return e
