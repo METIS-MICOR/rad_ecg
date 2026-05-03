@@ -303,7 +303,19 @@ def save_results(ecg_data, configs: dict, current_date: str):
                 interior_peaks=ecg_data.interior_peaks,
                 section_info=ecg_data.sect_info,
                 configs=configs
-            )              
+            )
+            
+            # --- NPZ GSUTIL TRANSFER ---
+            # If saving locally but GCP is flagged, push the NPZ file to the bucket!
+            if configs.get("gcp_bucket", False) and configs.get("bucket_name"):
+                bucket_name = configs["bucket_name"]
+                destination_gcp = f'gs://{bucket_name}/results/{camname}/{file_name}'
+                gsutil_command = ['gsutil', 'cp', str(file_path), destination_gcp]
+                try:
+                    subprocess.run(gsutil_command, check=True, capture_output=True, text=True)
+                    logger.info(f"NPZ copied to bucket via gsutil")
+                except subprocess.CalledProcessError as e:
+                    logger.error(f"NPZ gsutil transfer failed: {e.stderr}")
     except Exception as e:
         logger.warning(f"A general error has occurred during saving: {e}")
         raise e

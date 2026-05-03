@@ -1820,6 +1820,9 @@ def main():
         file_list = selected
         
     for file_path in file_list:
+        # Get the exact time this specific file started processing
+        current_run_time = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
+        
         logger.info(f"--- Checking {file_path.stem} ---")
         
         save_dir = Path(configs["save_path"]) / file_path.stem
@@ -1829,13 +1832,14 @@ def main():
             
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # --- LOCAL LOGGING ---
-        # Save permanently to the local data/logs folder
+        # LOCAL LOGS
         local_log_dir = Path.cwd() / "src" / "rad_ecg" / "data" / "logs"
         local_log_dir.mkdir(parents=True, exist_ok=True)
-        local_log_path = local_log_dir / f"{file_path.stem}_{DATE_JSON}.log"
-        # Stage path for gsutil transfer
+        
+        # Use the timestamp for the log
+        local_log_path = local_log_dir / f"{file_path.stem}_{current_run_time}.log"
         configs["log_path"] = str(local_log_path) 
+        
         cam_handler = get_file_handler(local_log_path)
         logger.addHandler(cam_handler)
         
@@ -1848,9 +1852,7 @@ def main():
             ECG = loader.load_structures()
             RAD = RadECG(ECG, configs, fp)
             RAD.run_extraction()
-            
-            # Save results 
-            support.save_results(RAD.data, configs=configs, current_date=DATE_JSON)
+            support.save_results(RAD.data, configs=configs, current_date=current_run_time)
             
         except Exception as e:
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
@@ -1860,12 +1862,11 @@ def main():
             logger.removeHandler(cam_handler)
             cam_handler.close()
             
-            # Trigger gcloud transfer 
+            # Trigger gcloud transfer for the LOG file using the dynamic timestamp
             if configs.get("gcp_bucket", False) and configs.get("bucket_name"):
                 try:
-                    # Note: We must re-import/reference support since it's outside the try block
                     import subprocess
-                    support.transfer_logfile(logger, configs, file_path.stem, DATE_JSON)
+                    support.transfer_logfile(logger, configs, file_path.stem, current_run_time)
                 except subprocess.CalledProcessError as e:
                     print(f"Failed to transfer log via gcloud. Google's terminal output:\n{e.stderr}")
                 except Exception as e:
