@@ -1860,13 +1860,16 @@ def main():
             logger.removeHandler(cam_handler)
             cam_handler.close()
             
-            # Trigger your native gsutil transfer if the config flags it!
+            # Trigger gcloud transfer 
             if configs.get("gcp_bucket", False) and configs.get("bucket_name"):
                 try:
                     # Note: We must re-import/reference support since it's outside the try block
+                    import subprocess
                     support.transfer_logfile(logger, configs, file_path.stem, DATE_JSON)
+                except subprocess.CalledProcessError as e:
+                    print(f"Failed to transfer log via gcloud. Google's terminal output:\n{e.stderr}")
                 except Exception as e:
-                    print(f"Failed to transfer log via gsutil: {e}")
+                    print(f"Failed to transfer log: {e}")
             
             # Flush memory
             plt.close('all')

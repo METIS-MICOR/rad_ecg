@@ -230,7 +230,8 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
         e: _description_
         e: _description_
         e: _description_
-    """    
+    """  
+    #TODO - Update this to remove tobucket
     logger.info("Saving results to compressed NPZ ...")
     camname = configs["cam_name"]
     configs["last_run"] = current_date
@@ -305,20 +306,19 @@ def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:str):
     bucket_name = configs["bucket_name"]
     destination_gcp = f'gs://{bucket_name}/results/{cam}/{current_date}.log'
     
-    # Modernized to use gcloud storage instead of gsutil
-    gcloud_command = ['gcloud', 'storage', 'cp', local_path, destination_gcp]
+    # Reverted back to the highly-stable gsutil command!
+    gsutil_command = ['gsutil', 'cp', local_path, destination_gcp]
     
     try:
-        # capture_output=True grabs the actual terminal output so we can read it if it fails
-        result = subprocess.run(gcloud_command, check=True, capture_output=True, text=True)
-        logger.warning(f"logfile successfully saved to {bucket_name} on GCP via gcloud")
+        # We keep capture_output=True so we can read the terminal if it fails
+        result = subprocess.run(gsutil_command, check=True, capture_output=True, text=True)
+        logger.warning(f"logfile successfully saved to {bucket_name} on GCP via gsutil")
         
     except FileNotFoundError as e:
-        logger.warning(f"FileNotFound (Is the gcloud CLI installed or in PATH?):\n{e}")
+        logger.warning(f"FileNotFound (Is gsutil installed/in PATH?):\n{e}")
         raise e
     except subprocess.CalledProcessError as e:
-        # This catches actual GCP errors (like permission denied, bucket not found, etc.)
-        logger.warning(f"gcloud transfer failed!\nTerminal Error: {e.stderr}")
+        logger.warning(f"gsutil transfer failed!\nTerminal Error: {e.stderr}")
         raise e
     except Exception as e:
         logger.warning(f"Exception:\n{e}\nType:{type(e)}")
