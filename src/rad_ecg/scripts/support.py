@@ -138,12 +138,15 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
+# Prevent duplicate handlers if support.py is imported multiple times
 if not logger.handlers:
     if multiprocessing.current_process().name == "MainProcess":
-        # Main Process: Gets terminal output (FileHandler added later in main script)
-        logger.addHandler(get_rich_handler(console))
+        # MAIN PROCESS: Console ONLY. Restore your custom CRITICAL level!
+        rich_handler = get_rich_handler(console)
+        rich_handler.setLevel(logging.CRITICAL) 
+        logger.addHandler(rich_handler)
     else:
-        # Worker Process: Also gets terminal output, but safely isolated
+        # WORKER PROCESS: Console ONLY. Workers keep their default INFO level.
         logger.addHandler(get_rich_handler(console))
 
 # Ensure DATE_JSON is globally available
