@@ -100,7 +100,7 @@ class CardiacFreqTools:
             fs: float = 1000.0, 
             history_size: int = 6,
             freq_lim: float = 15, 
-            qrs_lim : float = 0.35
+            qrs_lim : float = 0.25
             ):
         self.fs = fs
         self.history_size = history_size

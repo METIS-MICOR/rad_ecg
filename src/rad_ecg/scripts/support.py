@@ -1,6 +1,8 @@
 #################################  main libraries #######################################
+import os
 import time
 import json
+import shutil
 import logging
 import datetime
 import subprocess
@@ -238,36 +240,48 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
     save_dir.mkdir(parents=True, exist_ok=True)
     
     # Define the single .npz file path
-    file_path = save_dir / f"{camname}_{current_date}_results.npz"
+    file_name = f"{camname}_{current_date}_results.npz"
+    file_path = save_dir / file_name 
 
     try:
-        # np.savez_compressed takes the filepath and then **kwargs for the arrays.
-        # The kwargs keys ('peaks', 'interior_peaks', 'section_info') become the variable names inside the file.
-        np.savez_compressed(
-            file_path,
-            peaks=ecg_data.peaks,
-            interior_peaks=ecg_data.interior_peaks,
-            section_info=ecg_data.sect_info
-        )
-        logger.warning(f"Saved all arrays to {file_path}")
-        
-        # GCP Upload Logic
-        if tobucket:
-            bucket_name = configs["bucket_name"]
-            # file_path.name automatically grabs just the filename (e.g., '10-25-2024_results.npz')
-            destination_gcp = f'gs://{bucket_name}/results/{camname}/{file_path.name}'
-            gsutil_command = ['gsutil', 'cp', str(file_path), destination_gcp]
+        # Check for FUSE mount
+        if "/mnt/" in str(file_path):
+            temp_dir = Path("/tmp/rad_ecg_saves") / camname
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_file_path = temp_dir / file_name
             
+            # Save locally
+            logger.info(f"Saving temporary local file: {temp_file_path}")
             try:
-                subprocess.run(gsutil_command, check=True)
-                logger.warning(f"{camname} successfully saved to {bucket_name} on GCP")
+                np.savez_compressed(
+                    temp_file_path,
+                    peaks=ecg_data.peaks,
+                    interior_peaks=ecg_data.interior_peaks,
+                    section_info=ecg_data.sect_info,
+                    configs=configs
+                )
+                logger.warning(f"Saved all arrays to {temp_file_path}")
+                logger.info(f"Transferring to GCS Bucket: {file_path}")
+                shutil.copy2(temp_file_path, file_path)
+                
+                # 3. Clean up the local temp file to save disk space
+                os.remove(temp_file_path)
+                logger.info(f"Results successfully saved to {file_path}")
+                
             except FileNotFoundError as e:
                 logger.warning(f"FileNotFound (Is gsutil installed/in PATH?):\n{e}")
                 raise e
-            except subprocess.CalledProcessError as e:
-                logger.warning(f"GCP Upload Failed with error code {e.returncode}:\n{e}")
+            except shutil.ExecError as e:
+                logger.warning(f"GCP Upload Failed with error {e}")
                 raise e
-                
+        else:
+            np.savez_compressed(
+                file_path,
+                peaks=ecg_data.peaks,
+                interior_peaks=ecg_data.interior_peaks,
+                section_info=ecg_data.sect_info,
+                configs=configs
+            )              
     except Exception as e:
         logger.warning(f"A general error has occurred during saving: {e}")
         raise e
