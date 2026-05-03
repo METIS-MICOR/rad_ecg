@@ -1869,8 +1869,6 @@ def main():
                     logger.info(f"Log seamlessly copied to bucket: {final_cam_log_path}")
             
             # Flush memory
-            import matplotlib.pyplot as plt
-            import gc
             plt.close('all')
             gc.collect()
 
