@@ -299,22 +299,30 @@ def save_results(ecg_data, configs: dict, current_date: str, tobucket: bool = Fa
     if tobucket:
         transfer_logfile(logger, configs, camname, current_date)
 
-# #FUNCTION Transfer Logfile
-# def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:datetime):
-#     local_path  = configs["log_path"]
-#     bucket_name = configs["bucket_name"]
-#     destination_gcp = f'gs://{bucket_name}/results/{cam}/{current_date}.log'
-#     gsutil_command = ['gsutil', 'cp', local_path, destination_gcp]
-#     try:
-#         subprocess.run(gsutil_command, check=True)
-#         logger.warning(f"logfile successfully saved to {bucket_name} on GCP")
-#     #Trapping FNF error specifically
-#     except FileNotFoundError as e:
-#         logger.warning(f"FileNotFound:\n{e}")
-#         raise e
-#     except Exception as e:
-#         logger.warning(f"Exception:\n{e}\nType:{type(e)}")
-#         raise e
+#FUNCTION Transfer Logfile
+def transfer_logfile(logger:logging, configs:dict, cam:str, current_date:str):
+    local_path  = configs["log_path"]
+    bucket_name = configs["bucket_name"]
+    destination_gcp = f'gs://{bucket_name}/results/{cam}/{current_date}.log'
+    
+    # Modernized to use gcloud storage instead of gsutil
+    gcloud_command = ['gcloud', 'storage', 'cp', local_path, destination_gcp]
+    
+    try:
+        # capture_output=True grabs the actual terminal output so we can read it if it fails
+        result = subprocess.run(gcloud_command, check=True, capture_output=True, text=True)
+        logger.warning(f"logfile successfully saved to {bucket_name} on GCP via gcloud")
+        
+    except FileNotFoundError as e:
+        logger.warning(f"FileNotFound (Is the gcloud CLI installed or in PATH?):\n{e}")
+        raise e
+    except subprocess.CalledProcessError as e:
+        # This catches actual GCP errors (like permission denied, bucket not found, etc.)
+        logger.warning(f"gcloud transfer failed!\nTerminal Error: {e.stderr}")
+        raise e
+    except Exception as e:
+        logger.warning(f"Exception:\n{e}\nType:{type(e)}")
+        raise e
 
 #FUNCTION Save Configs
 def save_configs(configs:dict, spath:str):

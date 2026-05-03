@@ -1831,14 +1831,12 @@ def main():
         
         # --- LOCAL LOGGING ---
         # Save permanently to the local data/logs folder
-        local_log_dir = Path.cwd() / "src/rad_ecg/data/logs"
+        local_log_dir = Path.cwd() / "src" / "rad_ecg" / "data" / "logs"
         local_log_dir.mkdir(parents=True, exist_ok=True)
-        
-        local_cam_log_path = local_log_dir / f"{file_path.stem}_{DATE_JSON}.log"
-        configs["log_path"] = str(local_cam_log_path) # Update config just in case
-        
-        # Use your custom support.py function to create the handler locally
-        cam_handler = get_file_handler(local_cam_log_path)
+        local_log_path = local_log_dir / f"{file_path.stem}_{DATE_JSON}.log"
+        # Stage path for gsutil transfer
+        configs["log_path"] = str(local_log_path) 
+        cam_handler = get_file_handler(local_log_path)
         logger.addHandler(cam_handler)
         
         try:
@@ -1851,22 +1849,24 @@ def main():
             RAD = RadECG(ECG, configs, fp)
             RAD.run_extraction()
             
+            # Save results 
             support.save_results(RAD.data, configs=configs, current_date=DATE_JSON, tobucket=False)
             
         except Exception as e:
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
             
         finally:
-            # CLEANUP & LOG TRANSFER
+            # Close the logger so the file is completely finalized
             logger.removeHandler(cam_handler)
             cam_handler.close()
             
-            # If the user toggled GCP Bucket, copy the local log to the FUSE bucket
-            if configs.get("gcp_bucket", False) or "/mnt/" in str(save_dir):
-                final_cam_log_path = save_dir / f"{file_path.stem}_{DATE_JSON}.log"
-                if local_cam_log_path.exists():
-                    shutil.copy2(local_cam_log_path, final_cam_log_path)
-                    logger.info(f"Log seamlessly copied to bucket: {final_cam_log_path}")
+            # Trigger your native gsutil transfer if the config flags it!
+            if configs.get("gcp_bucket", False) and configs.get("bucket_name"):
+                try:
+                    # Note: We must re-import/reference support since it's outside the try block
+                    support.transfer_logfile(logger, configs, file_path.stem, DATE_JSON)
+                except Exception as e:
+                    print(f"Failed to transfer log via gsutil: {e}")
             
             # Flush memory
             plt.close('all')
