@@ -1276,6 +1276,7 @@ class RadECG:
             return P_onset
         except Exception as e:
             logger.warning(f'P onset error {e}')
+        #BUG - P_onset is showing up halfway up the peak. Check search width
 
     def _find_q_onset(self, Q_peak:int, P_peak:int):
         try:
@@ -1296,6 +1297,9 @@ class RadECG:
             return None
         slope_start = T_peak
         slope_end = T_peak + int(srch_width*2) 
+        #BUG - Seeing T_offset get mixed up with P onsets. 
+            #Need to find a way to guard against that with fast heart rates
+            #possibly use the negative to postive calc to isolate inflection
 
         try:
             lil_wave = self.data.wave[slope_start:slope_end].flatten()
@@ -1375,7 +1379,8 @@ class RadECG:
         except Exception as e:
             logger.debug(f'T onset error: {e}')
             return None
-    
+
+
     def _yabig_meanie(self, values: list, precision: int = 4) -> float:
         """Safely calculates the mean, ignoring Nones/NaNs. Returns np.nan if empty."""
         clean_vals = [v for v in values if v is not None and not np.isnan(v)]

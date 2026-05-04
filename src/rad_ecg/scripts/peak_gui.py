@@ -199,6 +199,7 @@ class AnimatedECGViewer:
             f"Hjorth:   {sect_data['hjorth']:.2f}\n"
             f"W-Dist:   {sect_data['wdist']:.2f}\n"
             f"Spec Rat: {sect_data['spectral']:.2f}\n"
+            f"Spec Ent: {sect_data['spec_entropy']:.2f}\n"
             f"Bad Beat: {sect_data['bad_b_rat']:.1%}\n\n"
             f"--- VITALS ---\n"
             f"HR:       {sect_data['HR']:.0f} bpm\n"
