@@ -1275,7 +1275,7 @@ class PigRAD:
 
             #Gridsearch models
             console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("kneigh")
+            modeltraining._grid_search("svm")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3797,7 +3797,8 @@ class ModelTraining(object):
                 "grid_srch_params":{
                     "C":np.arange(0, 1.1, 0.1),
                     "kernel":["linear", "poly", "rbf", "sigmoid", "precomputed"],
-                    "n":np.arange(1000, 10000, 500)
+                    "degree":np.arange(1, 4),
+                    "gamma":["scale", "auto"],
                 }
             },
             "xgboost":{
