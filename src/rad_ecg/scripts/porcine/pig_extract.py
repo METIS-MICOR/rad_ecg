@@ -3660,11 +3660,11 @@ class ModelTraining(object):
                     "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_estimators":15,                  #int | 100		
+                    "n_estimators":35,                  #int | 100		
                     "criterion":"entropy",              #str | gini
-                    "max_depth":20,                     #int
-                    "min_samples_split":2,              #int | 2
-                    "min_samples_leaf":25,               #int | 1
+                    "max_depth":10,                     #int
+                    "min_samples_split":30,              #int | 2
+                    "min_samples_leaf":10,               #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
                     "max_features":10,                  #str | "sqft"
                     "max_leaf_nodes":None,              #int | None
@@ -3676,11 +3676,11 @@ class ModelTraining(object):
                     "class_weight":"balanced_subsample" 
                 },
                 "grid_srch_params":{
-                    "n_estimators":range(5, 400, 10),
+                    "n_estimators":range(5, 200, 10),
                     # "criterion":["gini", "entropy"],
                     "max_depth":range(5, 50, 5),
-                    "min_samples_split":range(2, 50, 2),            
-                    "min_samples_leaf":range(2, 50, 2),             
+                    "min_samples_split":range(2, 50, 4),            
+                    "min_samples_leaf":range(2, 50, 4),             
                     # "max_features":["sqrt", "log2", None]
                 }
             },
