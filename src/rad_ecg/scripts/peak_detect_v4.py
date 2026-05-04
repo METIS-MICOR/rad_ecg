@@ -81,7 +81,6 @@ class ECGData:
     rolling_med    : np.ndarray = field(init=False) #Rolling Median
     interior_peaks : np.ndarray = field(init=False) #All the other peaks/onsets/offsets
     peaks          : np.ndarray = field(init=False) #R peaks
-    # peaks          : np.ndarray = field(default_factory=lambda: np.zeros((0, 2), dtype=np.int32)) # R peaks
     
     def __post_init__(self):
         # Calculate mathematical maximum possible peaks (200ms minimum distance)
@@ -478,16 +477,14 @@ class SignalGUI:
         timer.add_callback(plt.close, fig)
         timer.start()
         plt.show()
-        plt.close(fig)
-        plt.close('all')
-        gc.collect()
 
     def plot_pre_error(
             self, 
             error_type   : str, 
             start_idx    : int, 
             end_idx      : int, 
-            sect_id      : int, 
+            sect_id      : int,
+            pre_metrics  : dict,
         ):
         """Historical validation error plots."""
         if not self.plot_errors:
@@ -495,11 +492,16 @@ class SignalGUI:
 
         wave_chunk = self.data.wave[start_idx:end_idx]
         rolled_chunk = self.data.rolling_med[start_idx:end_idx]
-        
+        title_str = f'Section {sect_id} indices {start_idx}:{end_idx}\n{error_type}'
+        if pre_metrics:
+            stat_text = (f"Kurtosis: {pre_metrics.get('kurtosis', 0):.2f} | "
+                         f"Hjorth: {pre_metrics.get('hjorth', 0):.2f} | "
+                         f"W-Dist: {pre_metrics.get('wdist', 0):.2f}")
+            title_str += f"\n{stat_text}"        
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.plot(range(start_idx, end_idx), wave_chunk, label='ECG')
         ax.plot(range(start_idx, end_idx), rolled_chunk, label='Rolling Median')
-        ax.set_title(f'Section {sect_id} indices {start_idx}:{end_idx}\n{error_type}') 
+        ax.set_title(title_str) 
         ax.set_xlabel("Timesteps")
         ax.set_ylabel("ECG mV")
         ax.legend(loc='upper right')
@@ -1817,7 +1819,7 @@ def main():
     configs      :dict = setup_globals.load_config()
     fp           :Path = Path.cwd() / configs["data_path"]
     batch_process:bool = configs["batch"]
-    selected     = setup_globals.load_choices(fp, batch_process)
+    selected:list|str  = setup_globals.load_choices(fp, batch_process)
     
     if not isinstance(selected, list):
         file_list = [selected]

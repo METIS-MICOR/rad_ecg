@@ -1,5 +1,5 @@
 {
-  "plot_section": false,
+  "plot_section": true,
   "plot_errors": false,
   "live_term": false,
   "batch": false,
