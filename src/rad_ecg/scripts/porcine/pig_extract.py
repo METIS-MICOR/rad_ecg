@@ -2,6 +2,7 @@ import io
 import time
 import shap
 import base64
+import logging
 import warnings
 import numpy as np
 import pandas as pd
@@ -36,8 +37,8 @@ from scipy.stats import entropy, wasserstein_distance, pearsonr, probplot, boxco
 ########################### Custom imports ###############################
 from utils import segment_ECG
 from setup_globals import walk_directory
-from support import logger, console, log_time
-from support import export_theme, DATE_JSON
+import support
+from support import log_time, export_theme, console
 
 ########################### Sklearn shap metric / scaling imports ########
 from shap import TreeExplainer
@@ -67,6 +68,11 @@ from sklearn.svm import SVC, LinearSVC
 from xgboost import XGBClassifier
 import xgboost as xgb
 
+#Log imports
+    #BUG 
+    #Because i was changing around support for rad_ecg, the log files got scrwed up here.  
+    #Instead of trying to make it do both, i'll instantiate the logger here
+# Determine if we are in the Main Process or a Worker Process
 
 #CLASS Pig_Feat
 @dataclass
@@ -1269,7 +1275,7 @@ class PigRAD:
 
             #Gridsearch models
             console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            modeltraining._grid_search("kneigh")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3650,7 +3656,7 @@ class ModelTraining(object):
                     "min_samples_split":2,              #int | 2
                     "min_samples_leaf":1,               #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
-                    "max_features":10,                  #str | "sqft"
+                    "max_features":"sqrt",              #str | "sqrt"
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
@@ -3663,10 +3669,10 @@ class ModelTraining(object):
                     "n_estimators":35,                  #int | 100		
                     "criterion":"entropy",              #str | gini
                     "max_depth":10,                     #int
-                    "min_samples_split":30,              #int | 2
-                    "min_samples_leaf":10,               #int | 1
+                    "min_samples_split":30,             #int | 2
+                    "min_samples_leaf":10,              #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
-                    "max_features":10,                  #str | "sqft"
+                    "max_features":10,                  #str | "sqrt"
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
@@ -3681,7 +3687,7 @@ class ModelTraining(object):
                     "max_depth":range(5, 50, 5),
                     "min_samples_split":range(2, 50, 4),            
                     "min_samples_leaf":range(2, 50, 4),             
-                    # "max_features":["sqrt", "log2", None]
+                    "max_features":range(2, 20, 2), 
                 }
             },
             "kneigh":{
@@ -3689,7 +3695,7 @@ class ModelTraining(object):
                 "model_type":"classification",
                 "scoring_metric":"accuracy",
                 #link to params
-                #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
+                #https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
                 "base_params":{
                     "n_neighbors":5,                   #int | 100		
                     "weights":"uniform",                #str | uniform
@@ -3703,9 +3709,9 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "n_neighbors":5,                   #int | 100		
-                    "weights":"uniform",                #str | uniform
+                    "weights":"distance",                #str | uniform
                     "algorithm":"auto",                 #str | auto
-                    "leaf_size":30,                     #int | 30
+                    "leaf_size":2,                     #int | 30
                     "p":2,                              #int | 2
                     "metric":"minkowski",               #str | minkowski
                     "metric_params":None,               #dict | None
@@ -3713,10 +3719,9 @@ class ModelTraining(object):
                     "weights":"distance"                #Treat target as ordinal
                 },
                 "grid_srch_params":{
-                    "n_estimators":range(5, 200, 10),
                     "weights":["uniform", "distance"],
                     "algorithm":["auto", "ball_tree", "kd_tree", "brute"],
-                    "leaf_size":range(5, 50),             
+                    "leaf_size":range(2, 100, 2),             
                 }
             },
             "linsvm":{
@@ -5167,6 +5172,20 @@ def load_choices(fp:str, batch_process:bool=False):
 
 # --- Entry Point ---
 def main():
+    global logger, DATE_JSON
+    DATE_JSON = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
+    if multiprocessing.current_process().name == "MainProcess":
+        # MAIN PROCESS: Calculate time and create the log file
+        logger = support.get_logger(console, log_dir=f"src/rad_ecg/data/logs/{DATE_JSON}.log")
+    else:
+        # WORKER PROCESS: Does NOT create a file. Just attach the console handler.
+        # This prevents workers from generating new log files with new timestamps.
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+        logger.addHandler(support.get_rich_handler(console))
+        # If you need DATE_JSON defined to avoid NameErrors in workers (though unlikely used there):
+        DATE_JSON = "WORKER_PROCESS"
+
     fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
     batch_process:bool = True
     selected = load_choices(fp, batch_process)
