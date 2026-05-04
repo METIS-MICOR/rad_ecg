@@ -477,6 +477,10 @@ class SignalGUI:
         timer.add_callback(plt.close, fig)
         timer.start()
         plt.show()
+        # Not sure I need this if i'm gc.collecting at the subject level
+        # plt.close(fig)
+        # plt.close('all')
+        # gc.collect()
 
     def plot_pre_error(
             self, 

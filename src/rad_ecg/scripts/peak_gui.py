@@ -241,7 +241,7 @@ class AnimatedECGViewer:
             
             # Shade the backgrounds
             self.ax_main.axvspan(5.0, 15.0, color='lightgreen', alpha=0.2, label='QRS Band (5-15Hz)')
-            self.ax_main.axvspan(15.0, 40.0, color='orange', alpha=0.1) 
+            self.ax_main.axvspan(15.0, 40.0, color='orange', alpha=0.1, label='Physiological Band (15-40Hz)') 
             
             spectral_ratio = self.data.sect_info['spectral'][sect_id]
             title_str = f"Frequency Spectrum | Section {sect_id} | Spectral Pwr (5-15Hz): {spectral_ratio:.1%}"
