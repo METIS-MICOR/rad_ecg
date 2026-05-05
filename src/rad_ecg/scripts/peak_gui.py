@@ -186,7 +186,7 @@ class AnimatedECGViewer:
         fail_str = sect_data['fail_reason'].strip()
         if fail_str:
             reasons = [r.strip() for r in fail_str.split('|') if r.strip()]
-            formatted_reason = ("|\n          ").join(reasons)
+            formatted_reason = ("|\n").join(reasons)
         else:
             formatted_reason = "None"
         
@@ -469,23 +469,21 @@ def main():
         
     cam_name = selected.stem
     configs["cam_name"] = cam_name
-    
     logger.info(f"Loading raw signal for {cam_name}...")
     loader = SignalLoader(selected)
     loader.load_signal_data()
-    
     ECG = loader.load_structures() 
-    
     save_dir = Path(configs["save_path"]) / cam_name
+
     if not save_dir.exists():
         logger.error(f"No output directory found at {save_dir}. Has this file been processed?")
         return
-        
+
     npz_files = list(save_dir.glob("*.npz"))
     if not npz_files:
         logger.error(f"No .npz result files found in {save_dir}.")
         return
-        
+
     npz_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
     latest_npz = npz_files[0]
     

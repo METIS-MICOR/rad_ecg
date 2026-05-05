@@ -197,13 +197,12 @@ class CardiacFreqTools:
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
         spectral, wdist, is_stable, spect_ent = self.calc_spec_metrics(wave_chunk)
-       #BUG May need to recode this section return from total_power=0
         metrics = {
-            "kurtosis" :np.round(k_sqi, 2),
-            "hjorth"   :np.round(complexity, 2),
-            "spectral" :np.round(spectral, 2), 
-            "wdist"    :np.round(wdist, 2),
-            "spect_ent":np.round(spect_ent, 2)
+            "kurtosis" :np.round(k_sqi, 4),
+            "hjorth"   :np.round(complexity, 4),
+            "spectral" :np.round(spectral, 4), 
+            "wdist"    :np.round(wdist, 4),
+            "spect_ent":np.round(spect_ent, 4)
         }
 
         is_valid = True
@@ -218,6 +217,7 @@ class CardiacFreqTools:
         if complexity > 3.0: 
             is_valid = False
             fail_reason += f"High Hjorth Complexity | " #(Severe HF Static)
+            
         # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
         if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False

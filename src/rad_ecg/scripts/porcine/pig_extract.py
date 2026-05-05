@@ -120,9 +120,9 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path    :Path  = npz_path
-        self.view_eda    :bool  = False
+        self.view_eda    :bool  = True
         self.view_pig    :bool  = False
-        self.view_models :bool  = True
+        self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 30       #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -1274,8 +1274,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("svm")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("svm")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -1592,7 +1592,7 @@ class SignalGUI:
         # Left Panel: Main Plot Area (SS1, LAD, Carotid, Navigator)
             # Split into 4 rows
         self.gs_plots = gridspec.GridSpecFromSubplotSpec(
-            4, 1, #! Increased rows to 4
+            4, 1, 
             subplot_spec=self.gs_main[0], 
             height_ratios=[2, 1.5, 1.5, 0.5], 
             hspace=0.30
@@ -2360,7 +2360,7 @@ class EDA(object):
         self.drop_phys_zeros()
 
         #Drop outliers (features, IQR range)
-        # self.drop_outliers(self.feature_names[5:], 20)
+        self.drop_outliers(self.feature_names[5:], 20)
 
         col_rem = ["psd0", "psd1", "psd2", "psd3"]
         if self.view_models:
@@ -5187,7 +5187,7 @@ def main():
         # If you need DATE_JSON defined to avoid NameErrors in workers (though unlikely used there):
         DATE_JSON = "WORKER_PROCESS"
 
-    fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT"
+    fp:Path = Path.cwd() / "src/rad_ecg/data/datasets/JT/"
     batch_process:bool = True
     selected = load_choices(fp, batch_process)
     rad = PigRAD(selected)
