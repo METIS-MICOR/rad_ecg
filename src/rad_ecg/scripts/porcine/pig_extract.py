@@ -21,6 +21,8 @@ from matplotlib.patches import Patch
 import matplotlib.gridspec as gridspec
 from matplotlib.widgets import Button, TextBox
 import matplotlib.animation as animation
+import matplotlib.transforms as mtransforms
+from matplotlib.markers import MarkerStyle
 from dataclasses import dataclass, field
 from rich import print as pprint
 from rich.tree import Tree
@@ -120,8 +122,8 @@ class PigRAD:
     def __init__(self, npz_path):
         # load data / params
         self.npz_path    :Path  = npz_path
-        self.view_eda    :bool  = True
-        self.view_pig    :bool  = False
+        self.view_eda    :bool  = False
+        self.view_pig    :bool  = True
         self.view_models :bool  = False
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 30       #size of section window 
@@ -1549,6 +1551,13 @@ class SignalGUI:
             pig_id (str): Pig ID for titles and file exports.
         """
         # Data Setup 
+        self.label_dict = {
+            "onset"   :(-1, 0, '>'),
+            "sys_peak":(0, 1, 'v'),
+            "dia_peak":(-1, 0, '>'),
+            "notch"   :(-1, 0, '>'),
+        }
+
         self.ss1 = ss1_data
         self.lad = lad_data
         self.car = car_data 
@@ -1705,10 +1714,10 @@ class SignalGUI:
             self.line_ss1,
             Patch(facecolor='lightcoral', alpha=0.3, label='Systole'),
             Patch(facecolor='dodgerblue', alpha=0.3, label='Diastole'),
-            Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='Onset'),
-            Line2D([0], [0], color='red', marker='^', linestyle='None', markersize=8, label='Sys Peak'),
-            Line2D([0], [0], color='purple', marker='v', linestyle='None', markersize=8, label='Dia Peak'),
-            Line2D([0], [0], color='blue', marker='v', linestyle='None', markersize=8, label='Notch'),
+            # Line2D([0], [0], color='green', marker='>', linestyle='None', markersize=8, label='Onset'),
+            Line2D([0], [0], color='red', marker='v', linestyle='None', markersize=8, label='Sys Peak'),
+            Line2D([0], [0], color='purple', marker='>', linestyle='None', markersize=8, label='Dia Peak'),
+            Line2D([0], [0], color='blue', marker='>', linestyle='None', markersize=8, label='Notch'),
         ]
         self.ax_ss1.legend(handles=ss1_legend_handles, loc="upper right", framealpha=0.9)
         
@@ -1831,12 +1840,18 @@ class SignalGUI:
                         d_span_3 = self.ax_car.axvspan(notch_abs, bpf.dbp_id, color='dodgerblue', alpha=0.2) 
                         self.spans.extend([s_span_1, s_span_2, s_span_3, d_span_1, d_span_2, d_span_3])      
 
+                        def shift_marker(location:str):
+                            marker = self.label_dict[location]
+                            marker_shift = mtransforms.Affine2D().translate(tx=marker[0], ty=marker[1]) 
+                            custom_marker = MarkerStyle(marker[2], transform=marker_shift)
+                            return custom_marker
+
                         # Plot Scatter Points for SS1
-                        sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker='^')
-                        sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker='v')
-                        sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker='>')
-                        sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker='v')
-                        self.scatters.extend([sc1, sc2, sc3, sc4])
+                        sc1 = self.ax_ss1.scatter(bpf.sbp_id, self.ss1[bpf.sbp_id], color='red', zorder=5, marker=shift_marker("sys_peak"))
+                        sc2 = self.ax_ss1.scatter(notch_abs, self.ss1[notch_abs], color='blue', zorder=5, marker=shift_marker("notch"))
+                        # sc3 = self.ax_ss1.scatter(bpf.onset, self.ss1[bpf.onset], color='green', zorder=5, marker=shift_marker("onset"))
+                        sc4 = self.ax_ss1.scatter(bpf.dbp_id, self.ss1[bpf.dbp_id], color='purple', zorder=5, marker=shift_marker("dia_peak"))
+                        self.scatters.extend([sc1, sc2, sc4])#sc3,
 
                         # Plot Scatter Points for LAD
                         lad_systole = self.lad[bpf.onset:notch_abs]
