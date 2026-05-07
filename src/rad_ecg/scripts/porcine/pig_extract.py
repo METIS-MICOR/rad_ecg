@@ -1284,8 +1284,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            # console.print("[green]launch gridsearch...[/]")
-            # modeltraining._grid_search("svm")
+            console.print("[green]launch gridsearch...[/]")
+            modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3851,13 +3851,13 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "n_estimators": 50,
+                    "n_estimators": 100,
                     "alpha": 0.5,
                     "device":"cpu",
                     "gamma":0.1,
                     "objective":"multi:softprob",
-                    "max_depth":2,
-                    "learning_rate": 0.1,
+                    "max_depth":6,
+                    "learning_rate": 0.3,
                     "colsample_bytree": 0.60,
                     "min_child_weight": 5,
                     "subsample": 0.80, 
@@ -4584,7 +4584,10 @@ class ModelTraining(object):
             cv_kwargs = {}
             if self.cross_val in ["groupkfold", "leaveonegroupout", "groupshuffle"]:
                cv_kwargs["groups"] = self.groups_train
-            
+
+            # Define workers for parallel GPU processing
+            n_workers = len(self.gpu_devices) if self.gpu_devices else -1
+
             # Generate pipeline fit params for XGBoost
             fit_params = {}
             if model_name == "xgboost":
@@ -4599,6 +4602,7 @@ class ModelTraining(object):
                 self.y_train, 
                 cv=CV_func,
                 params=fit_params,
+                n_jobs=n_workers,
                 **cv_kwargs,
             )["test_score"]
             
@@ -4610,6 +4614,7 @@ class ModelTraining(object):
                 self.y_train, 
                 cv=CV_func, 
                 params=fit_params,
+                n_jobs=n_workers,
                 **cv_kwargs
             )                        
 
