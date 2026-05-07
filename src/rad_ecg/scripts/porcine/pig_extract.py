@@ -123,8 +123,8 @@ class PigRAD:
         # load data / params
         self.npz_path    :Path  = npz_path
         self.view_eda    :bool  = False
-        self.view_pig    :bool  = True
-        self.view_models :bool  = False
+        self.view_pig    :bool  = False
+        self.view_models :bool  = True
         self.fs          :float = 1000     #Hz
         self.windowsize  :int   = 30       #size of section window 
         self.batch_run   :bool  = isinstance(npz_path, list)
@@ -1154,12 +1154,20 @@ class PigRAD:
             #     for transform in ["log", "recip", "sqrt", "BoxC", "YeoJ"]:
             #         engin.engineer(feature, False, True, transform)
             
-            engin.engineer("aix", True, False, "BoxC")
-            engin.engineer("cvr", True, False, "YeoJ")
-            engin.engineer("dcr", True, False, "YeoJ")
-            engin.engineer("lad_acc_sl", True, False, "BoxC")
-            engin.engineer("sqi_power", True, False, "YeoJ")
-            engin.engineer("sqi_entropy", True, False, "YeoJ")
+            #NOTE - Tom Review Catch 1
+                #Originally i had engineered features before the split.  
+                #Which is a big no no as that will cause leakage in the 
+                #cross validation stages. Because... i'm using the pipeline
+                #to scale.  I think its ok, as that does a yeo johnson fit 
+                #anyways in its internal processes.  
+
+
+            # engin.engineer("aix", True, False, "BoxC")
+            # engin.engineer("cvr", True, False, "YeoJ")
+            # engin.engineer("dcr", True, False, "YeoJ")
+            # engin.engineer("lad_acc_sl", True, False, "BoxC")
+            # engin.engineer("sqi_power", True, False, "YeoJ")
+            # engin.engineer("sqi_entropy", True, False, "YeoJ")
 
             # Normalization
                 #Normally in ML we're dealing with cross sectional data. Each row is an
@@ -3600,9 +3608,18 @@ class DataPrep(object):
             self._traind[model_name]["X_test"] = self._traind[model_name]["X"][test_idx]
             self._traind[model_name]["y_train"] = self._traind[model_name]["y"][train_idx]
             self._traind[model_name]["y_test"] = self._traind[model_name]["y"][test_idx]
-            
             # Save the training groups so CV knows which pig is which during the inner loop
             self._traind[model_name]["groups_train"] = self.groups[train_idx]
+
+        elif self.cross_val == "leaveonegroupout": 
+            #NOTE - Tom Review fix 2
+            # For pure LeaveOneGroupOut, we pass the entire dataset directly into the CV loop. 
+            self._traind[model_name]["X_train"] = self._traind[model_name]["X"]
+            self._traind[model_name]["X_test"] = self._traind[model_name]["X"] 
+            self._traind[model_name]["y_train"] = self._traind[model_name]["y"]
+            self._traind[model_name]["y_test"] = self._traind[model_name]["y"]
+            self._traind[model_name]["groups_train"] = self.groups
+
         else:
             # If its not group validation normal test split
             X_train, X_test, y_train, y_test = train_test_split(
@@ -3845,6 +3862,7 @@ class ModelTraining(object):
                     "min_child_weight": 5,
                     "subsample": 0.80, 
                     "num_class":5,
+                    "random_state":42,                  #int | Answer to everything in the universe
                 },
                 "grid_srch_params":{
                     "max_depth": [2, 3, 4, 5], 
@@ -4645,6 +4663,17 @@ class ModelTraining(object):
             #Call cross validation function
             scores = cv_scoring(y_pred, cat_bool, model_name, table)
             table.add_row("CV:", f"{self.cross_val}", end_section=True)
+            
+            # Score the holdout test set if we aren't doing pure LOSO
+            if self.cross_val != "leaveonegroupout": 
+                if self.task == "classification": 
+                    holdout_score = ACC_SC(self.y_test, y_pred) 
+                    table.add_row("Holdout Test:", f"{holdout_score:.2%}", end_section=True) 
+                elif self.task == "regression": 
+                    holdout_score = MSE(self.y_test, y_pred, squared=False)
+                    table.add_row("Holdout Test:", f"{holdout_score:.2f}", end_section=True) 
+            else: 
+                table.add_row("", "", end_section=True)
 
         else:
             #Call regular holdout scoring function
@@ -4984,7 +5013,7 @@ class ModelTraining(object):
             fit_params["model__sample_weight"] = weights
         
         if num_gpus > 0:
-            # 1 worker per GPU. You can multiply this (e.g., num_gpus * 2) 
+            # 1 worker per GPU. 
             # if your models are small and fit in VRAM concurrently.
             n_workers = num_gpus 
 
