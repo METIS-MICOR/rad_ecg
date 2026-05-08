@@ -1284,8 +1284,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("rfc")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3698,13 +3698,13 @@ class ModelTraining(object):
                     "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_estimators":35,                  #int | 100		
+                    "n_estimators":25,                  #int | 100		
                     "criterion":"entropy",              #str | gini
-                    "max_depth":10,                     #int
-                    "min_samples_split":30,             #int | 2
-                    "min_samples_leaf":10,              #int | 1
+                    "max_depth":5,                     #int
+                    "min_samples_split":34,             #int | 2
+                    "min_samples_leaf":14,              #int | 1
                     "min_weight_fraction_leaf":0.0,     #float | 0.0
-                    "max_features":10,                  #str | "sqrt"
+                    "max_features":4,                  #str | "sqrt"
                     "max_leaf_nodes":None,              #int | None
                     "min_impurity_decrease":0.0,        #float | 0.0
                     "bootstrap":True,                   #bool | True
