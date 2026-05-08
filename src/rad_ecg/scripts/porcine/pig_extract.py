@@ -23,6 +23,7 @@ from matplotlib.widgets import Button, TextBox
 import matplotlib.animation as animation
 import matplotlib.transforms as mtransforms
 from matplotlib.markers import MarkerStyle
+import matplotlib.colors as mcolors
 from dataclasses import dataclass, field
 from rich import print as pprint
 from rich.tree import Tree
@@ -1284,8 +1285,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            # console.print("[green]launch gridsearch...[/]")
-            # modeltraining._grid_search("rfc")
+            console.print("[green]launch gridsearch...[/]")
+            modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3698,7 +3699,7 @@ class ModelTraining(object):
                     "class_weight":"balanced"            #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_estimators":25,                  #int | 100		
+                    "n_estimators":35,                  #int | 100		
                     "criterion":"entropy",              #str | gini
                     "max_depth":5,                     #int
                     "min_samples_split":34,             #int | 2
@@ -3833,45 +3834,44 @@ class ModelTraining(object):
                     "gamma":["scale", "auto"],
                 }
             },
-            "xgboost":{
+"xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
-                #link to params
-                #https://xgboost.readthedocs.io/en/stable/parameter.html
+                "scoring_metric":"balanced_accuracy", # Note: Shifted from 'accuracy' due to the missing C3/C4 stages
                 "base_params":{
                     "booster":"gbtree",
-                    "alpha": 0.5,
-                    "device":"cpu",
-                    "gamma":0,
-                    "objective":"multi:softmax",
-                    "max_depth":6,
-                    "learning_rate": 0.3,
+                    "tree_method": "hist",            # Extremely fast on GPU
+                    "device":"cuda",                  # MultiGPU wrapper will overwrite the ID, but needs 'cuda' base
+                    "objective":"multi:softprob",
                     "num_class":5,
+                    "eval_metric": "auc",             # Better internal evaluation for imbalanced multi-class
                 },
                 "init_params":{
                     "booster":"gbtree",
-                    "n_estimators": 50,
-                    "alpha": 0.5,
+                    "n_estimators": 100,
+                    "tree_method": "hist",
                     "device":"cpu",
-                    "gamma":0.1,
                     "objective":"multi:softprob",
-                    "max_depth":5,
-                    "learning_rate": 0.1,
-                    "colsample_bytree": 0.80,
-                    "min_child_weight": 1,
-                    "subsample": 0.6, 
-                    "num_class":5,
-                    "random_state":42,                  #int | Answer to everything in the universe
+                    "max_depth": 3,
+                    "learning_rate": 0.05,
+                    "colsample_bytree": 0.5,
+                    "min_child_weight": 5,
+                    "subsample": 0.8, 
+                    "num_class": 5,
+                    "reg_alpha": 1.0,                 # Added L1
+                    "reg_lambda": 5.0,                # Added L2
+                    "random_state": 42,                  
                 },
                 "grid_srch_params":{
-                    "max_depth": [2, 3, 4, 5], 
-                    "min_child_weight": [1, 3, 5],
-                    "learning_rate": [0.01, 0.05, 0.1, 0.2],
-                    "n_estimators": [50, 100, 200, 300], 
-                    "subsample": [0.6, 0.8, 1.0],         # Prevents overfitting to specific rows
-                    "colsample_bytree": [0.6, 0.8, 1.0],  # Prevents overfitting to correlated pressure features
-                    "gamma": [0, 0.1, 0.5, 1.0]           # Minimum loss reduction required to split
+                    "max_depth": [1, 2, 3],               # Force shallow trees
+                    "min_child_weight": [1, 5, 10],       # High values prevent isolating small, pig-specific anomalies
+                    "learning_rate": [0.01, 0.05, 0.1],
+                    "n_estimators": [100, 300, 500], 
+                    "subsample": [0.5, 0.7, 0.9],         
+                    "colsample_bytree": [0.3, 0.5, 0.8],  # Low bounds force XGB to ignore collinear DSP features
+                    "gamma": [0, 1.0, 5.0],               # Aggressive pruning
+                    "reg_alpha": [0.1, 1.0, 10.0],        # L1 (Lasso) effectively performs feature selection
+                    "reg_lambda": [1.0, 5.0, 20.0]        # L2 (Ridge) shrinks weights of correlated features
                 }
             },
             "ensemble":{
@@ -4830,6 +4830,13 @@ class ModelTraining(object):
                 timer_error.remove_callback(timer_cid)
                 logger.warning(f'Timer stopped')
 
+        class_color_dict = {
+            "Class 1": "#1f77b4",  # Blue
+            "Class 2": "#ff7f0e",  # Orange
+            "Class 3": "#2ca02c",  # Green
+            "Class 4": "#d62728",  # Red
+            "Class 5": "#9467bd"   # Purple
+        }
         # Variable definition
         plots_to_show = ["bar",] #"waterfall", "violin"
         
@@ -4870,11 +4877,40 @@ class ModelTraining(object):
         shap_values_raw = tree_explainer.shap_values(X_train_scaled)
 
         if "bar" in plots_to_show:
+            current_model_class_names = ["Class 1", "Class 2", "Class 3", "Class 4", "Class 5"]
             fig = plt.figure()
-            # Notice we pass X_train_scaled here so the dimensions match the shap values perfectly
-            shap.summary_plot(shap_values_raw, X_train_scaled, feature_names=features, plot_type="bar", show=False)
+            # pass X_train_scaled here so the dimensions match the shap values perfectly
+            shap.summary_plot(shap_values_raw, X_train_scaled, feature_names=features, plot_type="bar", show=False, class_names=current_model_class_names)
             fig.figure.suptitle(f"{model} SHAP Feature Importance (Bar)", y=0.98, size=12)
             fig.figure.subplots_adjust(top=0.95)
+            ax = plt.gca()
+            legend = ax.get_legend()
+            if legend:
+                color_replacement_map = {}
+                for handle, text_obj in zip(legend.legend_handles, legend.get_texts()):
+                    class_name = text_obj.get_text()
+                    
+                    if class_name in class_color_dict:
+                        orig_hex = mcolors.to_hex(handle.get_facecolor(), keep_alpha=True)
+                        new_hex = mcolors.to_hex(class_color_dict[class_name], keep_alpha=True)
+                        
+                        # Log the replacement
+                        color_replacement_map[orig_hex] = new_hex
+                        
+                        # Overwrite the color in the legend
+                        handle.set_facecolor(new_hex)
+                        handle.set_edgecolor(new_hex)
+
+                # Iterate through every single bar in the plot and overwrite the colors
+                for patch in ax.patches:
+                    patch_hex = mcolors.to_hex(patch.get_facecolor(), keep_alpha=True)
+                    
+                    # If the bar's color matches one of SHAP's originals, swap it to yours
+                    if patch_hex in color_replacement_map:
+                        new_color = color_replacement_map[patch_hex]
+                        patch.set_facecolor(new_color)
+                        patch.set_edgecolor(new_color)
+
             if self.view_models:
                 if self.fp_base:
                     fig.savefig(PurePath(self.fp_base, Path(f"{model}_shap_bar.png")), dpi=300)
@@ -5220,7 +5256,7 @@ def load_choices(fp:str, batch_process:bool=False):
     else:
         return sorted(f for f in Path(str(fp)).iterdir() if f.is_file())
 
-# --- Entry Point ---
+# --- Program Start ---
 def main():
     global logger, DATE_JSON
     DATE_JSON = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
@@ -5244,97 +5280,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-#Problem statement.  
-# We're looking to classify the 4 stages of hemorhagic shock. 
-
-#Workflow
-#File choice and signal loading
-#Pigrad initialization kicks off stumpy matrix profile calculation
-#Runs FLUSS algorithm to look for semantic shifts in the morphology of the signal
-#Loads stumpy CAC () curve results to RegimeViewer matplotlib GUI
-#During that load, we calculate the phase variance over time with each beat
-#To do that we need to isolate the beats and then set a standard window before and after
-#Align all of them and then look for the variance in the aligned beat to run the wavelet over.
-#Gives the phase variance a kind of a step curve.
-
-#Good results
-#sep-3-24
-
-#NOTES 2-10-26
-#FLUSS not performing as well as I'd like. 
-#Possible problems. 
-    #an m that changes throughout the signal because the signal I want to look at is too long.  
-        # Could section the ecg according to the phase labels in BSOS data.  
-    
-    #It also could be that the  periodicity of the carotid flow is so strong it completely obliterates
-    #any smaller signal change.  Which we did see in the freqwuency spectrum as the power for that signal
-    #was really large.  
-
-    #Additionally, euclidean distance's might break down in this instance because the change isn't immediate.  
-    #It's gradual over time which FLUSS won't be able to see.
-
-    #Mortlet Wavelet might not be suitable (meant for ecg's not flow traces)
-    #debauchies 4/ symlet 5 and gaussian may be more appropriate
-
-#IDEA - New Modeling path
-#What about shooting for a change point detection algorithm.  BOCPD (Bayesian optimized change point detection) might work here.  
-#Proposed outline
-#1. Downsample if necessary
-#2. apply a zero-phase butterworth bandpass filter (0.5 - 30 Hz) on the carotid and LAD traces in order to remove wander and artifacts. 
-#3. dicrotic notch index (DNI)
-    # find the r peak. Use scipy find_peaks
-    # find the systolic peak(SBP) and diastolic trough (DBP)
-    # use the second deriv to get the local maxima (aka the dichrotic notch)
-    # dni =  (Pnotch - DBP) / (SBP - DBP)
-    # supposedly falls off quickly from hem stages 2 and up.
-#4. Pulse wave reflection ratios
-    #p1 - percussion wave - initial upstroke by lv ejection
-    #p2 - tidal wave - reflection from the upper body and renal
-    #p3 - dicrotic wave - reflection from the lower body. 
-#5. Systolic + Diastolic Slopes 
-    #max slope - max value of the first derivative during the upstroke. 
-        #gets greater in class 1.  decreases in following
-    #Decay time constant
-        #for an exponential decay func p(t) = P0e^-t/T to the diastolic portion - notch to end diastole
-#6. Use AUC for calculating MAP
-#7  Calculate shannon energy maybe?
-#8. Calculate diastolic retrograde fraction
-    # Don't really understand this one, need to come back. 
-#9.  Maybe use a clustering approach for labeling sections
-#10. Throw it all at an XGBOOST and look at feature importance. 
-#11. Couldn't hurt to verify feature importance with some SHAP values
-
-#Early models to try. 
-#https://computationalphysiology.github.io/circulation/examples/regazzoni_scipy.html
-
-
-#NOTES - 3/3/26
-
-#Noticing ResThor - Nov 20 is double counting.  
-    #Could be due to the sharp inflection in the p2 peak.  
-    #Might need to boost the prominence.
-    #Boosted prominence from 30 to 40
-#Bandpass
-    #Bandpassing was aliasing the integral because we weren't letting in low signal power during the later stages of hem shock.  Great catch by Jack!
-    #Solved with a low pass filter with a 40hz cutoff
-#Modeling
-    #results plummetted 12 % 
-    #I think more errors are getting through on certain subjects
-    #increase inband power 0.95 to 96
-    #lower band freq from 0.1 to 0.01
-
-#NOTES - 3/10/26
-
-    #IDEA - Possible feature of length of slope of systolic peak.  As the slope becomes less steep, 
-        #myocardial performance goes down. 
-
-    #IDEA - How quickly did they get to that heart rate.  Look at heart rate velocity change.
-
-    #IDEA - Data cleanliness
-        # Try different signal filtering and how it affects the ROC curves.  
-        # Proving how important it is to be analyzing clean, untroubled signals
-
-    #IDEA - Weight Watchers. 
-        #Build model tracking application that can view how your models are progressing over time. 
-        #Have it build from the log file and the term output. 

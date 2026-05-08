@@ -1818,7 +1818,9 @@ class RadECG:
             #Trim the array's back to their true size
             self.data.peaks = self.data.peaks[:self.p_ptr]
             self.data.interior_peaks = self.data.interior_peaks[:self.ip_ptr]
-# --- Program Start ---
+# ======================================
+# Program Start
+# ======================================
 def main():
     configs      :dict = setup_globals.load_config()
     fp           :Path = Path.cwd() / configs["data_path"]
