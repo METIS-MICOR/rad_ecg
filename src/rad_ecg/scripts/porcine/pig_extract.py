@@ -1285,8 +1285,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3713,7 +3713,7 @@ class ModelTraining(object):
             "kneigh":{
                 "model_name":"KNeighborsClassifier  ", 
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
                 "base_params":{
@@ -3748,7 +3748,7 @@ class ModelTraining(object):
                 #Notes. 
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.LinearSVC.html#sklearn.svm.LinearSVC
@@ -3789,7 +3789,7 @@ class ModelTraining(object):
                     #
                 "model_name":"OneVsRestClassifier(SVM)  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.multiclass.OneVsRestClassifier.html#sklearn.multiclass.OneVsRestClassifier
                 #https://scikit-learn.org/stable/modules/generated/sklearn.svm.SVC.html#sklearn.svm.SVC
@@ -3866,7 +3866,7 @@ class ModelTraining(object):
             "ensemble":{
                 "model_name":"VotingClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
+                "scoring_metric":"balanced_accuracy",
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.VotingClassifier.html
                 "base_params":{
@@ -4054,7 +4054,8 @@ class ModelTraining(object):
                 
                 model_step =  VotingClassifier(
                     estimators=[
-                        ("kneigh", unwrap_model("kneigh")), 
+                        # ("svm", unwrap_model("svm")), 
+                        # ("kneigh", unwrap_model("kneigh")), 
                         ("xgboost", unwrap_model("xgboost")), 
                         ("rfc", unwrap_model("rfc"))
                     ],
@@ -4661,7 +4662,7 @@ class ModelTraining(object):
             # Score the holdout test set if we aren't doing pure LOSO
             if self.cross_val != "leaveonegroupout": 
                 if self.task == "classification": 
-                    holdout_score = ACC_SC(self.y_test, y_pred) 
+                    holdout_score = balanced_accuracy_score(self.y_test, y_pred) #ACC_SC(self.y_test, y_pred) 
                     table.add_row("Holdout Test:", f"{holdout_score:.2%}", end_section=True) 
                 elif self.task == "regression": 
                     holdout_score = MSE(self.y_test, y_pred, squared=False)
