@@ -3717,7 +3717,7 @@ class ModelTraining(object):
                 #link to params
                 #https://scikit-learn.org/stable/modules/generated/sklearn.neighbors.KNeighborsClassifier.html
                 "base_params":{
-                    "n_neighbors":5,                   #int | 100		
+                    "n_neighbors":5,                    #int | 100		
                     "weights":"uniform",                #str | uniform
                     "algorithm":"auto",                 #str | auto
                     "leaf_size":30,                     #int | 30
@@ -3728,10 +3728,10 @@ class ModelTraining(object):
                     "weights":"distance"                #Treat target as ordinal
                 },
                 "init_params":{
-                    "n_neighbors":5,                   #int | 100		
-                    "weights":"distance",                #str | uniform
+                    "n_neighbors":5,                    #int | 100		
+                    "weights":"distance",               #str | uniform
                     "algorithm":"auto",                 #str | auto
-                    "leaf_size":2,                     #int | 30
+                    "leaf_size":2,                      #int | 30
                     "p":2,                              #int | 2
                     "metric":"minkowski",               #str | minkowski
                     "metric_params":None,               #dict | None
