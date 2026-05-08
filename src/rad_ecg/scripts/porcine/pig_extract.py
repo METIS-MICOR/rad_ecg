@@ -3834,9 +3834,10 @@ class ModelTraining(object):
                     "gamma":["scale", "auto"],
                 }
             },
-"xgboost":{
+            "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
+                # https://xgboost.readthedocs.io/en/stable/parameter.html
                 "scoring_metric":"balanced_accuracy", # Note: Shifted from 'accuracy' due to the missing C3/C4 stages
                 "base_params":{
                     "booster":"gbtree",
