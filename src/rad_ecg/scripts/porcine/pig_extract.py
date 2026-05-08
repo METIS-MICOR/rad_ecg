@@ -1187,7 +1187,8 @@ class PigRAD:
                 "flow_div", "lad_pi", "ap_MAP", "pul_wid",
                 "shock_gap", "f0", "f1", "f2", "f3", "lad_dia_pk",
                 "true_MAP", "p1", "p2", "p3", "SBP", "DBP", "lad_mean",
-                "mayer_pow"
+                "mayer_pow", "lad_dia_neg", "lad_dia_net", "HR", "var_cgau",
+                "sys_sl", "sys_sl_len", "p1_p3"
             ]
 
             for col in removecols:
@@ -1195,8 +1196,7 @@ class PigRAD:
                     colsofinterest.pop(colsofinterest.index(col))
 
             norm_features = [
-                "SBP", "DBP", "HR", "lad_dia_net", "lad_dia_neg",
-                "lad_mean", "pul_wid", "mayer_pow"
+                "SBP", "HR", "lad_dia_neg", "lad_mean", "pul_wid", "mayer_pow"
             ]
 
             # allcols
@@ -3675,52 +3675,39 @@ class ModelTraining(object):
         self.report_figs = dataprep.report_figs
 
         #MEAS Model params
+
         self._model_params = {
             "rfc":{
                 "model_name":"RandomForestClassifier  ",
                 "model_type":"classification",
-                "scoring_metric":"accuracy",
-                #link to params
+                "scoring_metric":"balanced_accuracy",
+                #link to param
                 #https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestClassifier.html
                 "base_params":{
-                    "n_estimators":100,                 #int | 100		
-                    "criterion":"gini",                 #str | gini
-                    "max_depth":None,                   #int
-                    "min_samples_split":2,              #int | 2
-                    "min_samples_leaf":1,               #int | 1
-                    "min_weight_fraction_leaf":0.0,     #float | 0.0
-                    "max_features":"sqrt",              #str | "sqrt"
-                    "max_leaf_nodes":None,              #int | None
-                    "min_impurity_decrease":0.0,        #float | 0.0
-                    "bootstrap":True,                   #bool | True
-                    "n_jobs":None,                      #int | None
-                    "random_state":42,                  #int | Answer to everything in the universe
-                    "warm_start":False,                 #bool | False
-                    "class_weight":"balanced"            #Treat target as ordinal
+                    "n_jobs": -1,                     # Use all CPU cores (RF doesn't use the MultiGPU wrapper natively)
+                    "random_state": 42,
+                    "class_weight": "balanced_subsample"
                 },
                 "init_params":{
-                    "n_estimators":35,                  #int | 100		
-                    "criterion":"entropy",              #str | gini
-                    "max_depth":5,                     #int
-                    "min_samples_split":34,             #int | 2
-                    "min_samples_leaf":14,              #int | 1
-                    "min_weight_fraction_leaf":0.0,     #float | 0.0
-                    "max_features":4,                  #str | "sqrt"
-                    "max_leaf_nodes":None,              #int | None
-                    "min_impurity_decrease":0.0,        #float | 0.0
-                    "bootstrap":True,                   #bool | True
-                    "n_jobs":None,                      #int | None
-                    "random_state":42,                  #int | Answer to everything in the universe
-                    "warm_start":False,                 #bool | False
-                    "class_weight":"balanced_subsample" 
+                    "n_estimators": 300, 
+                    "criterion": "entropy",           # Often better than Gini for imbalanced multi-class
+                    "max_depth": 4, 
+                    "min_samples_split": 20, 
+                    "min_samples_leaf": 10, 
+                    "max_features": "sqrt", 
+                    "max_samples": 0.6,               # Bootstrap subset fraction
+                    "bootstrap": True, 
+                    "n_jobs": -1, 
+                    "random_state": 42, 
+                    "class_weight": "balanced_subsample" 
                 },
                 "grid_srch_params":{
-                    "n_estimators":range(5, 200, 10),
-                    # "criterion":["gini", "entropy"],
-                    "max_depth":range(5, 50, 5),
-                    "min_samples_split":range(2, 50, 4),            
-                    "min_samples_leaf":range(2, 50, 4),             
-                    "max_features":range(2, 20, 2), 
+                    "max_depth": [2, 3, 4, 5],
+                    "max_features": ["sqrt", "log2", 0.3],
+                    "min_samples_leaf": [5, 15, 30],
+                    "min_samples_split": [10, 30, 60],
+                    "max_samples": [0.5, 0.7, 0.9],
+                    "n_estimators": [100, 300, 500] 
                 }
             },
             "kneigh":{
@@ -3837,6 +3824,7 @@ class ModelTraining(object):
             "xgboost":{
                 "model_name":"XGBClassifier  ",
                 "model_type":"classification",
+                # link to params
                 # https://xgboost.readthedocs.io/en/stable/parameter.html
                 "scoring_metric":"balanced_accuracy", # Note: Shifted from 'accuracy' due to the missing C3/C4 stages
                 "base_params":{
