@@ -1285,8 +1285,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("xgboost")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3690,7 +3690,7 @@ class ModelTraining(object):
                 },
                 "init_params":{
                     "n_estimators": 300, 
-                    "criterion": "entropy",           # Often better than Gini for imbalanced multi-class
+                    "criterion": "entropy",           # better than Gini for imbalanced multi-class
                     "max_depth": 4, 
                     "min_samples_split": 20, 
                     "min_samples_leaf": 10, 
