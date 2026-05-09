@@ -1291,6 +1291,7 @@ class PigRAD:
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
             console.print("[green]model training complete...[/]")
+            #NOTE - Report macro averages due to class imbalances. Calculates the classes independently
 
     def pick_lead(self, col:str) -> str:
         """Picks the lead you'd like to analyze
