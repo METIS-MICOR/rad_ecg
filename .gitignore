@@ -134,6 +134,7 @@ dmypy.json
 /src/rad_ecg/secret
 /src/rad_ecg/data/datasets
 /src/rad_ecg/data/zipped
+/src/rad_ecg/data/logs/
 /src/rad_ecg/scripts/lib_adicht/backup/
 /.pytest_cache
 /.venv
@@ -148,3 +149,4 @@ dmypy.json
 *.dat
 *.mib
 *.log
+*.html
