@@ -1285,8 +1285,8 @@ class PigRAD:
             modeltraining.show_results(modellist, sort_des=False)
 
             #Gridsearch models
-            console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("rfc")
+            # console.print("[green]launch gridsearch...[/]")
+            # modeltraining._grid_search("rfc")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -4820,13 +4820,13 @@ class ModelTraining(object):
                 timer_error.stop()
                 timer_error.remove_callback(timer_cid)
                 logger.warning(f'Timer stopped')
-
+        #Paired colormap first 5 to match EDA classes
         class_color_dict = {
-            "Class 1": "#1f77b4",  # Blue
-            "Class 2": "#ff7f0e",  # Orange
-            "Class 3": "#2ca02c",  # Green
-            "Class 4": "#d62728",  # Red
-            "Class 5": "#9467bd"   # Purple
+            "Class 1": "#a6cee3",  # Light Blue
+            "Class 2": "#1f78b4",  # Dark Blue
+            "Class 3": "#b2df8a",  # Light Green
+            "Class 4": "#33a02c",  # Dark Green
+            "Class 5": "#fb9a99"   # Light pink/red
         }
         # Variable definition
         plots_to_show = ["bar",] #"waterfall", "violin"
