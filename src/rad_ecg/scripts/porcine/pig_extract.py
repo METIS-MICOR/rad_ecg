@@ -1286,7 +1286,7 @@ class PigRAD:
 
             #Gridsearch models
             console.print("[green]launch gridsearch...[/]")
-            modeltraining._grid_search("xgboost")
+            modeltraining._grid_search("rfc")
             
             #Finzalize report
             modeltraining.finalize_report(f"src/rad_ecg/data/logs/{DATE_JSON}_term.html")
@@ -3689,13 +3689,13 @@ class ModelTraining(object):
                     "class_weight": "balanced_subsample"
                 },
                 "init_params":{
-                    "n_estimators": 300, 
+                    "n_estimators": 100, 
                     "criterion": "entropy",           # better than Gini for imbalanced multi-class
-                    "max_depth": 4, 
-                    "min_samples_split": 20, 
-                    "min_samples_leaf": 10, 
-                    "max_features": "sqrt", 
-                    "max_samples": 0.6,               # Bootstrap subset fraction
+                    "max_depth": 5, 
+                    "min_samples_split": 10, 
+                    "min_samples_leaf": 15, 
+                    "max_features": 0.3, 
+                    "max_samples": 0.9,               # Bootstrap subset fraction
                     "bootstrap": True, 
                     "n_jobs": -1, 
                     "random_state": 42, 
