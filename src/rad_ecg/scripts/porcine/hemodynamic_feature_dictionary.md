@@ -71,8 +71,7 @@ Extracted using Short-Time Fourier Transforms (STFT) and Continuous Wavelet Tran
 * **f0, f1, f2, f3 (Harmonic Frequencies):** The fundamental frequency ($f0$, highly correlated to heart rate) and its first three harmonic peaks ($f1, f2, f3$), extracted via Welch's Power Spectral Density.
 * **psd0, psd1, psd2, psd3 (Harmonic Power):** The absolute power (amplitude) associated with $f0, f1, f2,$ and $f3$.
 * **var_mor (Phase Variance - Morlet):** Measures the phase stability (rhythmicity) of the beats across a window. Evaluated at a 2.0 Hz center frequency using a Morlet complex wavelet.
-    * *Formula:* $1 - R$, where $R = \left| \frac{1}{N} \sum e^{i 	heta_n} 
-ight|$ (Circular mean vector length)
+    * *Formula:* $1 - R$, where $R = \left| \frac{1}{N} \sum e^{i \theta_n} \right|$ (Circular mean vector length)
 * **var_cgau (Phase Variance - Gaussian):** Phase variance evaluated using the 1st derivative of a complex Gaussian wavelet (`cgau1`).
 
 ---
