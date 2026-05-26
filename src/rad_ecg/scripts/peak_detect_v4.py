@@ -1282,7 +1282,7 @@ class RadECG:
             return P_onset
         except Exception as e:
             logger.warning(f'P onset error {e}')
-        #BUG - P_onset is showing up halfway up the peak. Check search width
+        #BUG - P_onset is showing up halfway up the peak. Check search width length
 
     def _find_q_onset(self, Q_peak:int, P_peak:int):
         try:
@@ -1313,7 +1313,10 @@ class RadECG:
             T_offset = slope_start + np.argmax(lil_grads).item()
             logger.debug(f'Adding T offset')
             return T_offset
-            
+            #BUG Toffset seems to be firing early on the offset of the T peak
+            #My thoughts are that either the window isn't long enough (likely)
+            #Or its firing off a high frequency noise component brefore it hits the 
+            #bottom of the signals.  
         except Exception as e:
             logger.warning(f'T Offset error {e}')
             logger.debug("secondary T_offset extraction")
@@ -1360,6 +1363,13 @@ class RadECG:
         except Exception as e:
             logger.debug(f'J point error: {e}')
             return None
+        #BUG - Early J point 
+            #It would seem the j point is getting shoved back towards the S peak .  
+            #When the J point is washed out.  Even putting it on the downslope.  
+            #I need a better check for making sure the shape is a certain way
+            #or maybe check the relative point to the S peak.  
+            
+
 
     def _find_t_onset(self, t_peak: int, j_point: int, s_peak: int, samp_min: int, rolled_med: np.ndarray, start_p: int) -> int:
         if not t_peak: 
@@ -1794,7 +1804,6 @@ class RadECG:
                     #Update bad_b_ratio
                     #BUG - Fix this tomorrow
                     # self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(new_peaks_arr[new_peaks_arr[:, 1] == 0].shape[0] / new_peaks_arr.shape[0], 2)
-                    #BUG - Might need to return new_peaks_arr
                 else:
                     self.data.sect_info["valid"][self.sect_id] = 0
                     new_peaks_arr[:, 1] = 0 
