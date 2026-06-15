@@ -8,8 +8,6 @@ import scipy.signal as ss
 from scipy.fft import rfft, rfftfreq
 import stumpy
 from pathlib import Path
-
-# Import your existing architecture
 import utils
 import setup_globals
 from support import logger, console
