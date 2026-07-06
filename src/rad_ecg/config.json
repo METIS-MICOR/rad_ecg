@@ -1,6 +1,6 @@
 {
-  "plot_section": true,
-  "plot_errors": false,
+  "plot_section": false,
+  "plot_errors": true,
   "live_term": false,
   "batch": false,
   "run_anomalyd": false,
@@ -8,6 +8,7 @@
   "data_path": "./src/rad_ecg/data/inputdata",
   "save_path": "./src/rad_ecg/data/output/",
   "gcp_bucket": false,
+  
   "bucket_name": "",
   "cam": "",
   "last_run": "",
