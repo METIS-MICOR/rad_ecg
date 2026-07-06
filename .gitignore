@@ -139,8 +139,9 @@ dmypy.json
 /.pytest_cache
 /.venv
 /.vscode
-/backups
 /poster
+/paper
+
 
 /__pycache__/
 .Rhistory
@@ -150,3 +151,4 @@ dmypy.json
 *.mib
 *.log
 *.html
+*.lock

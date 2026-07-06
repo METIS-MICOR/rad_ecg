@@ -25,7 +25,7 @@ These features characterize the morphology of the arterial blood pressure wave.
 * **dia_sl (Diastolic Slope):** The linear rate of pressure decay during the diastolic run (from the dicrotic notch to the subsequent end-diastole).
     * *Formula:* Linear Regression Slope ($m$) of $P(t) = mt + b$ for $t \in [t_{notch}, t_{end}]$
 * **pul_wid (Pulse Width at FWHM):** The Full-Width at Half-Maximum of the systolic peak. It measures the time duration the pressure wave stays above 50% of the pulse pressure.
-    * *Formula:* $t_{right} - t_{left}$ where $P(t) = P_{onset} + 0.5 	imes (SBP - P_{onset})$
+    * *Formula:* $t_{right} - t_{left}$ where $P(t) = P_{onset} + 0.5 (SBP - P_{onset})$
 * **p1 (Percussion Wave):** The amplitude of the first sub-peak (shoulder) in the systolic complex.
 * **p2 (Tidal Wave):** The amplitude of the second sub-peak in the systolic complex (often the absolute SBP in healthy subjects).
 * **p3 (Dicrotic Wave):** The amplitude of the rebound wave occurring immediately after the dicrotic notch in diastole.
