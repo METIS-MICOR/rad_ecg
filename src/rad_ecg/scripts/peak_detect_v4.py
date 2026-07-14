@@ -799,7 +799,7 @@ class SignalGUI:
             low_peaks = kwargs.get("low_peaks", [])
             high_peaks = kwargs.get("high_peaks", [])
             for idx in low_peaks:
-                arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='yellow', label='Low Peak' if idx == low_peaks[0] else "")
+                arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='goldenrod', label='Low Peak' if idx == low_peaks[0] else "")
                 ax.add_patch(arrow)
             for idx in high_peaks:
                 arrow = Arrow(new_peaks_arr[idx, 0] - 55, peak_info['peak_heights'][idx], 40, 0, width=0.05, color='darkviolet', label='High Peak' if idx == high_peaks[0] else "")
@@ -1722,7 +1722,7 @@ class RadECG:
                     peak_info['peak_heights'] = peak_info['peak_heights'][keepers]
                     peak_info['prominences'] = peak_info['prominences'][keepers]
                     
-                    # SYNCHRONIZE POINTERS: Step both pointers back by the overlap amount
+                    # Step both pointers back by the overlap amount
                     overlap_count = np.sum(recent_peaks >= f_peak)
                     self.p_ptr -= overlap_count
                     self.ip_ptr -= overlap_count
