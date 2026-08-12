@@ -1,6 +1,5 @@
 import gc
 import utils
-import shutil
 import stumpy
 import support
 import numpy as np
@@ -20,9 +19,11 @@ from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
 from scipy.stats import entropy, kurtosis, wasserstein_distance
 from support import logger, console, log_time, mainspinner, DATE_JSON, get_file_handler
+
 ###############################################################################
 # 1. Data Structures
 ###############################################################################
+
 @dataclass
 class HeartBeat:
     """Dataclass to house beat information"""    
@@ -31,18 +32,18 @@ class HeartBeat:
     r_peak   : int = None
     s_peak   : int = None
     t_peak   : int = None
-    valid_qrs: bool = False
-    p_peak_a : float = None
-    q_peak_a : float = None
-    r_peak_a : float = None
-    s_peak_a : float = None
-    t_peak_a : float = None
     p_onset  : int = None
     q_onset  : int = None
     j_point  : int = None
     t_onset  : int = None
     t_offset : int = None
     u_wave   : bool = False
+    valid_qrs: bool = False
+    p_peak_a : float = None
+    q_peak_a : float = None
+    r_peak_a : float = None
+    s_peak_a : float = None
+    t_peak_a : float = None
     PR       : float = None #ms
     QRS      : float = None #ms
     ST       : float = None #ms
@@ -149,13 +150,14 @@ class CardiacFreqTools:
         hf_sqi = hf_power / total_power
         spec_ratio =  qrs_sqi / hf_sqi
         
-        # --- Spectral Shannon Entropy ---
+        # Spectral Shannon Entropy
         # Normalize the full PSD into a probability mass function
+
         psd_norm = psd / total_power
         # Calculate Shannon entropy (base 2 is standard for bits of information)
         spec_entropy = entropy(psd_norm, base=2)
 
-        # --- Metric 2: Wasserstein Distribution Shift ---
+        # Wasserstein Distribution Shift
         f_target = freqs[qrs_band]
         psd_target = psd[qrs_band]
         w_dist = 0.0
@@ -222,10 +224,12 @@ class CardiacFreqTools:
         if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False
             fail_reason += f"Low QRS Power | "
+
         # Gate 4: Broadband noise (Spectral Entropy)
         if spect_ent > 6.5:
             is_valid = False
             fail_reason += "High Spec Entropy | "
+            
         # Gate 5: Wasserstein Distribution Shift (Global sensor degradation)
         if not is_stable:
             is_valid = False
@@ -255,7 +259,7 @@ class CardiacFreqTools:
         local_med = np.median(distances)
         local_mad = np.median(np.abs(distances - local_med))        
         
-        # --- Historical MP Smoothing ---
+        # Historical MP Smoothing
         if not self.mp_med_history:
             # Seed the history on the first pass
             self.mp_med_history.append(local_med)
@@ -277,8 +281,9 @@ class CardiacFreqTools:
         bad_beats = 0
         total_beats = len(r_peaks) - 1
         
-        #Container for rectangle labeling
+        # Container for rectangle labeling
         reject_reasons = [None] * total_beats
+
         # Window offsets (100ms)
         offset = int(self.fs * 0.10) 
 
@@ -309,13 +314,14 @@ class CardiacFreqTools:
             # ==========================================================
             # GATE 2: Local Hjorth (QRS Morphology)
             # ==========================================================
-                # Tightly centered on the QRS complex [-100ms to +100ms]
+                # Centered on the QRS complex [-100ms to +100ms]
             qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
             if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
                 logger.info(f"Beat {i} FAILED: High QRS Complexity")
                 reject_reasons[i] = "HJH" 
                 bad_beats += 1
                 continue
+            
             # ==========================================================
             # GATE 3: Inter-Beat STFT (Baseline Stability) 
             # ==========================================================
@@ -477,10 +483,6 @@ class SignalGUI:
         timer.add_callback(plt.close, fig)
         timer.start()
         plt.show()
-        # Not sure I need this if i'm gc.collecting at the subject level
-        # plt.close(fig)
-        # plt.close('all')
-        # gc.collect()
 
     def plot_pre_error(
             self, 
@@ -536,7 +538,7 @@ class SignalGUI:
         ax_ecg = fig.add_subplot(grid[0])
         ax_mp = fig.add_subplot(grid[1], sharex=ax_ecg)
 
-        # --- ECG Subplot ---
+        # ECG Subplot
         ax_ecg.plot(x_range, wave_chunk, label='ECG', color='dodgerblue')
         ax_ecg.plot(x_range, rolled_chunk, label='Rolling Median', color='orange')
         
@@ -547,7 +549,7 @@ class SignalGUI:
         ax_ecg.set_ylabel("ECG mV")
         ax_ecg.legend(loc='upper right')
 
-        # --- Matrix Profile Subplot ---
+        # Matrix Profile Subplot
         if post_metrics and "mp_distances" in post_metrics:
             mp_dist = post_metrics["mp_distances"]
             mp_thresh = post_metrics["mp_threshold"]
@@ -849,13 +851,13 @@ class SignalGUI:
         """Calculates STFT for the isolated inter-beat baseline, and Spectrogram for the section."""
         offset = int(self.data.fs * 0.10) # 100ms offset
         
-        # --- 1. Local Hjorth (QRS Morphology) ---
+        # Local Hjorth (QRS Morphology)
         qrs_start = max(0, p0 - offset)
         qrs_end = min(len(self.data.wave), p0 + offset)
         qrs_samp = self.data.wave[qrs_start:qrs_end].flatten()
         local_hjorth = self.hijorth(qrs_samp) if len(qrs_samp) > 4 else 0.0
 
-        # --- 2. Inter-Beat STFT (Baseline Stability) ---
+        # Inter-Beat STFT (Baseline Stability)
         start_inter = p0 + offset
         end_inter = p1 - offset
         
@@ -877,7 +879,7 @@ class SignalGUI:
                 hf_noise_pwr = np.sum(fft_inter[hf_mask])
                 inter_noise_ratio = hf_noise_pwr / total_inter_pwr
         
-        # --- 3. Plotting the Inter-Beat Spectrum ---
+        # Plotting the Inter-Beat Spectrum
         if len(freq_inter) > 0:
             # Plot Low-Frequency Physiological Baseline (<= 15 Hz)
             lf_mask = ~hf_mask
@@ -909,7 +911,7 @@ class SignalGUI:
         ax_freq.set_xlim(0, 50) 
         ax_freq.legend(loc='upper right')
 
-        # --- Spectrogram (Full Section) ---
+        # Spectrogram (Full Section) 
         chunk = self.data.wave[start_idx:end_idx].flatten()
         spec_nfft = max(256, int(self.data.fs * 2)) 
         
@@ -929,6 +931,7 @@ class SignalGUI:
 ###############################################################################
 # 3. Main Extraction Engine
 ###############################################################################
+
 class RadECG:
     """Main search class for finding, validating, and extracting ECG information."""
     def __init__(self, data: ECGData, configs:dict, fp:Path, window_size: int = 10):
@@ -949,7 +952,6 @@ class RadECG:
         self.low_counts:int = 0
         self.sect_id:int = 0
         self.iqr_low_thresh:float = 1.0
-        # self.is_stable:bool = False Only used in CardiacFT class. 
         #Pointers 
         self.p_ptr:int = 0
         self.ip_ptr:int = 0
@@ -1115,6 +1117,7 @@ class RadECG:
         # ==========================================================
         # GATE 4: Slope / Morphology Check
         # ==========================================================
+
         #BUG - Also might not needs this check if we're already doing the matrix
             #profile for morphology checks
             #NOTE: Firing on jagged slopes that may misrepresent slope.
@@ -1368,8 +1371,6 @@ class RadECG:
             #When the J point is washed out.  Even putting it on the downslope.  
             #I need a better check for making sure the shape is a certain way
             #or maybe check the relative point to the S peak.  
-            
-
 
     def _find_t_onset(self, t_peak: int, j_point: int, s_peak: int, samp_min: int, rolled_med: np.ndarray, start_p: int) -> int:
         if not t_peak: 
@@ -1582,7 +1583,7 @@ class RadECG:
         # Initialize the dataclass
         stats = SectionStat()
 
-        # --- Time Domain HR Measures ---
+        # Time Domain HR Measures
         valid_intervals = []
         #Isolate beats that are valid, adjacent beats
         for i in range(len(new_peaks_arr) - 1):
@@ -1827,14 +1828,15 @@ class RadECG:
             #Trim the array's back to their true size
             self.data.peaks = self.data.peaks[:self.p_ptr]
             self.data.interior_peaks = self.data.interior_peaks[:self.ip_ptr]
-# ======================================
+# ============================================================================
 # Program Start
-# ======================================
+# ============================================================================
+
 def main():
-    configs      :dict = setup_globals.load_config()
-    fp           :Path = Path.cwd() / configs["data_path"]
-    batch_process:bool = configs["batch"]
-    selected:list|str  = setup_globals.load_choices(fp, batch_process)
+    configs      :dict      = setup_globals.load_config()
+    fp           :Path      = Path.cwd() / configs["data_path"]
+    batch_process:bool      = configs["batch"]
+    selected     :list|str  = setup_globals.load_choices(fp, batch_process)
     
     if not isinstance(selected, list):
         file_list = [selected]
@@ -1849,7 +1851,7 @@ def main():
         
         save_dir = Path(configs["save_path"]) / file_path.stem
         if save_dir.exists() and list(save_dir.glob("*.npz")):
-            logger.warning(f"Results for {file_path.stem} already exist. Skipping to next file...")
+            logger.critical(f"Results for {file_path.stem} already exist. Skipping to next file...")
             continue
             
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -1880,7 +1882,7 @@ def main():
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
             
         finally:
-            # Close the logger so the file is completely finalized
+            # Close the logger so the file is finalized
             logger.removeHandler(cam_handler)
             cam_handler.close()
             

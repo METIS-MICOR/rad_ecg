@@ -71,12 +71,6 @@ from sklearn.svm import SVC, LinearSVC
 from xgboost import XGBClassifier
 import xgboost as xgb
 
-#Log imports
-    #BUG 
-    #Because i was changing around support for rad_ecg, the log files got scrwed up here.  
-    #Instead of trying to make it do both, i'll instantiate the logger here
-# Determine if we are in the Main Process or a Worker Process
-
 #CLASS Pig_Feat
 @dataclass
 class Pig_Feat():

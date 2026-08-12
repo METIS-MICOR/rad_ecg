@@ -286,7 +286,7 @@ def save_results(ecg_data, configs: dict, current_date: str):
                 logger.info(f"Transferring to GCS Bucket: {file_path}")
                 shutil.copy2(temp_file_path, file_path)
                 
-                # 3. Clean up the local temp file to save disk space
+                # Clean up the local temp file to save disk space
                 os.remove(temp_file_path)
                 logger.info(f"Results successfully saved to {file_path}")
                 
