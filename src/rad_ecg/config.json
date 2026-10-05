@@ -8,7 +8,7 @@
   "data_path": "./src/rad_ecg/data/inputdata",
   "save_path": "./src/rad_ecg/data/output/",
   "gcp_bucket": false,
-  
+  "porcine": false,
   "bucket_name": "",
   "cam": "",
   "last_run": "",

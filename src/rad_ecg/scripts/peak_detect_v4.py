@@ -102,7 +102,7 @@ class CardiacFreqTools:
             history_size: int = 6,
             freq_lim: float = 15, 
             qrs_lim : float = 0.25
-            ):
+        ):
         self.fs = fs
         self.history_size = history_size
         self.psd_history = deque(maxlen=self.history_size)
@@ -220,7 +220,7 @@ class CardiacFreqTools:
             is_valid = False
             fail_reason += f"High Hjorth Complexity | " #(Severe HF Static)
             
-        # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 0-40Hz)
+        # Gate 3: Is the spectral energy mostly in the QRS band (5-15Hz / 1-40Hz)
         if (spectral != None) & (spectral < self.qrs_lim): #0.4
             is_valid = False
             fail_reason += f"Low QRS Power | "
@@ -418,7 +418,7 @@ class SignalLoader:
                         )
                         self.fs = record.fs
                         self.wave = record.p_signal
-                        self.window = 10
+                        self.window = 100
                         self.dtypes = setup_globals.SECTION_DTYPES
 
         except Exception as e:
@@ -1366,11 +1366,19 @@ class RadECG:
         except Exception as e:
             logger.debug(f'J point error: {e}')
             return None
+        
         #BUG - Early J point 
             #It would seem the j point is getting shoved back towards the S peak .  
             #When the J point is washed out.  Even putting it on the downslope.  
             #I need a better check for making sure the shape is a certain way
             #or maybe check the relative point to the S peak.  
+
+    def _t_wave_check(self):
+        """TODO - _summary_
+        Began collaboration with Ivy and others.  Looking to help use RAD_ECG on pig data but two problems arise. 
+        1. The QRS of the pig ECG is much wider 
+        2. The T wave tends to invert at random.  So this function is to deal with that
+        """        
 
     def _find_t_onset(self, t_peak: int, j_point: int, s_peak: int, samp_min: int, rolled_med: np.ndarray, start_p: int) -> int:
         if not t_peak: 
@@ -1516,6 +1524,9 @@ class RadECG:
                 # Provide a fallback width if peaks are missing to prevent crash
                 if beat.s_peak and beat.q_peak:
                     srch_width = (beat.s_peak - beat.q_peak) * 2
+                #BUG - Search width needs to be wider for these.  
+                       #That's why you're seeing T offsets halfway up the slope.  
+                       #Need a better way to initiate that search window. 
                 else:
                     srch_width = int(self.fs * 0.1)
 
@@ -1851,8 +1862,11 @@ def main():
         
         save_dir = Path(configs["save_path"]) / file_path.stem
         if save_dir.exists() and list(save_dir.glob("*.npz")):
-            logger.critical(f"Results for {file_path.stem} already exist. Skipping to next file...")
-            continue
+            logger.critical(f"Results for {file_path.stem} already exist")
+            choice = input("Do you want to overwrite current results? (yes/no)")
+            if choice == "no":
+                logger.critical(f"Rad-ECG shutting down")
+                exit()
             
         save_dir.mkdir(parents=True, exist_ok=True)
         
@@ -1902,3 +1916,10 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+#TODO - Ivy
+#Add ULF capacity to calculate for Ivy
+#Work on T wave inversion
+#Work on wider QRS
+#Use pig data she is going to send as csv

@@ -20,7 +20,7 @@ SECTION_DTYPES = [
     ('start_point' , 'i4'),    # 1 
     ('end_point'   , 'i4'),    # 2 
     ('valid'       , 'i4'),    # 3 
-    ('fail_reason' , str, 16), # 4 
+    ('fail_reason' , 'U16'),   # 4
     ('isoelectric' , 'f4'),    # 5 
     ('kurtosis'    , 'f4'),    # 6 
     ('hjorth'      , 'f4'),    # 7 
@@ -29,20 +29,19 @@ SECTION_DTYPES = [
     ('wdist'       , 'f4'),    # 10
     # ('power_ratio' , 'f4'),    # 11
     ('spec_entropy', 'f4'),    # 11
-    ('HR'          , 'f4'),    # 11
-    ('SDNN'        , 'f4'),    # 12
-    ('RMSSD'       , 'f4'),    # 13
-    ('NN50'        , 'f4'),    # 14
-    ('PNN50'       , 'f4'),    # 15
-    ('PR'          , 'f4'),    # 16
-    ('QRS'         , 'f4'),    # 17
-    ('ST'          , 'f4'),    # 18
-    ('QT'          , 'f4'),    # 19
-    ('QTc'         , 'f4'),    # 20
-    ('QTVI'        , 'f4'),    # 21
-    ('TpTe'        , 'f4'),    # 22
+    ('HR'          , 'f4'),    # 12
+    ('SDNN'        , 'f4'),    # 13
+    ('RMSSD'       , 'f4'),    # 14
+    ('NN50'        , 'f4'),    # 15
+    ('PNN50'       , 'f4'),    # 16
+    ('PR'          , 'f4'),    # 17
+    ('QRS'         , 'f4'),    # 18
+    ('ST'          , 'f4'),    # 19
+    ('QT'          , 'f4'),    # 20
+    ('QTc'         , 'f4'),    # 21
+    ('QTVI'        , 'f4'),    # 22
+    ('TpTe'        , 'f4'),    # 23
 ]
-
 #Interior Peaks
 PEAK_DTYPES = [
     ('p_peak'      , 'i4'),   # 0
