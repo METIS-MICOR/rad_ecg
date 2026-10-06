@@ -1531,21 +1531,61 @@ class RadECG:
         for i, beat in enumerate(beats):
             beat.valid_qrs = utils.valid_QRS(beat)
             if beat.valid_qrs:
-                # Provide a fallback width if peaks are missing to prevent crash
-                if beat.s_peak and beat.q_peak:
-                    srch_width = (beat.s_peak - beat.q_peak) * 2
-                #BUG - Search width needs to be wider for these.  
-                       #That's why you're seeing T offsets halfway up the slope.  
-                       #Need a better way to initiate that search window. 
+                # Dynamic T-Wave Search Width (RR Interval)
+                if i + 1 < len(beats):
+                    rr_interval = beats[i+1].r_peak - beat.r_peak
                 else:
-                    srch_width = int(self.fs * 0.1)
-
+                    rr_interval = int(self.fs * 0.8) # Fallback to a standard 75 bpm
+                
                 if beat.p_peak:
-                    beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
+                    # The P-onset MUST occur after the previous beat's T-offset.
+                    if i > 0 and beats[i-1].t_offset:
+                        p_max_dist = beat.p_peak - beats[i-1].t_offset
+                        # Guard against overlapping extraction errors
+                        if p_max_dist <= 0: 
+                            p_max_dist = int(self.fs * 0.15) 
+                    else:
+                        # Standard max look-back for a P-wave from its peak is ~200ms
+                        p_max_dist = int(self.fs * 0.20)
+                    
+                    # _find_p_onset multiplies by 2, so pass half the distance
+                    beat.p_onset = self._find_p_onset(beat.p_peak, int(p_max_dist / 2))
+
                 if beat.q_peak and beat.p_peak:
                     beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
+                    
                 if beat.t_peak:
-                    beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
+                    # The T-offset must occur before the next beat's P-wave.
+                    if i + 1 < len(beats) and beats[i+1].p_peak:
+                        t_max_dist = beats[i+1].p_peak - beat.t_peak
+                    else:
+                        # If no P-wave is found, revert to 40% of the T-wave of the RR interval
+                        t_max_dist = int(rr_interval * 0.40)
+                    
+                    # Because _find_t_offset internally multiplies the argument by 2, 
+                    # we pass half of our calculated distance to achieve the exact boundary.
+                    beat.t_offset = self._find_t_offset(beat.t_peak, int(t_max_dist / 2), isoelectric)
+
+                # Provide a fallback width if peaks are missing to prevent crash
+                # if beat.s_peak and beat.q_peak:
+                #     qrs_width = (beat.s_peak - beat.q_peak)
+                # else:
+                #     qrs_width = int(self.fs * 0.05)
+
+                # if beat.s_peak and beat.q_peak:
+                #     srch_width = (beat.s_peak - beat.q_peak) * 2
+                # #BUG - Search width needs to be wider for these.  
+                #        #That's why you're seeing T offsets halfway up the slope.  
+                #        #Need a better way to initiate that search window. 
+                # else:
+                #     srch_width = int(self.fs * 0.1)
+                # if beat.p_peak:
+                #     beat.p_onset  = self._find_p_onset(beat.p_peak, srch_width)
+                # if beat.q_peak and beat.p_peak:
+                #     beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
+                # if beat.t_peak:
+                #     beat.t_offset = self._find_t_offset(beat.t_peak, srch_width, isoelectric)
+
                 if beat.s_peak and beat.t_peak:
                     beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
                 if beat.t_peak and (beat.j_point or beat.s_peak):
