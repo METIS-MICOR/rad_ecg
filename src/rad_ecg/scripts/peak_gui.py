@@ -296,7 +296,12 @@ class AnimatedECGViewer:
         self.ax_main.axvline(0, color='red', linestyle='--', label='R-Peak Alignment', linewidth=2)
         self.ax_main.set_xlim(x_rel[0], x_rel[-1])
         self.ax_main.set_title(f"Stacked Beats Alignment | Section {sect_id} | {len(inners)} Beats Shown")
-        self.ax_main.text("")
+        self.ax_main.text(
+            0.90, 0.05, f"n beats {inners.size}", transform=self.ax_main.transAxes, 
+            fontsize=12, fontweight='bold', verticalalignment='top',
+            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', pad=1)
+        )
+        
         self.ax_main.set_xlabel("Time from R-Peak (ms)")
         self.ax_main.set_ylabel("ECG mV")
         
