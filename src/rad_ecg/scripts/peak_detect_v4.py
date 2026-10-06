@@ -418,7 +418,7 @@ class SignalLoader:
                         )
                         self.fs = record.fs
                         self.wave = record.p_signal
-                        self.window = 100
+                        self.window = 300
                         self.dtypes = setup_globals.SECTION_DTYPES
 
         except Exception as e:
@@ -1748,6 +1748,7 @@ class RadECG:
                 last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
 
                 if last_keys is not False:
+                    #TODO - Need to make this dynamic to the section window
                     #See if the last keys are more than 60 seconds in the past
                     time_since_valid = (start_p - last_keys[-1]) / self.fs
                     if time_since_valid > 60:
@@ -1767,7 +1768,7 @@ class RadECG:
 
                 if is_turbulent or is_stale:
                     if is_stale:
-                        logger.info(f"History stale/missing. Running heavy vetting on section {self.sect_id}")
+                        logger.info(f"History stale/missing. Running vetting on section {self.sect_id}")
                     
                     #Check each beat with the matrix profile and Welch's STFT. 
                     is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
