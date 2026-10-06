@@ -110,9 +110,6 @@ class CardiacFreqTools:
         self.mp_mad_history = deque(maxlen=self.history_size)
         self.freq_lim = freq_lim
         self.qrs_lim = qrs_lim
-    #TODO -  adding ENTROPY to your meaures. 
-        #Shannon Entropy didnt work as well. 
-        #Look at paper Bob sent. 
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -182,7 +179,7 @@ class CardiacFreqTools:
                     v_weights=normalized_psd
                 )
                 # Threshold for a large shift in signal composition
-                is_stable = w_dist < 3.0 #3.0
+                is_stable = w_dist < 3.0 
                 if is_stable:
                     self.psd_history.append(normalized_psd)
 
@@ -190,7 +187,7 @@ class CardiacFreqTools:
 
     def pre_peak_sqi(self, wave_chunk: np.ndarray) -> tuple:
         """
-        Ultra-fast window-level checks. 
+        window-level checks. 
         Runs BEFORE peak extraction to catch dead sensors or pure static.
         """
         if len(wave_chunk) == 0:
@@ -234,6 +231,7 @@ class CardiacFreqTools:
         if not is_stable:
             is_valid = False
             fail_reason += f"Shift in W-Dist | "
+
         return is_valid, fail_reason, metrics
 
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
@@ -1029,13 +1027,13 @@ class RadECG:
                         new_peaks_arr[orig_2, 1] = 0
                         bad_idxs.extend([orig_1, orig_2])
                     fail_reason += "short_sep | "
-                    sect_valid = False
-                    logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
+                    # sect_valid = False
+                    logger.warning(f"FAILED:Short Peak separation in section {self.sect_id}")
 
                 if bad_sep_long.size > 0:
                     fail_reason += "long_sep | "
-                    sect_valid = False
-                    logger.warning(f"FAILED:Peak separation violation in section {self.sect_id}")
+                    # sect_valid = False
+                    logger.warning(f"FAILED:Long Peak separation in section {self.sect_id}")
                 
                 if bad_idxs:
                     plot_kwargs["bad_sep"] = list(set(bad_idxs))
@@ -1056,7 +1054,7 @@ class RadECG:
             new_peaks_arr[low_peaks, 1] = 0
             new_peaks_arr[high_peaks, 1] = 0
             fail_reason += "height | "
-            sect_valid = False
+            # sect_valid = False
             logger.warning(f"FAILED:Peak height violation in section {self.sect_id}")
             plot_kwargs["low_peaks"] = low_peaks
             plot_kwargs["high_peaks"] = high_peaks
@@ -1084,7 +1082,6 @@ class RadECG:
         
         #Grab Current roll median for eval
         curr_rolled_med = self.data.rolling_med[start_idx:end_idx].flatten()
-
         upper_med_bound = np.quantile(curr_rolled_med, 0.80) + 1.5 * iqr
         lower_med_bound = np.quantile(curr_rolled_med, 0.20) - 1.5 * iqr
         out_above = np.where(curr_rolled_med > upper_med_bound)[0]
@@ -1109,7 +1106,7 @@ class RadECG:
             #BUG - Consider bumping this down possibly...Previous gates are at 25% sect failure
             if bad_pandas > (round(0.50 * (len(r_peaks) - 1))):
                 fail_reason += "roll_med | "
-                sect_valid = False
+                # sect_valid = False
                 plot_kwargs["outs"] = outs
                 plot_kwargs["iqr"] = iqr
                 logger.warning(f"FAILED:Rolling median in section {self.sect_id}")
@@ -1156,19 +1153,28 @@ class RadECG:
             if bad_slopes.size > 0:
                 new_peaks_arr[bad_slopes, 1] = 0
                 fail_reason += "slope | "
-                sect_valid = False
+                # sect_valid = False
                 plot_kwargs["leftbases"] = leftbases
                 plot_kwargs["slopes"] = slopes
                 plot_kwargs["upper_bound"] = upper_bound_slope
                 plot_kwargs["lower_bound"] = lower_bound_slope
                 logger.warning(f"FAILED:Slope in section {self.sect_id}")
 
+        total_beats = len(new_peaks_arr)
+        invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
+        #UPDATE - 10-6-26
+        #Switching off section rejection.  Now shooting for 
+        #rejecting individual beats and including other data
+
+        if total_beats > 0 and (invalid_beats / total_beats) > 0.25:
+            sect_valid = False
+            fail_reason += "Bad Beat Ratio > 0.25 | "
+
         if not sect_valid and self.gui.plot_errors:
             fail_reason = fail_reason.strip("|")
             self.gui.plot_validation_error(f"FAILED:Historical {fail_reason}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
 
         return sect_valid, new_peaks_arr, fail_reason
-        # Add HR stats for that secti
 
     def estimate_iso(self, r_peaks:list) -> float:
         iso = []
@@ -1248,7 +1254,7 @@ class RadECG:
         qt_norm = qt_v / (qt_m ** 2)
         rr_norm = rr_v / (rr_m ** 2)
         
-        return np.round(np.log10(qt_norm / rr_norm), 2).item()
+        return np.round(np.log10(qt_norm / rr_norm), 5).item()
 
     def _calc_tpte(self, t_peak: int, t_offset: int) -> int:
         """Calculates T-peak to T-end (Tp-Te) interval in milliseconds."""
@@ -1711,10 +1717,10 @@ class RadECG:
                     height=np.percentile(wave_chunk, 94),     #95
                     distance=int(self.fs * 0.200)
                 )
-                #Basic count check (we shouldn't need this anymore)
-                if r_peaks.size < 4 or r_peaks.size > 100:
-                    logger.warning(f"Section {self.sect_id} rejected: Invalid peak count ({r_peaks.size}).")
-                    self.data.sect_info["fail_reason"][self.sect_id] += " no_sig | "
+                #Basic count check
+                if r_peaks.size < 4:
+                    logger.warning(f"Section {self.sect_id} rejected: Minimal peak count ({r_peaks.size}).")
+                    self.data.sect_info["fail_reason"][self.sect_id] += " few_peaks | "
                     progbar.advance(job_id, advance=1)
                     self.sect_id += 1
                     continue        
@@ -1744,14 +1750,12 @@ class RadECG:
 
                 # Historical data Validation
                 is_stale = False
-                lookback = int(self.fs * 10) 
+                lookback = int(self.fs * 30) 
                 last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
 
                 if last_keys is not False:
-                    #TODO - Need to make this dynamic to the section window
-                    #See if the last keys are more than 60 seconds in the past
                     time_since_valid = (start_p - last_keys[-1]) / self.fs
-                    if time_since_valid > 60:
+                    if time_since_valid > 300:
                         is_stale = True
                         logger.warning(f"history deadlocked {time_since_valid:.2f}s")
                 else:
@@ -1858,9 +1862,7 @@ def main():
     for file_path in file_list:
         # Get the exact time this specific file started processing
         current_run_time = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
-        
         logger.info(f"--- Checking {file_path.stem} ---")
-        
         save_dir = Path(configs["save_path"]) / file_path.stem
         if save_dir.exists() and list(save_dir.glob("*.npz")):
             logger.critical(f"Results for {file_path.stem} already exist")
@@ -1917,7 +1919,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 #TODO - Ivy
 #Add ULF capacity to calculate for Ivy
