@@ -54,7 +54,7 @@ class AnimatedECGViewer:
         self.ax_gif    = self.fig.add_axes([0.90, 0.90, 0.06, 0.05])
         
         self.ax_speed  = self.fig.add_axes([0.83, 0.83, 0.13, 0.02])
-        self.ax_width  = self.fig.add_axes([0.83, 0.78, 0.13, 0.02])
+        self.ax_zoom   = self.fig.add_axes([0.83, 0.78, 0.13, 0.02])
         
         self.ax_radio  = self.fig.add_axes([0.83, 0.50, 0.14, 0.25])
         self.ax_stats  = self.fig.add_axes([0.83, 0.05, 0.14, 0.43])
@@ -94,16 +94,17 @@ class AnimatedECGViewer:
         self.btn_gif = Button(self.ax_gif, 'GIF', color='gold')
         self.btn_gif.on_clicked(self.export_gif)
 
-        # 3. Speed & Width Sliders
+        # 3. Speed & Zoom Sliders
         self.speed_slider = Slider(self.ax_speed, 'FPS ', 1, 30, valinit=10, valstep=1, color='orange')
         self.speed_slider.on_changed(self.update_speed)
         self.anim_step = int(self.fs * 0.05 * self.speed_slider.val)
         
-        self.width_slider = Slider(self.ax_width, 'Width', 1, 10, valinit=1, valstep=1, color='purple')
-        self.width_slider.on_changed(lambda val: self.update_main_plot())
+        # Converted Width to Zoom to dynamically shrink window around current pos
+        self.zoom_slider = Slider(self.ax_zoom, 'Zoom', 1, 20, valinit=1, valstep=1, color='purple')
+        self.zoom_slider.on_changed(lambda val: self.update_main_plot())
 
         # 4. Radio Options
-        options = ('Base Figure', 'Roll Median', 'Add Inter', 'Show R Valid', 'Freq (Stem)', 'Stumpy Search')
+        options = ('Base Figure', 'Roll Median', 'Add Inter', 'Show R Valid', 'Freq (Stem)', 'Stack Beats', 'Stumpy Search')
         self.radio = RadioButtons(self.ax_radio, options)
         self.radio.on_clicked(self.radio_action)
 
@@ -248,14 +249,73 @@ class AnimatedECGViewer:
             self.ax_main.set_xlabel("Frequency (Hz)")
             self.ax_main.legend(loc='upper right')
 
+    def _draw_stacked_beats(self, start_w, end_w, sect_id):
+        """Draws superimposed beats from the current zoom window, aligned at the R-Peak."""
+        self.ax_main.clear()
+        
+        # Get interior peaks occurring strictly within the currently displayed window bounds
+        inners = self.data.interior_peaks[
+            (self.data.interior_peaks['r_peak'] >= start_w) & 
+            (self.data.interior_peaks['r_peak'] <= end_w)
+        ]
+        
+        if len(inners) == 0:
+            self.ax_main.set_title(f"No Beats in Current Window | Section {sect_id}")
+            return
+
+        # Calculate max boundaries relative to R-peak to frame the X-axis bounds dynamically
+        valid_p = [r['p_onset'] - r['r_peak'] for r in inners if r['p_onset'] > 0 and r['r_peak'] > 0]
+        valid_t = [r['t_offset'] - r['r_peak'] for r in inners if r['t_offset'] > 0 and r['r_peak'] > 0]
+
+        # Use defaults if extractions failed, otherwise expand outward to the max detected width
+        min_p = min(valid_p) if valid_p else int(-0.25 * self.fs)
+        max_t = max(valid_t) if valid_t else int(0.40 * self.fs)
+
+        # Protect against an isolated bad extraction blowing out the x-axis limits
+        min_p = max(min_p, int(-1.0 * self.fs))
+        max_t = min(max_t, int(1.0 * self.fs))
+
+        x_rel = np.arange(min_p, max_t) / self.fs * 1000  # Convert domain to relative milliseconds
+
+        for row in inners:
+            r = row['r_peak']
+            if r == 0: continue
+            
+            s_idx = r + min_p
+            e_idx = r + max_t
+            
+            if s_idx >= 0 and e_idx < len(self.wave):
+                beat_wave = self.wave[s_idx:e_idx]
+                
+                # Check for clean slice boundaries matching our domain length
+                if len(beat_wave) == len(x_rel):
+                    # Colorize based on valid_qrs flag
+                    color = 'lightgreen' if row['valid_qrs'] else 'lightcoral'
+                    self.ax_main.plot(x_rel, beat_wave, alpha=0.6, color=color, linewidth=1.5)
+
+        self.ax_main.axvline(0, color='red', linestyle='--', label='R-Peak Alignment', linewidth=2)
+        self.ax_main.set_xlim(x_rel[0], x_rel[-1])
+        self.ax_main.set_title(f"Stacked Beats Alignment | Section {sect_id} | {len(inners)} Beats Shown")
+        self.ax_main.text("")
+        self.ax_main.set_xlabel("Time from R-Peak (ms)")
+        self.ax_main.set_ylabel("ECG mV")
+        
+        from matplotlib.lines import Line2D
+        custom_lines = [
+            Line2D([0], [0], color='lightgreen', lw=2),
+            Line2D([0], [0], color='lightcoral', lw=2),
+            Line2D([0], [0], color='red', linestyle='--', lw=2)
+        ]
+        self.ax_main.legend(custom_lines, ['Valid QRS', 'Invalid QRS', 'R-Peak Alignment'], loc='upper right')
+
     def update_main_plot(self, from_anim=False):
         if self.current_span:
             self.current_span.set_active(False)
 
-        # Base bounds on current continuous sample position
+        # Calculate visible window dynamically based on Zoom Slider
         start_w = int(self.current_pos)
-        width_offset = int(self.width_slider.val) - 1  # <-- FIXED: Defined width_offset here!
-        width_samples = int(self.width_slider.val * self.sect_length)
+        zoom_level = self.zoom_slider.val
+        width_samples = int(self.sect_length / zoom_level)
         end_w = min(start_w + width_samples, len(self.wave))
         
         # Figure out which section we are primarily floating over
@@ -269,9 +329,15 @@ class AnimatedECGViewer:
             self.slider.set_val(sect_id)
             self.slider.eventson = True
 
-        # If we are in Frequency Mode, route to the FFT plotter
+        # Render explicit alternative modes
         if self.view_mode == 'Freq (Stem)':
             self._draw_frequency(start_w, end_w, sect_id)
+            self.update_stats(sect_id)
+            self.fig.canvas.draw_idle()
+            return
+            
+        elif self.view_mode == 'Stack Beats':
+            self._draw_stacked_beats(start_w, end_w, sect_id)
             self.update_stats(sect_id)
             self.fig.canvas.draw_idle()
             return
@@ -352,10 +418,7 @@ class AnimatedECGViewer:
             plot_inners('t_onset', 'teal', '|', size=150)
             plot_inners('t_offset', 'orange', '|', size=150)
 
-        title_str = f"ECG Signal - Section {sect_id}"
-        if width_offset > 0:
-            end_sect = min(sect_id + width_offset, len(self.data.sect_info) - 1)
-            title_str += f" to {end_sect}"
+        title_str = f"ECG Signal - Section {sect_id} | Zoom: {zoom_level}x"
         self.ax_main.set_title(title_str + f" ({start_w}:{end_w})")
         
         # Deduplicate legend safely using existing artists
@@ -373,7 +436,7 @@ class AnimatedECGViewer:
         self.show_interiors = False
         self.show_validity = False
         
-        # Clear out the FFT plot if returning to a base wave visualization
+        # Clear out the alternative plots if returning to a base wave visualization
         if label in ['Base Figure', 'Roll Median', 'Add Inter', 'Show R Valid']:
             self.ax_main.clear()
             self.line_ecg, = self.ax_main.plot([], [], color='dodgerblue', label='ECG')
