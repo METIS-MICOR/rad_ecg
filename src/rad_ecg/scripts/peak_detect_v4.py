@@ -1435,6 +1435,10 @@ class RadECG:
 
         #Extract main peaks for PQRST
         for i in range(len(beats)-1):
+            #If the peak is invalid, don't process it. 
+            if new_peaks_arr[i, 1] == 0:
+                    continue
+            
             beat = beats[i]
             next_beat = beats[i+1]
             peak0 = beat.r_peak
