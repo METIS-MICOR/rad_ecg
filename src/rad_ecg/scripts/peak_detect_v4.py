@@ -1311,7 +1311,7 @@ class RadECG:
         if not T_peak: 
             return None
         slope_start = T_peak
-        slope_end = T_peak + int(srch_width*2) 
+        slope_end = T_peak + srch_width 
         #BUG - Seeing T_offset get mixed up with P onsets. 
             #Need to find a way to guard against that with fast heart rates
             #possibly use the negative to postive calc to isolate inflection
@@ -1424,7 +1424,7 @@ class RadECG:
         beats: List[HeartBeat] = [HeartBeat(r_peak=int(p)) for p in new_peaks_arr[:, 0]]
         samp_mins = [None] * len(beats)
 
-        # Recover P and Q from the previous section's overlap beat to prevent data loss!
+        # Recover P and Q from the previous section's overlap beat to prevent data loss
         if self.ip_ptr > 0 and len(beats) > 0:
             old_peak = self.data.interior_peaks[self.ip_ptr]
             if old_peak['r_peak'] == beats[0].r_peak:
@@ -1538,7 +1538,7 @@ class RadECG:
                     rr_interval = int(self.fs * 0.8) # Fallback to a standard 75 bpm
                 
                 if beat.p_peak:
-                    # The P-onset MUST occur after the previous beat's T-offset.
+                    # The P-onset should occur after the previous beat's T-offset.
                     if i > 0 and beats[i-1].t_offset:
                         p_max_dist = beat.p_peak - beats[i-1].t_offset
                         # Guard against overlapping extraction errors
@@ -1548,23 +1548,21 @@ class RadECG:
                         # Standard max look-back for a P-wave from its peak is ~200ms
                         p_max_dist = int(self.fs * 0.20)
                     
-                    # _find_p_onset multiplies by 2, so pass half the distance
-                    beat.p_onset = self._find_p_onset(beat.p_peak, int(p_max_dist / 2))
+                    #Find p onset
+                    beat.p_onset = self._find_p_onset(beat.p_peak, p_max_dist)
 
                 if beat.q_peak and beat.p_peak:
-                    beat.q_onset  = self._find_q_onset(beat.q_peak, beat.p_peak)
+                    beat.q_onset = self._find_q_onset(beat.q_peak, beat.p_peak)
                     
                 if beat.t_peak:
                     # The T-offset must occur before the next beat's P-wave.
                     if i + 1 < len(beats) and beats[i+1].p_peak:
                         t_max_dist = beats[i+1].p_peak - beat.t_peak
                     else:
-                        # If no P-wave is found, revert to 40% of the T-wave of the RR interval
+                        # If no P, revert to 40% of the T-wave of the RR interval
                         t_max_dist = int(rr_interval * 0.40)
-                    
-                    # Because _find_t_offset internally multiplies the argument by 2, 
-                    # we pass half of our calculated distance to achieve the exact boundary.
-                    beat.t_offset = self._find_t_offset(beat.t_peak, int(t_max_dist / 2), isoelectric)
+                    #Find t_offsets
+                    beat.t_offset = self._find_t_offset(beat.t_peak, t_max_dist, isoelectric)
 
                 # Provide a fallback width if peaks are missing to prevent crash
                 # if beat.s_peak and beat.q_peak:
@@ -1588,6 +1586,7 @@ class RadECG:
 
                 if beat.s_peak and beat.t_peak:
                     beat.j_point  = self._find_j_point(beat.s_peak, beat.t_peak, rolled_med, start_p)
+                    
                 if beat.t_peak and (beat.j_point or beat.s_peak):
                     samp_m = samp_mins[i] if i < len(samp_mins) else None
                     beat.t_onset  = self._find_t_onset(beat.t_peak, beat.j_point, beat.s_peak, samp_m, rolled_med, start_p)
@@ -1908,12 +1907,13 @@ def main():
         current_run_time = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
         logger.info(f"--- Checking {file_path.stem} ---")
         save_dir = Path(configs["save_path"]) / file_path.stem
-        if save_dir.exists() and list(save_dir.glob("*.npz")):
-            logger.critical(f"Results for {file_path.stem} already exist")
-            choice = input("Do you want to overwrite current results? (yes/no)")
-            if choice == "no":
-                logger.critical(f"Rad-ECG shutting down")
-                exit()
+        #TODO - rewrite this because you can't clear each one in a batch run
+        # if save_dir.exists() and list(save_dir.glob("*.npz")):
+        #     logger.critical(f"Results for {file_path.stem} already exist")
+        #     choice = input("Do you want to overwrite current results? (yes/no)")
+        #     if choice == "no":
+        #         logger.critical(f"Rad-ECG shutting down")
+        #         exit()
             
         save_dir.mkdir(parents=True, exist_ok=True)
         
