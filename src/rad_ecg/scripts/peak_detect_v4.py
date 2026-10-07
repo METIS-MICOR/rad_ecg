@@ -1114,11 +1114,9 @@ class RadECG:
         # ==========================================================
         # GATE 4: Slope / Morphology Check
         # ==========================================================
-
         #BUG - Also might not needs this check if we're already doing the matrix
             #profile for morphology checks
             #NOTE: Firing on jagged slopes that may misrepresent slope.
-            #Stumpy is also very slow, this could be a low cost replacement.
 
         lookbacks = r_peaks - int(last_med_p_sep * 0.75)
         leftbases, slopes = [], []
@@ -1160,12 +1158,11 @@ class RadECG:
                 plot_kwargs["lower_bound"] = lower_bound_slope
                 logger.warning(f"FAILED:Slope in section {self.sect_id}")
 
-        total_beats = len(new_peaks_arr)
-        invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
         #UPDATE - 10-6-26
         #Switching off section rejection.  Now shooting for 
         #rejecting individual beats and including other data
-
+        total_beats = len(new_peaks_arr)
+        invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
         if total_beats > 0 and (invalid_beats / total_beats) > 0.25:
             sect_valid = False
             fail_reason += "Bad Beat Ratio > 0.25 | "
@@ -1344,7 +1341,8 @@ class RadECG:
             logger.warning(f'Q onset error {e}')
 
     def _find_t_offset(self, T_peak:int, max_dist:int, isoelectric:float):
-        if not T_peak: return None
+        if not T_peak: 
+            return None
         slope_start = T_peak
         slope_end = min(len(self.data.wave), T_peak + max_dist)
         
@@ -1352,20 +1350,23 @@ class RadECG:
             raw_seg = self.data.wave[slope_start:slope_end].flatten()
             if len(raw_seg) < 5: 
                 return None
-            #Smooth the section to erase noise
+            
+            # Smooth the segment slightly to prevent noise false positive
             window = np.hanning(5)
             window /= window.sum()
             smoothed_seg = np.convolve(raw_seg, window, mode='same')
-            # Sign Change Calc
-            grad = np.diff(smoothed_seg)
-            signchange = np.roll(np.sign(grad), 1) - np.sign(grad)
             
-            # We are on the downslope. Look for the first time it flattens (-1) or curves up (-2)
-            np_inflections = np.where((signchange == -2) | (signchange == -1))[0]
-            valid_inflections = np_inflections[np_inflections > 5]
-            if len(valid_inflections) > 0:
-                T_offset = slope_start + valid_inflections[0]
-                logger.debug(f'Adding T offset via Sign Change')
+            # Normalize to absolute distance from baseline to handle both upright and inverted T-waves
+            baseline = isoelectric if isoelectric is not None else np.min(smoothed_seg)
+            abs_seg = np.abs(smoothed_seg - baseline)
+            
+            # Use Kneedle to find the "shoulder" where the downslope flattens
+            X = np.arange(len(abs_seg))
+            knee = KneeLocator(X, abs_seg, curve="convex", direction="decreasing")
+            
+            if knee.elbow is not None:
+                T_offset = slope_start + int(knee.elbow)
+                logger.debug('Adding T offset via Kneedle')
                 return T_offset
                 
             # Fallback to steepest descent intercept (Tangent Method)
@@ -1540,6 +1541,8 @@ class RadECG:
                 
                 # MEAS T Peak
                 try:
+                    #TODO - IVY
+                    #Will need to call T wave inversion check here. 
                     RR_first_half = SQ_med_reduced[:half_idx]
                     peak_T_find = ss.find_peaks(RR_first_half, height=np.percentile(SQ_med_reduced, 60))
                     if peak_T_find[0].shape[0] > 0:
