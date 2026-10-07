@@ -1,6 +1,6 @@
 {
   "plot_section": false,
-  "plot_errors": true,
+  "plot_errors": false,
   "batch": false,
   "run_anomalyd": false,
   "samp_freq": 170.667,
