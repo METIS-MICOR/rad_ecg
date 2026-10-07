@@ -1280,18 +1280,54 @@ class RadECG:
         
         return d
 
-    def _find_p_onset(self, P_peak:int, srch_width:int):
+    def _find_p_onset(self, P_peak:int, max_dist:int):
+        if not P_peak: 
+            return None
+        slope_start = max(0, P_peak - max_dist)
+        slope_end = P_peak + 1 # Include the peak
+        
         try:
-            slope_end = P_peak + 1
-            slope_start = slope_end - int(srch_width*2)
-            lil_wave = self.data.wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            P_onset = slope_start + np.argmax(lil_grads).item()
-            logger.debug(f'Adding P onset')
-            return P_onset
+            raw_seg = self.data.wave[slope_start:slope_end].flatten()
+            if len(raw_seg) < 5: 
+                return None
+            
+            # Smooth the segment noise from causing false inflections
+            window = np.hanning(5)
+            window /= window.sum()
+            smoothed_seg = np.convolve(raw_seg, window, mode='same')
+            
+            # Sign Change Calculation
+            grad = np.diff(smoothed_seg)
+            signchange = np.roll(np.sign(grad), 1) - np.sign(grad)
+            
+            # A change from flat (0) to positive ascent (+1) yields -1. 
+            # A change from negative descent (-1) to positive ascent (+1) yields -2.
+            np_inflections = np.where((signchange == -2) | (signchange == -1))[0]
+            
+            # We want the LAST inflection before the peak, ignoring noise at the peak
+            valid_inflections = np_inflections[np_inflections < len(raw_seg) - 5]
+            
+            if len(valid_inflections) > 0:
+                P_onset = slope_start + valid_inflections[-1]
+                logger.debug(f'Adding P onset via Sign Change')
+                return P_onset
+            
+            # Fallback to steepest ascent intercept if no clean inflection exists
+            grads = np.gradient(smoothed_seg)
+            steepest_idx = np.argmax(grads) 
+            if grads[steepest_idx] > 0:
+                m = grads[steepest_idx]
+                b = smoothed_seg[steepest_idx] - m * steepest_idx
+                baseline = np.min(smoothed_seg)
+                intersect_x = (baseline - b) / m
+                if 0 < intersect_x < len(smoothed_seg):
+                    return slope_start + int(intersect_x)
+
+            return slope_start # Fallback to the dynamic boundary limit
+            
         except Exception as e:
             logger.warning(f'P onset error {e}')
-        #BUG - P_onset is showing up halfway up the peak. Check search width length
+            return None
 
     def _find_q_onset(self, Q_peak:int, P_peak:int):
         try:
@@ -1307,47 +1343,49 @@ class RadECG:
         except Exception as e:
             logger.warning(f'Q onset error {e}')
 
-    def _find_t_offset(self, T_peak:int, srch_width:int, isoelectric:float):
-        if not T_peak: 
-            return None
+    def _find_t_offset(self, T_peak:int, max_dist:int, isoelectric:float):
+        if not T_peak: return None
         slope_start = T_peak
-        slope_end = T_peak + srch_width 
-        #BUG - Seeing T_offset get mixed up with P onsets. 
-            #Need to find a way to guard against that with fast heart rates
-            #possibly use the negative to postive calc to isolate inflection
-
+        slope_end = min(len(self.data.wave), T_peak + max_dist)
+        
         try:
-            lil_wave = self.data.wave[slope_start:slope_end].flatten()
-            lil_grads = np.gradient(np.gradient(lil_wave))
-            T_offset = slope_start + np.argmax(lil_grads).item()
-            logger.debug(f'Adding T offset')
-            return T_offset
-            #BUG Toffset seems to be firing early on the offset of the T peak
-            #My thoughts are that either the window isn't long enough (likely)
-            #Or its firing off a high frequency noise component brefore it hits the 
-            #bottom of the signals.  
+            raw_seg = self.data.wave[slope_start:slope_end].flatten()
+            if len(raw_seg) < 5: 
+                return None
+            #Smooth the section to erase noise
+            window = np.hanning(5)
+            window /= window.sum()
+            smoothed_seg = np.convolve(raw_seg, window, mode='same')
+            # Sign Change Calc
+            grad = np.diff(smoothed_seg)
+            signchange = np.roll(np.sign(grad), 1) - np.sign(grad)
+            
+            # We are on the downslope. Look for the first time it flattens (-1) or curves up (-2)
+            np_inflections = np.where((signchange == -2) | (signchange == -1))[0]
+            valid_inflections = np_inflections[np_inflections > 5]
+            if len(valid_inflections) > 0:
+                T_offset = slope_start + valid_inflections[0]
+                logger.debug(f'Adding T offset via Sign Change')
+                return T_offset
+                
+            # Fallback to steepest descent intercept (Tangent Method)
+            # As described here https://pmc.ncbi.nlm.nih.gov/articles/PMC7080915/
+            grads = np.gradient(smoothed_seg)
+            steepest_idx = np.argmin(grads) 
+            if grads[steepest_idx] < 0:
+                m = grads[steepest_idx]
+                b = smoothed_seg[steepest_idx] - m * steepest_idx
+                baseline = isoelectric if isoelectric is not None else np.min(smoothed_seg)
+                
+                intersect_x = (baseline - b) / m
+                if 0 < intersect_x < len(smoothed_seg):
+                    return slope_start + int(intersect_x)
+                    
+            return slope_end # Fallback to the dynamic boundary limit
+
         except Exception as e:
             logger.warning(f'T Offset error {e}')
-            logger.debug("secondary T_offset extraction")
-            # NOTE backup T_offset extract
-                # If the acceleration method fails.  Add in another check to look at
-                # the slope after the T peak.  Draw a line down to the isoelectric
-                # https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7080915
-
-            try:
-                m, b = np.polyfit(range(slope_start, slope_end), self.data.wave[slope_start:slope_end], 1)
-                x_intercept = -b / m
-                isoelectric = self.data.sect_info["isoelectric"] if self.data.sect_info["isoelectric"] is not None else x_intercept
-                x_tans = np.linspace(T_peak, T_offset, 100)
-                y_tans = m * x_tans + b
-                T_cross = np.abs(y_tans - isoelectric)
-                T_offset = x_tans[T_cross]
-                logger.info(f'Adding T offset backup')
-                return T_offset
-
-            except Exception as e:
-                logger.warning(f'T Offset backup extraction error = \n{e}')
-                return None
+            return None
 
     def _find_j_point(self, s_peak: int, t_peak: int, rolled_med: np.ndarray, start_p: int) -> int:
         if not s_peak or not t_peak: return None
