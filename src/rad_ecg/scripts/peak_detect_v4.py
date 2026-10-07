@@ -1351,35 +1351,46 @@ class RadECG:
             if len(raw_seg) < 5: 
                 return None
             
-            # Smooth the segment slightly to prevent noise false positive
+            # Smooth the segment slightly to prevent noise false positives
             window = np.hanning(5)
             window /= window.sum()
             smoothed_seg = np.convolve(raw_seg, window, mode='same')
             
-            # Normalize to absolute distance from baseline to handle both upright and inverted T-waves
+            # Normalize baseline
             baseline = isoelectric if isoelectric is not None else np.min(smoothed_seg)
-            abs_seg = np.abs(smoothed_seg - baseline)
             
-            # Use Kneedle to find the "shoulder" where the downslope flattens
-            X = np.arange(len(abs_seg))
-            knee = KneeLocator(X, abs_seg, curve="convex", direction="decreasing")
-            
-            if knee.elbow is not None:
-                T_offset = slope_start + int(knee.elbow)
-                logger.debug('Adding T offset via Kneedle')
-                return T_offset
-                
-            # Fallback to steepest descent intercept (Tangent Method)
-            # As described here https://pmc.ncbi.nlm.nih.gov/articles/PMC7080915/
+            # Find the inflection point (steepest slope) to split the S-curve
             grads = np.gradient(smoothed_seg)
-            steepest_idx = np.argmin(grads) 
-            if grads[steepest_idx] < 0:
-                m = grads[steepest_idx]
-                b = smoothed_seg[steepest_idx] - m * steepest_idx
-                baseline = isoelectric if isoelectric is not None else np.min(smoothed_seg)
+            is_upright = smoothed_seg[0] >= baseline
+            
+            # Find steepest descent (upright T) or ascent (inverted T)
+            if is_upright:
+                steepest_idx = np.argmin(grads) 
+            else:
+                steepest_idx = np.argmax(grads)
+
+            # PRIMARY: Use Kneedle strictly on the convex "flattening" tail
+            if 0 < steepest_idx < len(smoothed_seg) - 3:
+                tail_seg = smoothed_seg[steepest_idx:]
+                abs_tail = np.abs(tail_seg - baseline) # Normalize to distance from baseline
                 
+                X = np.arange(len(abs_tail))
+                knee = KneeLocator(X, abs_tail, curve="convex", direction="decreasing")
+                
+                if knee.elbow is not None and knee.elbow > 0:
+                    T_offset = slope_start + steepest_idx + int(knee.elbow)
+                    logger.debug('Adding T offset via Kneedle on tail')
+                    return T_offset
+
+            # BACKUP: Tangent Method (Steepest slope intercept)
+            # As described here https://pmc.ncbi.nlm.nih.gov/articles/PMC7080915/
+            m = grads[steepest_idx]
+            # Ensure the slope is actually pointing towards the baseline
+            if (is_upright and m < 0) or (not is_upright and m > 0):
+                b = smoothed_seg[steepest_idx] - m * steepest_idx
                 intersect_x = (baseline - b) / m
                 if 0 < intersect_x < len(smoothed_seg):
+                    logger.debug('Adding T offset via Tangent Backup')
                     return slope_start + int(intersect_x)
                     
             return slope_end # Fallback to the dynamic boundary limit
