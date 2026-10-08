@@ -424,7 +424,7 @@ class SignalLoader:
             logger.critical(f"Unable to load file. Error {e}")
 
         #Segment the signal
-        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)[:300]
+        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)
     
     def load_structures(self) -> ECGData:
         """Loading data structures for RAD_ECG
@@ -1876,9 +1876,9 @@ class RadECG:
                 ##################################################            
                 if is_turbulent or is_stale:
                     if is_stale:
-                        logger.warning(f"History stale/missing {self.sect_id}")
+                        logger.warning(f"History stale/missing section: {self.sect_id}")
                     if is_turbulent:
-                        logger.warning(f"Section turbulent {self.sect_id}")
+                        logger.warning(f"Section turbulent  section: {self.sect_id}")
 
                     #Check each beat with the matrix profile and Welch's STFT. 
                     sqi_valid, sqi_fail, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
@@ -1924,17 +1924,17 @@ class RadECG:
                 #     # If we don't have enough consecutive valids, trust the matrix profile / STFT are doing their jobs
                 #     sect_valid = True 
                 ###################################################################
-                # FINAL TALLY: Combine True Bad Beat Ratio
+                # Bad Beat Rejection:
                 ###################################################################
                 if len(new_peaks_arr) > 0:
                     invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
                     final_bad_ratio = invalid_beats / len(new_peaks_arr)
                     self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(final_bad_ratio, 3)
                     
-                    # Main Kill Switch: 50% max artifact threshold
-                    if final_bad_ratio > 0.50:
+                    # Main Kill Switch: 75% max artifact threshold
+                    if final_bad_ratio > 0.75:
                         sect_valid = False
-                        sect_fail_reasons += f" | Bad Beat Ratio > 0.50 : {final_bad_ratio}"
+                        sect_fail_reasons += f" | Bad Beat Ratio > 0.75 : {final_bad_ratio:.0%}"
                     else:
                         sect_valid = True
                 else:
