@@ -265,11 +265,11 @@ class CardiacFreqTools:
             med_dist = local_med
             mad = local_mad
         else:
-            # Use historical median of medians/MADs for extreme stability
+            # Use historical median of medians/MADs for stability
             med_dist = np.median(self.mp_med_history)
             mad = np.median(self.mp_mad_history)        
         
-        # Prevent vanishing MAD on ultra-clean sections
+        # Prevent vanishing MAD on clean sections
         # mad = np.median(np.abs(distances - med_dist))
         safe_mad = max(mad, 0.4) 
         mp_threshold = med_dist + (5.5 * safe_mad)
@@ -369,6 +369,7 @@ class CardiacFreqTools:
         fail_reason = f"bad beat ratio: {bad_beat_ratio:.0%} " if not is_valid else ""
         if bad_beats > 0:
             logger.info(fail_reason)
+
         return is_valid, fail_reason, metrics, valid_mask
 
 class SignalLoader:
@@ -423,7 +424,7 @@ class SignalLoader:
             logger.critical(f"Unable to load file. Error {e}")
 
         #Segment the signal
-        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)
+        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)[:300]
     
     def load_structures(self) -> ECGData:
         """Loading data structures for RAD_ECG
@@ -1150,7 +1151,7 @@ class RadECG:
             
             if bad_slopes.size > 0:
                 new_peaks_arr[bad_slopes, 1] = 0
-                fail_reason += "slope | "
+                fail_reason += f"{bad_slopes.size} bad slopes | "
                 # sect_valid = False
                 plot_kwargs["leftbases"] = leftbases
                 plot_kwargs["slopes"] = slopes
@@ -1161,17 +1162,17 @@ class RadECG:
         #UPDATE - 10-6-26
         #Switching off section rejection.  Now shooting for 
         #rejecting individual beats and including other data
-        total_beats = len(new_peaks_arr)
-        invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
-        if total_beats > 0 and (invalid_beats / total_beats) > 0.50:
-            sect_valid = False
-            fail_reason += "Bad Beat Ratio > 0.50 | "
+        # total_beats = len(new_peaks_arr)
+        # invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
+        # if total_beats > 0 and (invalid_beats / total_beats) > 0.50:
+        #     sect_valid = False
+        #     fail_reason += "Bad Beat Ratio > 0.50 | "
 
-        if not sect_valid and self.gui.plot_errors:
-            fail_reason = fail_reason.strip("|")
-            self.gui.plot_validation_error(f"FAILED:Historical {fail_reason}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
+        if fail_reason and self.gui.plot_errors:
+            f_reasons = fail_reason.strip("|")
+            self.gui.plot_validation_error(f"Hist Flags: {f_reasons}", start_idx, end_idx, new_peaks_arr, peak_info, self.sect_id, **plot_kwargs)
 
-        return sect_valid, new_peaks_arr, fail_reason
+        return new_peaks_arr, fail_reason
 
     def estimate_iso(self, r_peaks:list) -> float:
         iso = []
@@ -1827,6 +1828,7 @@ class RadECG:
                 recent_peaks = self.data.peaks[max(0, self.p_ptr - 20):self.p_ptr, 0]
                 same_peaks = sorted(list(set(r_peaks_shifted) & set(recent_peaks)))
 
+                # Adjust peaks to last extracted peak
                 if len(same_peaks) > 0:
                     #Find the last peak in common. 
                     f_peak = max(same_peaks)
@@ -1844,15 +1846,16 @@ class RadECG:
                 else:
                     r_p_shift = r_peaks_shifted
                     r_p_new = r_peaks
-
+                ##############################
                 # Historical data Validation
+                ##############################
                 is_stale = False
-                lookback = int(self.fs * 30) 
+                lookback = int(self.fs * 10) 
                 last_keys = self.consecutive_valid_peaks(r_peaks=self.data.peaks[:self.p_ptr], lookback=lookback)
 
                 if last_keys is not False:
                     time_since_valid = (start_p - last_keys[-1]) / self.fs
-                    if time_since_valid > 300:
+                    if time_since_valid > self.window_size:
                         is_stale = True
                         logger.warning(f"history deadlocked {time_since_valid:.2f}s")
                 else:
@@ -1866,18 +1869,23 @@ class RadECG:
 
                 val_mask = np.ones(len(r_p_new), dtype=int) # Default all valid
                 post_metrics = {}
-
+                sect_fail_reasons = ""
+                sect_valid = True
+                ##################################################
+                # If signal unstable, validate with post_peak SQI
+                ##################################################            
                 if is_turbulent or is_stale:
                     if is_stale:
-                        logger.info(f"History stale/missing. Running vetting on section {self.sect_id}")
+                        logger.warning(f"History stale/missing {self.sect_id}")
                     if is_turbulent:
-                        logger.info(f"Section turbulent. Running vetting on section {self.sect_id}")
+                        logger.warning(f"Section turbulent {self.sect_id}")
 
                     #Check each beat with the matrix profile and Welch's STFT. 
-                    is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
-                    self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
+                    sqi_valid, sqi_fail, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
+                    # self.data.sect_info["bad_b_rat"][self.sect_id] = post_metrics.get("bad_b_ratio", 1.0)
 
-                    if not is_valid:
+                    if not sqi_valid:
+                        sect_fail_reasons += sqi_fail
                         if self.gui.plot_errors:
                             self.gui.plot_post_error(
                                 error_type=fail_reason, 
@@ -1889,27 +1897,53 @@ class RadECG:
                                 post_metrics=post_metrics,
                                 val_mask = val_mask
                             )
-                        logger.warning(f"Section {self.sect_id} rejected: {fail_reason}")
-                        self.data.sect_info["fail_reason"][self.sect_id] += fail_reason
-                        progbar.advance(job_id, advance=1)
-                        self.sect_id += 1
-                        continue
-                else:
-                    self.data.sect_info["bad_b_rat"][self.sect_id] = 0
+                        
+                        # logger.warning(f"Section {self.sect_id} rejected: {self.data.sect_info["fail_reason"][self.sect_id]}")
+                        # progbar.advance(job_id, advance=1)
+                        # self.sect_id += 1
+                        # continue
 
+                #BUG - ratio
+                    #Why are you setting this to zero here. Unless we were resetting that ratio 
+                    #for the historical validation checks
+                # else:
+                    # self.data.sect_info["bad_b_rat"][self.sect_id] = 0
+            
                 new_peaks_arr = np.hstack((r_p_shift.reshape(-1, 1), val_mask.reshape(-1, 1)))
-
+                ###################################################################
+                # Check the new_peaks against historical data
+                ###################################################################
                 if not is_stale:
-                    sect_valid, new_peaks_arr, fail_reason = self.historical_validation(
+                    new_peaks_arr, hist_fail = self.historical_validation(
                         new_peaks_arr, last_keys, peak_info, 
                         start_idx=start_p, end_idx=end_p
                     )
-                    if not sect_valid:
-                        self.data.sect_info["fail_reason"][self.sect_id] += f" | {fail_reason}"
+                    if hist_fail:
+                        sect_fail_reasons += f" | {hist_fail}"
+                # else:
+                #     # If we don't have enough consecutive valids, trust the matrix profile / STFT are doing their jobs
+                #     sect_valid = True 
+                ###################################################################
+                # FINAL TALLY: Combine True Bad Beat Ratio
+                ###################################################################
+                if len(new_peaks_arr) > 0:
+                    invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
+                    final_bad_ratio = invalid_beats / len(new_peaks_arr)
+                    self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(final_bad_ratio, 3)
+                    
+                    # Main Kill Switch: 50% max artifact threshold
+                    if final_bad_ratio > 0.50:
+                        sect_valid = False
+                        sect_fail_reasons += f" | Bad Beat Ratio > 0.50 : {final_bad_ratio}"
+                    else:
+                        sect_valid = True
                 else:
-                    # If we don't have enough consecutive valids, trust the matrix profile / STFT are doing their jobs
-                    sect_valid = True 
+                    self.data.sect_info["bad_b_rat"][self.sect_id] = 1.0
+                    sect_valid = False
+                    sect_fail_reasons += " | No peaks extracted"
 
+                # Finalize Section
+                self.data.sect_info["fail_reason"][self.sect_id] = sect_fail_reasons.strip(" | ")
                 # Finalize Section
                 if sect_valid:
                     self.data.sect_info[self.sect_id]["valid"] = 1
@@ -1917,9 +1951,6 @@ class RadECG:
                     self.extract_pqrst(new_peaks_arr, peak_info, rolled_med, start_p)
                     # Generate Section Stats
                     self.section_stats(new_peaks_arr, start_p, end_p)
-                    #Update bad_b_ratio
-                    #BUG - Fix this tomorrow
-                    # self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(new_peaks_arr[new_peaks_arr[:, 1] == 0].shape[0] / new_peaks_arr.shape[0], 2)
                 else:
                     self.data.sect_info["valid"][self.sect_id] = 0
                     new_peaks_arr[:, 1] = 0 
@@ -1991,7 +2022,7 @@ def main():
             loader.load_signal_data()
             configs["samp_freq"] = loader.fs
             ECG = loader.load_structures()
-            RAD = RadECG(ECG, configs, fp)
+            RAD = RadECG(ECG, configs, fp, loader.window)
             RAD.run_extraction()
             support.save_results(RAD.data, configs=configs, current_date=current_run_time)
             
