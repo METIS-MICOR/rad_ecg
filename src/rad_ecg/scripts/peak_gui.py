@@ -175,6 +175,20 @@ class AnimatedECGViewer:
         self.current_pos = min(self.current_pos + self.anim_step, len(self.wave) - self.sect_length)
         self.update_main_plot(from_anim=True)
 
+    def _add_failure_banner(self, sect_id: int):
+        """Helper method to display the failure reason under the main plot title."""
+        is_valid = self.data.sect_info['valid'][sect_id]
+        fail_str = self.data.sect_info['fail_reason'][sect_id].strip()
+        
+        if is_valid == 0 and fail_str:
+            self.ax_main.text(
+                0.5, 0.98, f"SECTION FAILED: {fail_str}", 
+                transform=self.ax_main.transAxes, 
+                fontsize=12, fontweight='bold', color='darkred',
+                ha='center', va='top', zorder=20,
+                bbox=dict(facecolor='mistyrose', alpha=0.9, edgecolor='red', boxstyle='round,pad=0.4')
+            )
+
     def update_stats(self, sect_id: int):
         self.ax_stats.clear()
         self.ax_stats.axis('off')
@@ -247,6 +261,7 @@ class AnimatedECGViewer:
             self.ax_main.set_title(title_str)
             self.ax_main.set_xlim(0, 50)
             self.ax_main.set_xlabel("Frequency (Hz)")
+            self._add_failure_banner(sect_id)
             self.ax_main.legend(loc='upper right')
 
     def _draw_stacked_beats(self, start_w, end_w, sect_id):
@@ -261,6 +276,7 @@ class AnimatedECGViewer:
         
         if len(inners) == 0:
             self.ax_main.set_title(f"No Beats in Current Window | Section {sect_id}")
+            self._add_failure_banner(sect_id)
             return
 
         # Calculate max boundaries relative to R-peak to frame the X-axis bounds dynamically
@@ -304,6 +320,7 @@ class AnimatedECGViewer:
         
         self.ax_main.set_xlabel("Time from R-Peak (ms)")
         self.ax_main.set_ylabel("ECG mV")
+        self._add_failure_banner(sect_id)
         
         from matplotlib.lines import Line2D
         custom_lines = [
@@ -425,6 +442,7 @@ class AnimatedECGViewer:
 
         title_str = f"ECG Signal - Section {sect_id} | Zoom: {zoom_level}x"
         self.ax_main.set_title(title_str + f" ({start_w}:{end_w})")
+        self._add_failure_banner(sect_id)
         
         # Deduplicate legend safely using existing artists
         handles, labels = self.ax_main.get_legend_handles_labels()
