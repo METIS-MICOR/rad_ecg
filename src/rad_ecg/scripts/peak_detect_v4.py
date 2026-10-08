@@ -101,7 +101,8 @@ class CardiacFreqTools:
             fs: float = 1000.0, 
             history_size: int = 6,
             freq_lim: float = 15, 
-            qrs_lim : float = 0.35
+            qrs_lim : float = 0.15,
+            spec_lim: float = 0.75
         ):
         self.fs = fs
         self.history_size = history_size
@@ -110,6 +111,7 @@ class CardiacFreqTools:
         self.mp_mad_history = deque(maxlen=self.history_size)
         self.freq_lim = freq_lim
         self.qrs_lim = qrs_lim
+        self.spec_lim = spec_lim
 
     def calc_hjorth_complexity(self, signal: np.ndarray) -> float:
         """Calculates Hjorth Complexity (Proxy for overall HF static)."""
@@ -147,9 +149,7 @@ class CardiacFreqTools:
         hf_sqi = hf_power / total_power
         spec_ratio =  qrs_sqi / hf_sqi
         
-        # Spectral Shannon Entropy
-        # Normalize the full PSD into a probability mass function
-
+        # Spectral Shannon Entropy normalize the full PSD into a probability mass function
         psd_norm = psd / total_power
         # Calculate Shannon entropy (base 2 is standard for bits of information)
         spec_entropy = entropy(psd_norm, base=2)
@@ -223,7 +223,7 @@ class CardiacFreqTools:
             fail_reason += f"Low QRS Power | "
 
         # Gate 4: Broadband noise (Spectral Entropy)
-        if spect_ent > 6.5:
+        if spect_ent > self.spec_lim:
             is_valid = False
             fail_reason += "High Spec Entropy | "
             
