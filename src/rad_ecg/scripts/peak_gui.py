@@ -182,7 +182,7 @@ class AnimatedECGViewer:
         
         if is_valid == 0 and fail_str:
             banner = self.ax_main.text(
-                0.5, 0.98, f"SECTION FAILED: {fail_str}", 
+                0.5, 0.98, f"Reason: {fail_str}", 
                 transform=self.ax_main.transAxes, 
                 fontsize=12, fontweight='bold', color='darkred',
                 ha='center', va='top', zorder=20,
