@@ -102,7 +102,7 @@ class CardiacFreqTools:
             history_size: int = 6,
             freq_lim: float = 15, 
             qrs_lim : float = 0.15,
-            spec_lim: float = 0.75
+            spec_lim: float = 7.5
         ):
         self.fs = fs
         self.history_size = history_size
@@ -188,7 +188,7 @@ class CardiacFreqTools:
     def pre_peak_sqi(self, wave_chunk: np.ndarray) -> tuple:
         """
         window-level checks. 
-        Runs BEFORE peak extraction to catch dead sensors or pure static.
+        Runs BEFORE peak extraction to catch dead sensors or static.
         """
         if len(wave_chunk) == 0:
             return False, "Empty Chunk", {}
@@ -1261,22 +1261,24 @@ class RadECG:
         # TpTe is the distance from the peak of the T-wave to the end of the T-wave
         return int(1000 * ((t_offset - t_peak) / self.fs))
         
-    def _curve_line_dist(self, point:tuple, coef:tuple)->float:
-        """This function calculates the distance from every point
+    def _curve_line_dist(self, x_vals:np.ndarray, y_vals:np.ndarray, coef:tuple)->np.ndarray:
+        """This vectorized function calculates the distance from every point
         in our manufactured line, to the curve.  We use this to determine
-        where the elbow of a curve is at its maximal.
+        where the elbow of a curve is at its maximum.
 
         Args:
-            point (tuple): _description_
+            x_vals (np.ndarray): _description_
+            y_vals (np.ndarray): _description_
             coef (tuple): _description_
 
         Returns:
-            float: _description_
-        """			
-        d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
-        
+            np.ndarray: _description_
+        """
+        d = np.abs((coef[0] * x_vals) - y_vals + coef[1]) / np.sqrt((coef[0] ** 2) + 1)
+        # Old by point method below			
+        # d = abs((coef[0]*point[0])-point[1]+coef[1])/np.sqrt((coef[0]*coef[0])+1)
         return d
-
+    
     def _find_p_onset(self, P_peak:int, max_dist:int):
         if not P_peak: 
             return None

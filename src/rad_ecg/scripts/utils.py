@@ -1,6 +1,8 @@
 import numpy as np
+from support import log_time
 from dataclasses import dataclass
 from scipy.signal import savgol_filter
+from scipy.ndimage import median_filter
 
 #Dev note:Functions are organized most to least important
 #FUNCTION Segment ECG
@@ -50,7 +52,7 @@ def segment_ECG(
     return slices
 
 #FUNCTION Rolling Median
-# @log_time
+@log_time
 def roll_med(wave_data:np.array)->np.array:
     """Calculates a rolling median of the HR Signal.  Uses a 40 timestep window. (or 5 milliseconds)
     Rolling median calculation developed by David Josephs
@@ -60,21 +62,25 @@ def roll_med(wave_data:np.array)->np.array:
     Returns:
         smoothed_ecg (np.array): [Smoothed rolling median of wave chunk]
     """	
-        #TODO  Need a better way to make the windowsize dynamic to the signal.  Calc
-        #the current ratio and set it for future signal analysis.  Currently its
-        #about a 1/4 of the sampling rate
-    
-    winsize = 40 #about .2 sec
-    smoothed_ecg = np.zeros_like(wave_data)	
-    for i in range(len(wave_data)):
-        lhs = max(0, i - winsize//2)
-        rhs = max(i + winsize//2 + 1, winsize - lhs + 1)
-        if rhs >= len(wave_data):
-            lhs -= rhs - len(wave_data)
-            rhs = len(wave_data) - 1
-        smoothed_ecg[i] = np.nanmedian(wave_data[lhs:rhs])
-    return smoothed_ecg
+    #TODO  Need a better way to make the window dynamic to the sampling frequncy
+    winsize = 40
+    #Numpy way
+    smoothed_ecg = median_filter(wave_data, size=winsize, mode='nearest')
+    #Pandas way
+    # smoothed_ecg = pd.Series(wave_data).rolling(window=winsize, center=True, min_periods=1).median().values
+    return smoothed_ecg.astype(np.float32)
 
+    # DJ way
+    # winsize = 40 #about .2 sec
+    # smoothed_ecg = np.zeros_like(wave_data)	
+    # for i in range(len(wave_data)):
+    #     lhs = max(0, i - winsize//2)
+    #     rhs = max(i + winsize//2 + 1, winsize - lhs + 1)
+    #     if rhs >= len(wave_data):
+    #         lhs -= rhs - len(wave_data)
+    #         rhs = len(wave_data) - 1
+    #     smoothed_ecg[i] = np.nanmedian(wave_data[lhs:rhs])
+    # return smoothed_ecg
 
 #FUNCTION Section Finder
 def section_finder(start_p:int, wave:np.array, fs:float):
