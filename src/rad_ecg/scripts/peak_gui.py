@@ -176,37 +176,29 @@ class AnimatedECGViewer:
         self.update_main_plot(from_anim=True)
 
     def _add_failure_banner(self, sect_id: int):
-        """Helper method to display the failure reason under the main plot title."""
+        """Helper method to prominently display the failure reason under the main plot title."""
         is_valid = self.data.sect_info['valid'][sect_id]
         fail_str = self.data.sect_info['fail_reason'][sect_id].strip()
         
         if is_valid == 0 and fail_str:
-            self.ax_main.text(
+            banner = self.ax_main.text(
                 0.5, 0.98, f"SECTION FAILED: {fail_str}", 
                 transform=self.ax_main.transAxes, 
                 fontsize=12, fontweight='bold', color='darkred',
                 ha='center', va='top', zorder=20,
                 bbox=dict(facecolor='mistyrose', alpha=0.9, edgecolor='red', boxstyle='round,pad=0.4')
             )
+            # Append to transients so it gets wiped when navigating to a new section
+            self.transient_artists.append(banner)
 
     def update_stats(self, sect_id: int):
         self.ax_stats.clear()
         self.ax_stats.axis('off')
-        
         sect_data = self.data.sect_info[sect_id]
-        
-        # Word wrap the failure reasons nicely
-        fail_str = sect_data['fail_reason'].strip()
-        if fail_str:
-            reasons = [r.strip() for r in fail_str.split('|') if r.strip()]
-            formatted_reason = ("|\n").join(reasons)
-        else:
-            formatted_reason = "None"
         
         stat_text = (
             f"--- SECTION {sect_id} ---\n\n"
-            f"Valid:    {'Yes' if sect_data['valid'] == 1 else 'NO'}\n"
-            f"Reason:   {formatted_reason}\n\n"
+            f"Valid:    {'Yes' if sect_data['valid'] == 1 else 'NO'}\n\n"
             f"--- SQI ---\n"
             f"Kurtosis: {sect_data['kurtosis']:.2f}\n"
             f"Hjorth:   {sect_data['hjorth']:.2f}\n"
@@ -224,7 +216,6 @@ class AnimatedECGViewer:
             f"QTc:      {sect_data['QTc']:.0f} ms\n"
             f"TpTe:     {sect_data['TpTe']:.2f} ms\n"
             f"QTVI:     {sect_data['QTVI']:.2f}"
-            
         )
         
         self.ax_stats.text(

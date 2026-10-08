@@ -52,7 +52,7 @@ def segment_ECG(
     return slices
 
 #FUNCTION Rolling Median
-@log_time
+# @log_time
 def roll_med(wave_data:np.array)->np.array:
     """Calculates a rolling median of the HR Signal.  Uses a 40 timestep window. (or 5 milliseconds)
     Rolling median calculation developed by David Josephs

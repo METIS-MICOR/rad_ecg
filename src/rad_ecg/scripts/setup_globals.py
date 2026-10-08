@@ -20,7 +20,7 @@ SECTION_DTYPES = [
     ('start_point' , 'i4'),    # 1 
     ('end_point'   , 'i4'),    # 2 
     ('valid'       , 'i4'),    # 3 
-    ('fail_reason' , 'U16'),   # 4
+    ('fail_reason' , 'str'),   # 4
     ('isoelectric' , 'f4'),    # 5 
     ('kurtosis'    , 'f4'),    # 6 
     ('hjorth'      , 'f4'),    # 7 
