@@ -1528,8 +1528,8 @@ class RadECG:
                 x_vals = np.linspace(slope_start, slope_end-1, num=lil_wave.shape[0]*10)
                 y_vals = f(x_vals)
                 coeffs = np.polyfit((x_vals[0], x_vals[-1]), (y_vals[0], y_vals[-1]), 1)
-                p_dist = [self._curve_line_dist(pt, coeffs) for pt in zip(x_vals, y_vals)]
-                closest = int(np.round(p_dist.index(max(p_dist)) / 10) + peak0)
+                p_dist = self._curve_line_dist(x_vals, y_vals, coeffs)
+                closest = int(np.round(np.argmax(p_dist) / 10) + peak0)
                 beat.s_peak = closest
             else:
                 beat.s_peak = int(np.argmin(lil_wave)) + slope_start
