@@ -362,13 +362,13 @@ class CardiacFreqTools:
             "rejections" : reject_reasons
         }
         
-        is_valid = bad_beat_ratio <= 0.25
+        is_valid = bad_beat_ratio <= 0.50
         if is_valid:
             self.mp_med_history.append(local_med)
             self.mp_mad_history.append(local_mad)
-        fail_reason = f"Bad Beat: " if not is_valid else ""
+        fail_reason = f"bad beat ratio: {bad_beat_ratio:.0%} " if not is_valid else ""
         if bad_beats > 0:
-            logger.info(f"bad beat ratio: {bad_beats}/{total_beats}")
+            logger.info(fail_reason)
         return is_valid, fail_reason, metrics, valid_mask
 
 class SignalLoader:
@@ -1163,9 +1163,9 @@ class RadECG:
         #rejecting individual beats and including other data
         total_beats = len(new_peaks_arr)
         invalid_beats = np.sum(new_peaks_arr[:, 1] == 0)
-        if total_beats > 0 and (invalid_beats / total_beats) > 0.25:
+        if total_beats > 0 and (invalid_beats / total_beats) > 0.50:
             sect_valid = False
-            fail_reason += "Bad Beat Ratio > 0.25 | "
+            fail_reason += "Bad Beat Ratio > 0.50 | "
 
         if not sect_valid and self.gui.plot_errors:
             fail_reason = fail_reason.strip("|")
@@ -1870,7 +1870,9 @@ class RadECG:
                 if is_turbulent or is_stale:
                     if is_stale:
                         logger.info(f"History stale/missing. Running vetting on section {self.sect_id}")
-                    
+                    if is_turbulent:
+                        logger.info(f"Section turbulent. Running vetting on section {self.sect_id}")
+
                     #Check each beat with the matrix profile and Welch's STFT. 
                     is_valid, fail_reason, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
                     self.data.sect_info["bad_b_rat"][self.sect_id]= post_metrics.get("bad_b_ratio", 1.0)
