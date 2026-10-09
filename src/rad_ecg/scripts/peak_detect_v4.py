@@ -101,7 +101,7 @@ class CardiacFreqTools:
             fs: float = 1000.0, 
             history_size: int = 6,
             freq_lim: float = 15, 
-            qrs_lim : float = 0.15,
+            qrs_lim : float = 0.20,
             spec_lim: float = 7.5
         ):
         self.fs = fs
@@ -994,7 +994,6 @@ class RadECG:
             end_idx:int
         ) -> Tuple[bool, np.ndarray, str]:
         """Rejects whole segments based on historical averages (IQR, Slope, Separation, Height)."""
-        sect_valid = True
         fail_reason = ""
         plot_kwargs = {}
 
@@ -1151,13 +1150,12 @@ class RadECG:
             
             if bad_slopes.size > 0:
                 new_peaks_arr[bad_slopes, 1] = 0
-                fail_reason += f"{bad_slopes.size} bad slopes | "
-                # sect_valid = False
+                fail_reason += f"bad slopes | "
                 plot_kwargs["leftbases"] = leftbases
                 plot_kwargs["slopes"] = slopes
                 plot_kwargs["upper_bound"] = upper_bound_slope
                 plot_kwargs["lower_bound"] = lower_bound_slope
-                logger.warning(f"FAILED:Slope in section {self.sect_id}")
+                logger.warning(f"FAILED:{bad_slopes.size} slopes in section {self.sect_id}")
 
         #UPDATE - 10-6-26
         #Switching off section rejection.  Now shooting for 
@@ -1878,7 +1876,7 @@ class RadECG:
                     if is_stale:
                         logger.warning(f"History stale/missing section: {self.sect_id}")
                     if is_turbulent:
-                        logger.warning(f"Section turbulent  section: {self.sect_id}")
+                        logger.warning(f"Section turbulent section: {self.sect_id}")
 
                     #Check each beat with the matrix profile and Welch's STFT. 
                     sqi_valid, sqi_fail, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
@@ -1934,7 +1932,8 @@ class RadECG:
                     # Main Kill Switch: 75% max artifact threshold
                     if final_bad_ratio > 0.75:
                         sect_valid = False
-                        sect_fail_reasons += f" | Bad Beat Ratio > 0.75 : {final_bad_ratio:.0%}"
+                        sect_fail_reasons += f" | Bad Beat Ratio > 0.75"
+                        logger.warning(f"Bad Beat Ratio > 75 :{final_bad_ratio}")
                     else:
                         sect_valid = True
                 else:
