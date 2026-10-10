@@ -234,6 +234,142 @@ class CardiacFreqTools:
 
         return is_valid, fail_reason, metrics
 
+    # def old_post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
+    #     """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
+    #     valid_mask = np.zeros(len(r_peaks), dtype=int) 
+
+    #     if len(r_peaks) < 4:
+    #         return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
+
+    #     # --- Matrix Profile Calculation (Chunk-level) ---
+    #     m = int(self.fs * .30) #.12
+    #     m = max(m, int(np.median(np.diff(r_peaks // 2)))) 
+
+    #     # try:
+    #     #     device_id = cuda.list_devices()[0].id
+    #     #     mp = stumpy.gpu_stump(wave_chunk.astype(np.float64), m=m, device_id=device_id)
+    #     # except Exception as e:
+    #     #     logger.error(f"GPU Stumpy failed, falling back to CPU: {e}")
+    #     mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
+    #     distances = mp[:, 0]
+    #     local_med = np.median(distances)
+    #     local_mad = np.median(np.abs(distances - local_med))        
+        
+    #     # Historical MP Smoothing
+    #     if not self.mp_med_history:
+    #         # Seed the history on the first pass
+    #         self.mp_med_history.append(local_med)
+    #         self.mp_mad_history.append(local_mad)
+    #         med_dist = local_med
+    #         mad = local_mad
+    #     else:
+    #         # Use historical median of medians/MADs for stability
+    #         med_dist = np.median(self.mp_med_history)
+    #         mad = np.median(self.mp_mad_history)        
+        
+    #     # Prevent vanishing MAD on clean sections
+    #     # mad = np.median(np.abs(distances - med_dist))
+    #     safe_mad = max(mad, 0.4) 
+    #     mp_threshold = med_dist + (5.5 * safe_mad)
+    #     mp_threshold = max(mp_threshold, 7)
+
+    #     # Beat-by-Beat Evaluation 
+    #     bad_beats = 0
+    #     total_beats = len(r_peaks) - 1
+        
+    #     # Container for rectangle labeling
+    #     reject_reasons = [None] * total_beats
+
+    #     # Window offsets (100ms)
+    #     offset = int(self.fs * 0.10) 
+
+    #     for i in range(total_beats):
+    #         p0 = r_peaks[i]
+    #         p1 = r_peaks[i+1]
+    #         # ==========================================================
+    #         # GATE 1: Matrix Profile Discord
+    #         # ==========================================================
+    #         search_start = max(0, p0 - (m // 2))
+    #         search_end = min(len(distances), p0 + (m // 2)) #p1 -
+    #         # peak_mp_dist = np.median(distances[search_start:search_end])
+    #         if search_start < search_end:
+    #             gap_wave = wave_chunk[search_start:search_end + m]
+    #             if np.ptp(gap_wave) < 0.20:
+    #                 peak_mp_dist = 0.0
+    #             else:
+    #                 peak_mp_dist = np.max(distances[search_start:search_end])
+    #         else:
+    #             peak_mp_dist = 0.0
+
+    #         if peak_mp_dist > mp_threshold:
+    #             logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f} (ptp: {np.ptp(gap_wave):.2f})")
+    #             reject_reasons[i] = "MP"
+    #             bad_beats += 1
+    #             continue 
+    
+    #         # ==========================================================
+    #         # GATE 2: Local Hjorth (QRS Morphology)
+    #         # ==========================================================
+    #             # Centered on the QRS complex [-100ms to +100ms]
+    #         qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
+    #         if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
+    #             logger.info(f"Beat {i} FAILED: High QRS Complexity")
+    #             reject_reasons[i] = "HJH" 
+    #             bad_beats += 1
+    #             continue
+            
+    #         # ==========================================================
+    #         # GATE 3: Inter-Beat STFT (Baseline Stability) 
+    #         # ==========================================================
+    #             # Slice strictly BETWEEN the QRS complexes to evaluate the stregnth of the T and P peak waves in between the R-R
+    #         start_inter = p0 + offset
+    #         end_inter = p1 - offset
+            
+    #         # Ensure the gap is at least 200ms (avoids crashing on high heart rates like 180+ BPM)
+    #         if end_inter - start_inter > int(self.fs * 0.20):
+    #             inter_samp = wave_chunk[start_inter:end_inter]
+                
+    #             # Apply Hann window 
+    #             window = np.hanning(len(inter_samp))
+    #             fft_inter = np.abs(np.fft.rfft(inter_samp * window))
+    #             freq_inter = np.fft.rfftfreq(len(inter_samp), d=1/self.fs)
+                
+    #             total_inter_pwr = np.sum(fft_inter)
+    #             if total_inter_pwr > 0:
+    #                 # In the T-P segment, energy should be very low frequency.
+    #                 # Anything > 15 Hz is baseline noise/instability.
+    #                 hf_noise_mask = freq_inter > 15.0
+    #                 hf_noise_pwr = np.sum(fft_inter[hf_noise_mask])
+    #                 inter_noise_ratio = hf_noise_pwr / total_inter_pwr
+                    
+    #                 # If more than 40% of the inter-beat gap is HF noise, the baseline is unstable
+    #                 if inter_noise_ratio > 0.50:
+    #                     logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
+    #                     reject_reasons[i] = "STFT" 
+    #                     bad_beats += 1
+    #                     continue
+
+    #         # Passed all checks
+    #         valid_mask[i] = 1
+
+    #     bad_beat_ratio = bad_beats / total_beats
+    #     metrics = {
+    #         "bad_b_ratio": bad_beat_ratio, 
+    #         "mp_distances": distances,
+    #         "mp_threshold": mp_threshold,
+    #         "rejections" : reject_reasons
+    #     }
+        
+    #     is_valid = bad_beat_ratio <= 0.50
+    #     if is_valid:
+    #         self.mp_med_history.append(local_med)
+    #         self.mp_mad_history.append(local_mad)
+    #     fail_reason = f"bad beat ratio: {bad_beat_ratio:.0%} " if not is_valid else ""
+    #     if bad_beats > 0:
+    #         logger.info(fail_reason)
+
+    #     return is_valid, fail_reason, metrics, valid_mask
+
     def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
         """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
         valid_mask = np.zeros(len(r_peaks), dtype=int) 
@@ -242,20 +378,33 @@ class CardiacFreqTools:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
         # --- Matrix Profile Calculation (Chunk-level) ---
-        m = int(self.fs * .30) #.12
+        m = int(self.fs * .30) 
         m = max(m, int(np.median(np.diff(r_peaks // 2)))) 
-
+        
         # try:
         #     device_id = cuda.list_devices()[0].id
         #     mp = stumpy.gpu_stump(wave_chunk.astype(np.float64), m=m, device_id=device_id)
         # except Exception as e:
         #     logger.error(f"GPU Stumpy failed, falling back to CPU: {e}")
-        mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
 
+        mp = stumpy.stump(wave_chunk.astype(np.float64), m=m)
         distances = mp[:, 0]
-        # med_dist = np.median(distances)
-        local_med = np.median(distances)
-        local_mad = np.median(np.abs(distances - local_med))        
+        
+        # Extract MP distances *only* at the R-peaks to calculate the true morphological median.
+        # This prevents the 5-minute isoelectric baseline from artificially crushing the threshold.
+        peak_mp_vals = []
+        peak_mp_idx = []
+        for p in r_peaks:
+            search_start = max(0, p - (m // 2))
+            search_end = min(len(distances), p + (m // 2))
+            if search_start < search_end:
+                max_idx = search_start + np.argmax(distances[search_start:search_end])
+                peak_mp_vals.append(distances[max_idx])
+                peak_mp_idx.append(max_idx)
+
+        # Calculate stats strictly on the QRS morphology profile
+        local_med = np.median(peak_mp_vals) if peak_mp_vals else np.median(distances)
+        local_mad = np.median(np.abs(peak_mp_vals - local_med)) if peak_mp_vals else np.median(np.abs(distances - local_med))
         
         # Historical MP Smoothing
         if not self.mp_med_history:
@@ -270,7 +419,6 @@ class CardiacFreqTools:
             mad = np.median(self.mp_mad_history)        
         
         # Prevent vanishing MAD on clean sections
-        # mad = np.median(np.abs(distances - med_dist))
         safe_mad = max(mad, 0.4) 
         mp_threshold = med_dist + (5.5 * safe_mad)
         mp_threshold = max(mp_threshold, 7)
@@ -289,11 +437,23 @@ class CardiacFreqTools:
             p0 = r_peaks[i]
             p1 = r_peaks[i+1]
             # ==========================================================
+            # GATE 0: Local Amplitude / Range Check
+            # ==========================================================
+            # Catch large motion artifacts or dead leads locally before complex math
+            qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
+            if len(qrs_samp) > 0:
+                ptp_amp = np.ptp(qrs_samp)
+                if ptp_amp > 15.0 or ptp_amp < 0.10:
+                    logger.info(f"Beat {i} FAILED: Abnormal QRS Amplitude ({ptp_amp:.2f}mV)")
+                    reject_reasons[i] = "AMP"
+                    bad_beats += 1
+                    continue
+            
+            # ==========================================================
             # GATE 1: Matrix Profile Discord
             # ==========================================================
             search_start = max(0, p0 - (m // 2))
-            search_end = min(len(distances), p0 + (m // 2)) #p1 -
-            # peak_mp_dist = np.median(distances[search_start:search_end])
+            search_end = min(len(distances), p0 + (m // 2))
             if search_start < search_end:
                 gap_wave = wave_chunk[search_start:search_end + m]
                 if np.ptp(gap_wave) < 0.20:
@@ -304,7 +464,7 @@ class CardiacFreqTools:
                 peak_mp_dist = 0.0
 
             if peak_mp_dist > mp_threshold:
-                logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f} (ptp: {np.ptp(gap_wave):.2f})")
+                logger.info(f"Beat {i} FAILED MP: dist {peak_mp_dist:.3f} > thres {mp_threshold:.3f}")
                 reject_reasons[i] = "MP"
                 bad_beats += 1
                 continue 
@@ -312,8 +472,6 @@ class CardiacFreqTools:
             # ==========================================================
             # GATE 2: Local Hjorth (QRS Morphology)
             # ==========================================================
-                # Centered on the QRS complex [-100ms to +100ms]
-            qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
             if len(qrs_samp) > 4 and self.calc_hjorth_complexity(qrs_samp) > 4.5:
                 logger.info(f"Beat {i} FAILED: High QRS Complexity")
                 reject_reasons[i] = "HJH" 
@@ -323,7 +481,7 @@ class CardiacFreqTools:
             # ==========================================================
             # GATE 3: Inter-Beat STFT (Baseline Stability) 
             # ==========================================================
-                # Slice strictly BETWEEN the QRS complexes to evaluate the stregnth of the T and P peak waves in between the R-R
+            # Slice strictly BETWEEN the QRS complexes to evaluate the stregnth of the T and P peak waves in between the R-R
             start_inter = p0 + offset
             end_inter = p1 - offset
             
@@ -359,16 +517,21 @@ class CardiacFreqTools:
             "bad_b_ratio": bad_beat_ratio, 
             "mp_distances": distances,
             "mp_threshold": mp_threshold,
-            "rejections" : reject_reasons
+            "rejections" : reject_reasons,
+            "mp_peak_vals": peak_mp_vals,  
+            "mp_peak_idx": peak_mp_idx
         }
         
-        is_valid = bad_beat_ratio <= 0.50
+        # Align this boolean return with kill switch in run_extraction
+        is_valid = bad_beat_ratio <= 0.75 
+        
         if is_valid:
             self.mp_med_history.append(local_med)
             self.mp_mad_history.append(local_mad)
+            
         fail_reason = f"bad beat ratio: {bad_beat_ratio:.0%} " if not is_valid else ""
         if bad_beats > 0:
-            logger.info(fail_reason)
+            logger.info(f"Section processed: {bad_beat_ratio:.0%} anomalous beats flagged.")
 
         return is_valid, fail_reason, metrics, valid_mask
 
@@ -424,7 +587,7 @@ class SignalLoader:
             logger.critical(f"Unable to load file. Error {e}")
 
         #Segment the signal
-        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)
+        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)[:300]
     
     def load_structures(self) -> ECGData:
         """Loading data structures for RAD_ECG
@@ -558,6 +721,12 @@ class SignalGUI:
             padded_mp = np.pad(mp_dist, (0, pad_len), constant_values=np.nan)
             ax_mp.plot(x_range, padded_mp, color='purple', label='Matrix Profile Distance')
             ax_mp.axhline(y=mp_thresh, color='red', linestyle='--', label=f'Threshold ({mp_thresh:.2f})')
+            
+            # Overlay the specific MP peaks used to calculate the localized threshold
+            if "mp_peak_idx" in post_metrics and "mp_peak_vals" in post_metrics:
+                mp_idx_abs = np.array(post_metrics["mp_peak_idx"]) + start_idx
+                ax_mp.scatter(mp_idx_abs, post_metrics["mp_peak_vals"], color='fuchsia', marker='*', s=80, zorder=5, label="QRS MP Baseline")
+
             ax_mp.set_ylabel("MP Distance")
             ax_mp.legend(loc='upper right')
         else:
@@ -574,6 +743,15 @@ class SignalGUI:
                     facecolor=band_color, edgecolor="grey", alpha=0.7
                 )
                 ax_ecg.add_patch(rect)
+                
+                # Annotate failure reasons (AMP, MP, HJH, STFT) directly on the error plot
+                reasons = post_metrics.get("rejections", [])
+                if val_mask[idx] == 0 and idx < len(reasons) and isinstance(reasons[idx], str):
+                    mid_x = r_peaks_abs[peak] + (r_peaks_abs[peak+1] - r_peaks_abs[peak]) / 2
+                    ax_ecg.text(mid_x, np.max(wave_chunk) / 2, reasons[idx], color='black', fontsize=8, 
+                                fontweight='bold', ha='center', va='center', 
+                                bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.2', edgecolor='none'))
+
         ax_mp.set_xlabel("Timesteps")
         self._apply_timer_and_show(fig=fig)
 
@@ -636,6 +814,7 @@ class SignalGUI:
             )
             ax_ecg.add_patch(rect)
             
+            # Displays AMP, MP, HJH, or STFT natively if the beat fails
             if not is_valid and peak < len(reasons) and isinstance(reasons[peak], str):
                 mid_x = p0_x + (p1_x - p0_x) / 2
                 mid_y = rect_height / 2
@@ -651,7 +830,6 @@ class SignalGUI:
         ax_ecg.legend(loc='upper right')
 
         # Interactive PQRST Overlay (Hidden)
-        # Filter interior peaks belonging strictly to this section
         inners = self.data.interior_peaks[
             (self.data.interior_peaks['r_peak'] >= start_idx) & 
             (self.data.interior_peaks['r_peak'] <= end_idx)
@@ -734,9 +912,17 @@ class SignalGUI:
                         padded_mp = np.pad(mp_dist, (0, pad_len), constant_values=np.nan)
                         ax_mp_overlay.plot(x_range, padded_mp, color='purple', alpha=0.6, linestyle='-', linewidth=2)
                         ax_mp_overlay.axhline(y=mp_thresh, color='red', linestyle='--', label=f'Threshold ({mp_thresh:.2f})')
+                        
+                        # Scatter plot the precise values driving the new isolated threshold calculation
+                        if "mp_peak_idx" in post_metrics and "mp_peak_vals" in post_metrics:
+                            mp_idx_abs = np.array(post_metrics["mp_peak_idx"]) + start_idx
+                            ax_mp_overlay.scatter(mp_idx_abs, post_metrics["mp_peak_vals"], color='fuchsia', marker='*', s=100, zorder=10, label="QRS MP Baseline")
+
                         ax_mp_overlay.set_ylabel("Matrix Profile Distance", color='purple')
                         ax_mp_overlay.tick_params(axis='y', labelcolor='purple')
+                        ax_mp_overlay.legend(loc='lower right')
                         mp_line_drawn = True
+                        
                     ax_mp_overlay.set_visible(True)
                     ax_mp_overlay.set_axis_on()
                 fig.canvas.draw_idle()
@@ -1901,12 +2087,6 @@ class RadECG:
                         # self.sect_id += 1
                         # continue
 
-                #BUG - ratio
-                    #Why are you setting this to zero here. Unless we were resetting that ratio 
-                    #for the historical validation checks
-                # else:
-                    # self.data.sect_info["bad_b_rat"][self.sect_id] = 0
-            
                 new_peaks_arr = np.hstack((r_p_shift.reshape(-1, 1), val_mask.reshape(-1, 1)))
                 ###################################################################
                 # Check the new_peaks against historical data
@@ -2024,7 +2204,7 @@ def main():
             RAD = RadECG(ECG, configs, fp, loader.window)
             RAD.run_extraction()
             support.save_results(RAD.data, configs=configs, current_date=current_run_time)
-            
+        
         except Exception as e:
             logger.exception(f"CRITICAL ERROR processing {file_path.stem}: {e}")
             
