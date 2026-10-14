@@ -1992,30 +1992,32 @@ class RadECG:
                     continue
 
                 # Extract Initial R Peaks. 
-                    #old way uses percentiles.  Goign to try MAD
+                # Old way
                 # r_peaks, peak_info = ss.find_peaks(
                 #     wave_chunk.flatten(), 
                 #     prominence=np.percentile(wave_chunk, 99), #99
                 #     height=np.percentile(wave_chunk, 94),     #95
                 #     distance=int(self.fs * 0.200)
                 # )
+               # Calculate percentiles in 10-second blocks
+                block_size = int(self.fs * 10)
+                blocks = np.array_split(wave_chunk.flatten(), max(1, len(wave_chunk) // block_size))
                 
-                # Flatten the baseline to prevent wandering from breaking the peak finder
-                flat_wave = wave_chunk - rolled_med.flatten()
+                # Extract percentiles for each block
+                block_proms = [np.percentile(b, 99) for b in blocks if len(b) > 0]
+                block_heights = [np.percentile(b, 94) for b in blocks if len(b) > 0]
                 
-                # Calculate robust MAD (Median Absolute Deviation) immune to massive spikes
-                mad = np.median(np.abs(flat_wave - np.median(flat_wave)))
-                safe_mad = max(mad, 0.05) # Prevent zero-division on flatlines
-                
-                # Extract Initial R Peaks on the flattened wave
+                # The median of the blocks ignores the localized massive settling artifacts
+                robust_prom = np.median(block_proms)
+                robust_height = np.median(block_heights)
+
+                # Extract Initial R Peaks
                 r_peaks, peak_info = ss.find_peaks(
-                    flat_wave, 
-                    prominence = 4 * safe_mad, 
-                    height = 4 * safe_mad,     
+                    wave_chunk.flatten(), 
+                    prominence=robust_prom, 
+                    height=robust_height,     
                     distance=int(self.fs * 0.200)
                 )
-                # Restore the raw peak heights so the downstream GUI and historical gates don't break
-                peak_info['peak_heights'] = wave_chunk[r_peaks]
                 
                 #Basic count check
                 if r_peaks.size < 4:
