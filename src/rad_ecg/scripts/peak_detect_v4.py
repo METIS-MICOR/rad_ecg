@@ -429,7 +429,7 @@ class CardiacFreqTools:
         # Container for rectangle labeling
         reject_reasons = [None] * total_beats
 
-        # Window offsets (100ms)
+        # Window offsets (half the m width)
         offset = m // 2
 
         for i in range(total_beats):
@@ -1991,13 +1991,32 @@ class RadECG:
                     self.sect_id += 1
                     continue
 
-                # Extract Initial R Peaks
+                # Extract Initial R Peaks. 
+                    #old way uses percentiles.  Goign to try MAD
+                # r_peaks, peak_info = ss.find_peaks(
+                #     wave_chunk.flatten(), 
+                #     prominence=np.percentile(wave_chunk, 99), #99
+                #     height=np.percentile(wave_chunk, 94),     #95
+                #     distance=int(self.fs * 0.200)
+                # )
+                
+                # Flatten the baseline to prevent wandering from breaking the peak finder
+                flat_wave = wave_chunk - rolled_med.flatten()
+                
+                # Calculate robust MAD (Median Absolute Deviation) immune to massive spikes
+                mad = np.median(np.abs(flat_wave - np.median(flat_wave)))
+                safe_mad = max(mad, 0.05) # Prevent zero-division on flatlines
+                
+                # Extract Initial R Peaks on the flattened wave
                 r_peaks, peak_info = ss.find_peaks(
-                    wave_chunk.flatten(), 
-                    prominence=np.percentile(wave_chunk, 99), #99
-                    height=np.percentile(wave_chunk, 94),     #95
+                    flat_wave, 
+                    prominence = 4 * safe_mad, 
+                    height = 4 * safe_mad,     
                     distance=int(self.fs * 0.200)
                 )
+                # Restore the raw peak heights so the downstream GUI and historical gates don't break
+                peak_info['peak_heights'] = wave_chunk[r_peaks]
+                
                 #Basic count check
                 if r_peaks.size < 4:
                     logger.warning(f"Section {self.sect_id} rejected: Minimal peak count ({r_peaks.size}).")
