@@ -378,8 +378,7 @@ class CardiacFreqTools:
             return False, "Not enough peaks for STFT/MP", {"bad_beat_ratio": 1.0}, valid_mask
 
         # --- Matrix Profile Calculation (Chunk-level) ---
-        m = int(self.fs * .30) 
-        m = max(m, int(np.median(np.diff(r_peaks // 2)))) 
+        m = int(self.fs * 0.14)
         
         # try:
         #     device_id = cuda.list_devices()[0].id
@@ -431,7 +430,7 @@ class CardiacFreqTools:
         reject_reasons = [None] * total_beats
 
         # Window offsets (100ms)
-        offset = int(self.fs * 0.10) 
+        offset = m // 2
 
         for i in range(total_beats):
             p0 = r_peaks[i]
@@ -2173,14 +2172,6 @@ def main():
         current_run_time = support.get_time().strftime("%m-%d-%Y_%H-%M-%S")
         logger.info(f"--- Checking {file_path.stem} ---")
         save_dir = Path(configs["save_path"]) / file_path.stem
-        #TODO - rewrite this because you can't clear each one in a batch run
-        # if save_dir.exists() and list(save_dir.glob("*.npz")):
-        #     logger.critical(f"Results for {file_path.stem} already exist")
-        #     choice = input("Do you want to overwrite current results? (yes/no)")
-        #     if choice == "no":
-        #         logger.critical(f"Rad-ECG shutting down")
-        #         exit()
-            
         save_dir.mkdir(parents=True, exist_ok=True)
         
         # LOCAL LOGS
