@@ -13,12 +13,13 @@ from scipy.signal import welch
 import matplotlib.pyplot as plt
 from typing import List, Dict, Tuple
 from scipy.interpolate import interp1d
+from scipy.ndimage import maximum_filter1d
 from dataclasses import dataclass, field, astuple
 # from scipy.fft import rfft, rfftfreq, irfft
 from numpy.polynomial import polynomial as P
 from matplotlib.patches import Rectangle, Arrow
 from scipy.stats import entropy, kurtosis, wasserstein_distance
-from support import logger, console, log_time, mainspinner, DATE_JSON, get_file_handler
+from support import logger, console, Text, log_time, mainspinner, DATE_JSON, get_file_handler
 
 ###############################################################################
 # 1. Data Structures
@@ -101,7 +102,7 @@ class CardiacFreqTools:
             fs: float = 1000.0, 
             history_size: int = 6,
             freq_lim: float = 15, 
-            qrs_lim : float = 0.20,
+            qrs_lim : float = 0.40,
             spec_lim: float = 7.5
         ):
         self.fs = fs
@@ -193,17 +194,26 @@ class CardiacFreqTools:
         if len(wave_chunk) == 0:
             return False, "Empty Chunk", {}
           
+        # Evaluate localized turbulence in 10-second blocks to prevent dilution
+        step = int(self.fs * 10.0)
+        blocks = np.array_split(wave_chunk, max(1, len(wave_chunk) // step))
+        
+        max_hjorth = max([self.calc_hjorth_complexity(b) for b in blocks if len(b) > 0], default=0)
+        min_kurt = min([kurtosis(b) for b in blocks if len(b) > 0], default=10)
+
         k_sqi = kurtosis(wave_chunk)
         complexity = self.calc_hjorth_complexity(wave_chunk)
         spectral, wdist, is_stable, spect_ent = self.calc_spec_metrics(wave_chunk)
         metrics = {
-            "kurtosis" :np.round(k_sqi, 4),
-            "hjorth"   :np.round(complexity, 4),
-            "spectral" :np.round(spectral, 4), 
-            "wdist"    :np.round(wdist, 4),
-            "spect_ent":np.round(spect_ent, 4)
+            "kurtosis"  :np.round(k_sqi, 4),
+            "hjorth"    :np.round(complexity, 4),
+            "spectral"  :np.round(spectral, 4), 
+            "wdist"     :np.round(wdist, 4),
+            "spect_ent" :np.round(spect_ent, 4), 
+            "max_hjorth": np.round(max_hjorth, 4),
+            "min_kurt"  : np.round(min_kurt, 4)
         }
-
+        
         is_valid = True
         fail_reason = ""
 
@@ -213,7 +223,7 @@ class CardiacFreqTools:
             fail_reason += f"Low Kurtosis | " #(Missing QRS / Flatline)
             
         # Gate 2: Is the window drowning in static?
-        if complexity > 3.0: 
+        if complexity > 2.0: 
             is_valid = False
             fail_reason += f"High Hjorth Complexity | " #(Severe HF Static)
             
@@ -234,7 +244,7 @@ class CardiacFreqTools:
 
         return is_valid, fail_reason, metrics
 
-    # def old_post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
+    # def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
     #     """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
     #     valid_mask = np.zeros(len(r_peaks), dtype=int) 
 
@@ -286,6 +296,18 @@ class CardiacFreqTools:
     #     for i in range(total_beats):
     #         p0 = r_peaks[i]
     #         p1 = r_peaks[i+1]
+    #         # ==========================================================
+    #         # GATE 0: Local Amplitude / Range Check
+    #         # ==========================================================
+    #         # Catch large motion artifacts or dead leads locally before complex math
+    #         # qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
+    #         # if len(qrs_samp) > 0:
+    #         #     ptp_amp = np.ptp(qrs_samp)
+    #         #     if ptp_amp > 4 or ptp_amp < 0.10:
+    #         #         logger.info(f"Beat {i} FAILED: Abnormal QRS Amplitude ({ptp_amp:.2f}mV)")
+    #         #         reject_reasons[i] = "AMP"
+    #         #         bad_beats += 1
+    #         #         continue
     #         # ==========================================================
     #         # GATE 1: Matrix Profile Discord
     #         # ==========================================================
@@ -370,7 +392,7 @@ class CardiacFreqTools:
 
     #     return is_valid, fail_reason, metrics, valid_mask
 
-    def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray) -> tuple:
+    def post_peak_sqi(self, wave_chunk: np.ndarray, r_peaks: np.ndarray, sect_id:int) -> tuple:
         """STAGE 2: Granular beat-by-beat checks via STFT and Matrix Profile."""
         valid_mask = np.zeros(len(r_peaks), dtype=int) 
 
@@ -442,7 +464,7 @@ class CardiacFreqTools:
             qrs_samp = wave_chunk[max(0, p0 - offset) : min(len(wave_chunk), p0 + offset)]
             if len(qrs_samp) > 0:
                 ptp_amp = np.ptp(qrs_samp)
-                if ptp_amp > 15.0 or ptp_amp < 0.10:
+                if ptp_amp > 4 or ptp_amp < 0.10:
                     logger.info(f"Beat {i} FAILED: Abnormal QRS Amplitude ({ptp_amp:.2f}mV)")
                     reject_reasons[i] = "AMP"
                     bad_beats += 1
@@ -502,7 +524,7 @@ class CardiacFreqTools:
                     inter_noise_ratio = hf_noise_pwr / total_inter_pwr
                     
                     # If more than 40% of the inter-beat gap is HF noise, the baseline is unstable
-                    if inter_noise_ratio > 0.50:
+                    if inter_noise_ratio > 0.40:
                         logger.info(f"Beat {i} FAILED: Unstable Inter-Beat Baseline (Noise: {inter_noise_ratio:.0%})")
                         reject_reasons[i] = "STFT" 
                         bad_beats += 1
@@ -522,7 +544,7 @@ class CardiacFreqTools:
         }
         
         # Align this boolean return with kill switch in run_extraction
-        is_valid = bad_beat_ratio <= 0.75 
+        is_valid = bad_beat_ratio <= 0.50 
         
         if is_valid:
             self.mp_med_history.append(local_med)
@@ -530,7 +552,7 @@ class CardiacFreqTools:
             
         fail_reason = f"bad beat ratio: {bad_beat_ratio:.0%} " if not is_valid else ""
         if bad_beats > 0:
-            logger.info(f"Section processed: {bad_beat_ratio:.0%} anomalous beats flagged.")
+            logger.info(f"Section {sect_id} processed: {bad_beat_ratio:.0%} anomalous beats flagged.")
 
         return is_valid, fail_reason, metrics, valid_mask
 
@@ -551,6 +573,7 @@ class SignalLoader:
         file_type = self.file_path.suffix
 
         # Determine filetype and use appropriate library to load
+        #IDEA - Perhaps match case by single / multiple file first, then dial into the file type or vice versa
         try:
             match file_type:
                 case "ebm": 
@@ -1137,8 +1160,8 @@ class RadECG:
         self.sect_id:int = 0
         self.iqr_low_thresh:float = 1.0
         #Pointers 
-        self.p_ptr:int = 0
-        self.ip_ptr:int = 0
+        self.p_ptr:int = 0 #For R peaks
+        self.ip_ptr:int = 0 #for Interior Peaks
 
     @log_time
     def peak_stack_test(self, new_peaks_arr:np.array) -> np.array:
@@ -1976,6 +1999,27 @@ class RadECG:
 
                 # Check Signal Quality Index (SQI) using lightweight checks
                 is_valid, fail_reason, pre_metrics = self.freq_tools.pre_peak_sqi(wave_chunk)
+                #Debug
+                # row = Text()
+                # row.append(f"Sect {self.sect_id:>3.0f}", style="yellow")
+                # row.append(" ")                
+                # row.append(f"valid {is_valid:>1}", style="magenta")
+                # row.append(" ")                
+                # row.append(f"Kurtosis {pre_metrics.get('kurtosis'):>4.2f}", style="cyan")
+                # row.append(" ")
+                # row.append(f"hjorth {pre_metrics.get('hjorth'):>4.2f}", style="green")
+                # row.append(" ")
+                # row.append(f"SpectRat {pre_metrics.get('spectral'):>4.2f}", style="red")
+                # row.append(" ")
+                # row.append(f"wdist {pre_metrics.get('wdist'):>4.2f}", style="red")
+                # row.append(" ")
+                # row.append(f"SpecEnt {pre_metrics.get('spect_ent'):>4.2f}", style="green")
+                # row.append(" ")
+                # row.append(f"Kmin {pre_metrics.get('min_kurt'):>4.2f}", style="green")
+                # row.append(" ")
+                # row.append(f"HMax {pre_metrics.get('max_hjorth'):>4.2f}", style="orange")
+                # console.print(row)
+
                 self.data.sect_info["kurtosis"][self.sect_id] = pre_metrics.get("kurtosis", 0)
                 self.data.sect_info["hjorth"][self.sect_id] = pre_metrics.get("hjorth", 0)
                 self.data.sect_info["spectral"][self.sect_id] = pre_metrics.get("spectral", 0)
@@ -1999,25 +2043,30 @@ class RadECG:
                 #     height=np.percentile(wave_chunk, 94),     #95
                 #     distance=int(self.fs * 0.200)
                 # )
-               # Calculate percentiles in 10-second blocks
-                block_size = int(self.fs * 10)
-                blocks = np.array_split(wave_chunk.flatten(), max(1, len(wave_chunk) // block_size))
+                # Flatten the waveto eliminate baseline drift
+                flat_wave = wave_chunk - rolled_med.flatten()
                 
-                # Extract percentiles for each block
-                block_proms = [np.percentile(b, 99) for b in blocks if len(b) > 0]
-                block_heights = [np.percentile(b, 94) for b in blocks if len(b) > 0]
+                # Create a 2-second rolling maximum envelope to track local amplitude changes
+                # (2 seconds guarantees we capture at least one QRS complex, even at 30 BPM)
+                env_window = int(self.fs * 2.0)
+                local_max = maximum_filter1d(flat_wave, size=env_window)
                 
-                # The median of the blocks ignores the localized massive settling artifacts
-                robust_prom = np.median(block_proms)
-                robust_height = np.median(block_heights)
+                # Dynamic Thresholds: 40% of the LOCAL peak height. 
+                # This naturally clears T-waves but effortlessly scales down for shrinking R-peaks.
+                dynamic_height = local_max * 0.40
+                dynamic_prom = dynamic_height * 0.50
 
-                # Extract Initial R Peaks
+                # Extract Initial R Peaks using the localized threshold arrays
                 r_peaks, peak_info = ss.find_peaks(
-                    wave_chunk.flatten(), 
-                    prominence=robust_prom, 
-                    height=robust_height,     
+                    flat_wave, 
+                    prominence=dynamic_prom, 
+                    height=dynamic_height,     
                     distance=int(self.fs * 0.200)
                 )
+                
+                # Restore the true raw peak heights for downstream GUI and historical_validation gates
+                if len(r_peaks) > 0:
+                    peak_info['peak_heights'] = wave_chunk[r_peaks]             
                 
                 #Basic count check
                 if r_peaks.size < 4:
@@ -2066,27 +2115,32 @@ class RadECG:
                     #No history yet
                     is_stale = True
                 
+                # is_turbulent = (
+                #     pre_metrics.get("hjorth", 0) > 2 or 
+                #     pre_metrics.get("wdist", 0) > 2
+                # )
+
                 is_turbulent = (
-                    pre_metrics.get("hjorth", 0) > 2 or 
-                    pre_metrics.get("wdist", 0) > 2
+                    pre_metrics.get("max_hjorth", 0) > 3.0 or 
+                    pre_metrics.get("min_kurt", 10) < 8.0 or
+                    pre_metrics.get("wdist", 0) > 1
                 )
 
                 val_mask = np.ones(len(r_p_new), dtype=int) # Default all valid
                 post_metrics = {}
                 sect_fail_reasons = ""
                 sect_valid = True
-                ##################################################
-                # If signal unstable, validate with post_peak SQI
-                ##################################################            
+                ####################################################################
+                # If signal unstable, validate with post_peak SQI, if not, continue
+                ####################################################################            
                 if is_turbulent or is_stale:
                     if is_stale:
-                        logger.warning(f"History stale/missing section: {self.sect_id}")
+                        logger.warning(f"Stale/missing section: {self.sect_id}")
                     if is_turbulent:
-                        logger.warning(f"Section turbulent section: {self.sect_id}")
+                        logger.warning(f"Turbulent section: {self.sect_id}")
 
                     #Check each beat with the matrix profile and Welch's STFT. 
-                    sqi_valid, sqi_fail, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new)
-                    # self.data.sect_info["bad_b_rat"][self.sect_id] = post_metrics.get("bad_b_ratio", 1.0)
+                    sqi_valid, sqi_fail, post_metrics, val_mask = self.freq_tools.post_peak_sqi(wave_chunk, r_p_new, self.sect_id)
 
                     if not sqi_valid:
                         sect_fail_reasons += sqi_fail
@@ -2118,6 +2172,10 @@ class RadECG:
                     )
                     if hist_fail:
                         sect_fail_reasons += f" | {hist_fail}"
+                #BUG - Do we still validate historically if its not stale?  
+                    #This might be overkill.  Currently if the data is stale, it validates with matrix /stft
+                    #Here it serves as the backup validation for when the signal is clean.  
+
                 # else:
                 #     # If we don't have enough consecutive valids, trust the matrix profile / STFT are doing their jobs
                 #     sect_valid = True 
@@ -2129,11 +2187,11 @@ class RadECG:
                     final_bad_ratio = invalid_beats / len(new_peaks_arr)
                     self.data.sect_info["bad_b_rat"][self.sect_id] = np.round(final_bad_ratio, 3)
                     
-                    # Main Kill Switch: 75% max artifact threshold
-                    if final_bad_ratio > 0.75:
+                    # Main Kill Switch: 50% max artifact threshold
+                    if final_bad_ratio > 0.50:
                         sect_valid = False
-                        sect_fail_reasons += f" | Bad Beat Ratio > 0.75"
-                        logger.warning(f"Bad Beat Ratio > 75 :{final_bad_ratio}")
+                        sect_fail_reasons += f" | Bad Beat Ratio > 0.50"
+                        logger.warning(f"Bad Beat Ratio > 50 :{final_bad_ratio}")
                     else:
                         sect_valid = True
                 else:

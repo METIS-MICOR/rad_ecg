@@ -19,6 +19,7 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
     TimeElapsedColumn)
+from rich.text import Text
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.terminal_theme import TerminalTheme
