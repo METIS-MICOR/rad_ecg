@@ -101,8 +101,8 @@ class CardiacFreqTools:
             self, 
             fs: float = 1000.0, 
             history_size: int = 6,
-            freq_lim: float = 15, 
-            qrs_lim : float = 0.40,
+            freq_lim: float = 15,   # Upper frequency limit
+            qrs_lim : float = 0.35, 
             spec_lim: float = 7.5
         ):
         self.fs = fs
@@ -602,7 +602,7 @@ class SignalLoader:
                         )
                         self.fs = record.fs
                         self.wave = record.p_signal
-                        self.window = 300
+                        # self.window = 300
                         self.dtypes = setup_globals.SECTION_DTYPES
 
         except Exception as e:
@@ -2043,10 +2043,11 @@ class RadECG:
                 #     height=np.percentile(wave_chunk, 94),     #95
                 #     distance=int(self.fs * 0.200)
                 # )
+
                 # Flatten the waveto eliminate baseline drift
                 flat_wave = wave_chunk - rolled_med.flatten()
                 
-                # Create a 2-second rolling maximum envelope to track local amplitude changes
+                # 2-second rolling maximum envelope to track local amplitude changes
                 # (2 seconds guarantees we capture at least one QRS complex, even at 30 BPM)
                 env_window = int(self.fs * 2.0)
                 local_max = maximum_filter1d(flat_wave, size=env_window)
@@ -2114,7 +2115,7 @@ class RadECG:
                 else:
                     #No history yet
                     is_stale = True
-                
+
                 # is_turbulent = (
                 #     pre_metrics.get("hjorth", 0) > 2 or 
                 #     pre_metrics.get("wdist", 0) > 2
@@ -2135,7 +2136,7 @@ class RadECG:
                 ####################################################################            
                 if is_turbulent or is_stale:
                     if is_stale:
-                        logger.warning(f"Stale/missing section: {self.sect_id}")
+                        logger.warning(f"Stale section: {self.sect_id}")
                     if is_turbulent:
                         logger.warning(f"Turbulent section: {self.sect_id}")
 
@@ -2253,21 +2254,21 @@ def main():
         save_dir = Path(configs["save_path"]) / file_path.stem
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # LOCAL LOGS
+        # Local Logs
         local_log_dir = Path.cwd() / "src" / "rad_ecg" / "data" / "logs"
         local_log_dir.mkdir(parents=True, exist_ok=True)
         
         # Use the timestamp for the log
         local_log_path = local_log_dir / f"{file_path.stem}_{current_run_time}.log"
         configs["log_path"] = str(local_log_path) 
-        
         cam_handler = get_file_handler(local_log_path)
         logger.addHandler(cam_handler)
-        
+        logger.info(f"Processing file {file_path.stem}")
+
         try:
-            logger.info(f"Processing file {file_path.stem}")
             loader:SignalLoader = SignalLoader(file_path)
             configs["cam_name"] = file_path.stem
+            loader.window = configs.get("window_length", 10)
             loader.load_signal_data()
             configs["samp_freq"] = loader.fs
             ECG = loader.load_structures()

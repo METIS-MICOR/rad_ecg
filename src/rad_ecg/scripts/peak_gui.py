@@ -541,11 +541,12 @@ def main():
     selected = setup_globals.load_choices(fp, batch_process=False)
     if isinstance(selected, list): 
         selected = selected[0] 
-        
+
     cam_name = selected.stem
     configs["cam_name"] = cam_name
     logger.info(f"Loading raw signal for {cam_name}...")
     loader = SignalLoader(selected)
+    loader.window = configs.get("window_length", 10)
     loader.load_signal_data()
     ECG = loader.load_structures() 
     save_dir = Path(configs["save_path"]) / cam_name
