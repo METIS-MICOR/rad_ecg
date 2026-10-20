@@ -11,7 +11,7 @@
   "porcine": false,
   "bucket_name": "",
   "cam": "",
-  "last_run": "10-20-2026_13-58-58",
-  "log_path": "C:\\githubrepo\\MiCOR\\opens_ecg\\src\\rad_ecg\\data\\logs\\5A1ZF-7AEC6_10-20-2026_13-58-58.log",
-  "cam_name": "5A1ZF-7AEC6"
+  "last_run": "",
+  "log_path": "",
+  "cam_name": ""
 }
