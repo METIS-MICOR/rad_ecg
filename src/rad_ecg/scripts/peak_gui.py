@@ -547,6 +547,7 @@ def main():
     logger.info(f"Loading raw signal for {cam_name}...")
     loader = SignalLoader(selected)
     loader.window = configs.get("window_length", 10)
+    loader.fs = configs.get("samp_freq")
     loader.load_signal_data()
     ECG = loader.load_structures() 
     save_dir = Path(configs["save_path"]) / cam_name

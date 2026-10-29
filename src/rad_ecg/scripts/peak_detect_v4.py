@@ -102,7 +102,7 @@ class CardiacFreqTools:
             fs: float = 1000.0, 
             history_size: int = 6,
             freq_lim: float = 15,   # Upper frequency limit
-            qrs_lim : float = 0.35, 
+            qrs_lim : float = 0.30, 
             spec_lim: float = 7.5
         ):
         self.fs = fs
@@ -570,46 +570,56 @@ class SignalLoader:
         """        
         record = None
         # Load signal data
-        file_type = self.file_path.suffix
-
-        # Determine filetype and use appropriate library to load
-        #IDEA - Perhaps match case by single / multiple file first, then dial into the file type or vice versa
+        if self.file_path.is_file():
+            file_type = self.file_path.suffix
+        elif self.file_path.is_dir():
+            for subfile in self.file_path.iterdir():
+                if subfile.suffix in [".hea", ".mib", ".dat"]:
+                    file_type = ".hea"
+                    break
+                    
         try:
             match file_type:
-                case "ebm": 
+                case ".ebm": 
                     from lib_ebm.pyebmreader import ebmreader
                     record, header = ebmreader(
                         filepath = self.file_path,
                         onlyheader = False
                     )
                     self.wave = record[0]
-                    self.window = 2
+                    self.window = 20
                     self.fs = float(header["frequency"])
 
-                case "ecg": 
-                    pass
-                case "h12": 
+                case ".csv": 
+                    record = np.genfromtxt(
+                        self.file_path,
+                        delimiter=","
+                    )
+                    self.wave = record.reshape(-1, 1)
+                    
+                case ".h12": 
                     pass            
-                #BUG - Fix this eventually.  Bad habit to use a blank as a valid value
-                case "":
-                    if self.file_path.is_dir():
-                        from wfdb import rdrecord
-                        record = rdrecord(
-                            self.file_path / f"{self.file_path.name}",
-                            sampfrom=0,
-                            sampto=None,
-                            channels=[0]
-                        )
-                        self.fs = record.fs
-                        self.wave = record.p_signal
-                        # self.window = 300
-                        self.dtypes = setup_globals.SECTION_DTYPES
+
+                case ".hea":
+                    from wfdb import rdrecord
+                    record = rdrecord(
+                        self.file_path / f"{self.file_path.name}",
+                        sampfrom=0,
+                        sampto=None,
+                        channels=[0]
+                    )
+                    self.fs = record.fs
+                    self.wave = record.p_signal
+                    self.dtypes = setup_globals.SECTION_DTYPES
+                case None:
+                    logger.warning("File suffix not recognized.  Check file paths")
 
         except Exception as e:
             logger.critical(f"Unable to load file. Error {e}")
-
+        
+        self.dtypes = setup_globals.SECTION_DTYPES
         #Segment the signal
-        self.segments = utils.segment_ECG(self.wave, self.fs, windowsize=self.window)[:300]
+        self.segments = utils.segment_ECG(wave=self.wave, fs=self.fs, windowsize=self.window)[:300]
     
     def load_structures(self) -> ECGData:
         """Loading data structures for RAD_ECG
@@ -1607,36 +1617,49 @@ class RadECG:
         except Exception as e:
             logger.warning(f'T Offset error {e}')
             return None
-
+        
     def _find_j_point(self, s_peak: int, t_peak: int, rolled_med: np.ndarray, start_p: int) -> int:
-        if not s_peak or not t_peak: return None
+        if not s_peak or not t_peak: 
+            return None
         try:
-            slope_start = s_peak
-            lil_wave = self.data.wave[slope_start:t_peak].flatten()
-            med_sect = rolled_med[slope_start - start_p : t_peak - start_p].flatten()
-            ecg_less_median = np.where(lil_wave < med_sect)[0]
-            
-            groups = np.split(ecg_less_median, np.where(np.diff(ecg_less_median) != 1)[0] + 1)
-            last_group = groups[0] if len(groups) > 0 and len(groups[0]) > 0 else [0]
-            slope_end = slope_start + last_group[-1]
+            # Anchor to the true absolute minimum of the Speak
+            local_search_end = min(t_peak, s_peak + int(self.fs * 0.08))
+            true_bottom = s_peak + np.argmin(self.data.wave[s_peak:local_search_end])
+            slope_start = true_bottom
+
+            # Use a strict physiological maximum width (120ms).
+            slope_end = min(t_peak, slope_start + int(self.fs * 0.12))
+
+            if slope_end - slope_start < 5:
+                return None
 
             X = np.arange(slope_start, slope_end)
-            y = self.data.wave[slope_start:slope_end].flatten()
+            raw_y = self.data.wave[slope_start:slope_end].flatten()
             
-            if X.shape[0] > 5:
-                knee = KneeLocator(X, y, curve="concave", direction="increasing")
-                if knee.elbow is not None:
-                    return int(knee.elbow) + 1
+            # Smooth the segment so high-frequency noise doesn't create premature "elbows"
+            window = np.hanning(5)
+            window /= window.sum()
+            y = np.convolve(raw_y, window, mode='same')
+
+            # Kneedle evaluates the smoothed curve
+            knee = KneeLocator(X, y, curve="concave", direction="increasing")
+            if knee.elbow is not None:
+                # Ensure it didn't just pick a noise artifact at the very bottom
+                if knee.elbow - slope_start > 2:
+                    return int(knee.elbow)
+            
+            # Gradient Fallback: Find where the steepest part of the ascent loses 80% of its momentum
+            grads = np.gradient(y)
+            max_grad_idx = np.argmax(grads)
+            if max_grad_idx < len(grads) - 1:
+                flat_spots = np.where(grads[max_grad_idx:] < (grads[max_grad_idx] * 0.20))[0]
+                if len(flat_spots) > 0:
+                    return slope_start + max_grad_idx + flat_spots[0]
+
             return None
         except Exception as e:
             logger.debug(f'J point error: {e}')
             return None
-        
-        #BUG - Early J point 
-            #It would seem the j point is getting shoved back towards the S peak .  
-            #When the J point is washed out.  Even putting it on the downslope.  
-            #I need a better check for making sure the shape is a certain way
-            #or maybe check the relative point to the S peak.  
 
     def _t_wave_check(self):
         """TODO - _summary_
@@ -2268,9 +2291,9 @@ def main():
         try:
             loader:SignalLoader = SignalLoader(file_path)
             configs["cam_name"] = file_path.stem
+            loader.fs = configs["samp_freq"]
             loader.window = configs.get("window_length", 10)
             loader.load_signal_data()
-            configs["samp_freq"] = loader.fs
             ECG = loader.load_structures()
             RAD = RadECG(ECG, configs, fp, loader.window)
             RAD.run_extraction()

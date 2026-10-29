@@ -84,37 +84,43 @@ def load_config()->json:
 #FUNCTION Load Signal Data
 def load_signal_data(file_path:str):
     record = None
-    header = None
     #Load signal data
-    if "." in file_path:
-        file_type = file_path[file_path.rindex(".") + 1:].lower()
-    else:
-        file_type = "hea"
+    if file_path.is_file():
+        file_type = file_path.suffix
+    elif file_path.is_dir():
+        for subfile in file_path.iterdir():
+            if subfile.suffix in [".hea", ".mib", ".dat"]:
+                file_type = ".hea"
+                break
     
     try:
         match file_type:
-            case "ebm": 
+            case ".ebm": 
                 from lib_ebm.pyebmreader import ebmreader
                 record, header = ebmreader(
                     filepath = file_path,
                     onlyheader = False
                 )
                 record = record[0]
-            case "ecg": 
+            
+            case ".csv": 
+                record = np.genfromtxt(
+                    file_path,
+                    delimiter=","
+                )
+                
+            case ".h12": 
                 pass
-            case "h12": 
-                pass
-            case "hea":
+
+            case ".hea":
                 from wfdb import rdrecord
-                # cam = file_path.split("/")[-1]
-                # file_path = file_path[:file_path.rindex(cam)]
                 record = rdrecord(
                     file_path,
                     sampfrom=0,
                     sampto=None,
                     channels=[0]
                 )
-        return record, header
+        return record
 
     except Exception as e:
         logger.critical(f"Unable to load file. Error {e}")
@@ -125,7 +131,7 @@ def load_chart_data(configs:dict, datafile:Path, logger:logging):
     if datafile.name in inputdirs:
         idx = inputdirs.index(datafile.name)
         input_path = PurePath(Path(configs["data_path"]), Path(datafile.name), Path(inputdirs[idx]))
-        record, header = load_signal_data(str(input_path))
+        record = load_signal_data(str(input_path))
     else: 
         logger.warning(f"Input data for {datafile.name} not found")
         logger.warning("Make sure base waveform data is stored in the data/inputdata folder")
